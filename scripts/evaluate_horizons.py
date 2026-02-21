@@ -141,10 +141,17 @@ def evaluate_horizon(model, sessions, pred_length, device="cuda",
             for k, v in tokenized["model_inputs"].items():
                 if isinstance(v, np.ndarray):
                     model_inputs[k] = torch.tensor(v).unsqueeze(0).to(device)
-                elif hasattr(v, "data"):
-                    model_inputs[k] = collate([v]).to(device)
+                elif isinstance(v, torch.Tensor):
+                    model_inputs[k] = v.unsqueeze(0).to(device)
+                elif hasattr(v, "obj"):
+                    # Padded8Object (namedtuple with .obj field)
+                    inner = v.obj
+                    if isinstance(inner, torch.Tensor):
+                        model_inputs[k] = inner.unsqueeze(0).to(device)
+                    else:
+                        model_inputs[k] = torch.tensor(np.asarray(inner)).unsqueeze(0).to(device)
                 else:
-                    model_inputs[k] = torch.tensor(v).unsqueeze(0).to(device)
+                    model_inputs[k] = torch.tensor(np.asarray(v)).unsqueeze(0).to(device)
 
             n_units = tokenized["n_units"]
             ref_features = model_inputs["reference_features"]

@@ -410,6 +410,8 @@
 | image_embeddings HDF5 group 缺少 temporaldata 元数据 | 添加 _unicode_keys (bytes), timekeys (bytes), domain (Interval) 属性 |
 | Allen 刺激数据格式 (start/end/frame) 与预期 (timestamps) 不匹配 | 展开 frame index → per-presentation embeddings，按 onset_time 排序 |
 | tokenizer 检查 data.images 但 HDF5 group 名为 image_embeddings | 修改为 data.image_embeddings |
+| 评估脚本 Padded8Object 属性错误 (hasattr(v,'data')) | 改为 hasattr(v,'obj')，Padded8Object 是 namedtuple(obj=...) |
+| v1 评估使用归一化后特征（v1 训练时用原始特征） | 添加 --use-raw-features 参数，使用 reference_features_raw 备份 |
 
 ### 版本记录
 | 日期 | 版本 | 描述 |
@@ -598,8 +600,79 @@
   - v2: 31 epochs 剩余，~700s/epoch ≈ 6h
   - v2 预计先完成，之后立即运行评估 + 启动 v2_beh
 
+#### NH v2 IBL 训练完成 ✅ (100 epochs)
+- 最终验证指标（补充 epoch 69-99）：
+  | Epoch | val_loss | val_bps  | val_fr_corr | val_r2 |
+  |-------|----------|----------|-------------|--------|
+  | 69    | 0.3699   | -0.4042  | 0.835       | 0.408  |
+  | 74    | 0.3719   | -0.4032  | 0.836       | 0.410  |
+  | 79    | 0.3716   | -0.4052  | 0.834       | 0.408  |
+  | 84    | 0.3704   | -0.4046  | 0.835       | 0.409  |
+  | 89    | 0.3708   | **-0.4019** | 0.836    | 0.410  |
+  | 94    | 0.3713   | -0.4056  | 0.835       | 0.407  |
+  | 99    | 0.3715   | -0.4021  | 0.836       | 0.409  |
+- **最终 Best 指标**：BPS=-0.4019 (epoch 89), fr_corr=0.836, R²=0.410
+
+#### 评估脚本修复 ✅
+- **Bug 1: Padded8Object 属性错误**
+  - 问题：eval 脚本使用 `hasattr(v, 'data')` 检查 Padded8Object，但实际属性是 `.obj`（namedtuple）
+  - 修复：改为 `hasattr(v, 'obj')` + 正确解包 `v.obj`
+  - 同时修复了 `evaluate_cross_session.py` 和 `evaluate_horizons.py`
+- **Bug 2: v1 评估使用了错误的特征**
+  - 问题：v1 训练时使用未归一化特征（训练启动时加载到内存），但 HDF5 文件后来被归一化修改
+  - 结果：v1 评估得到 BPS=-9.17（灾难性错误），因为模型看到的是归一化后的特征，而它是用原始特征训练的
+  - 修复：添加 `--use-raw-features` 参数，使用 `reference_features_raw` 备份字段
+
+#### 后训练评估结果 ✅
+- **NH v2 IBL 评估**（10 sessions, 20 windows/session）：
+  | Session | bits/spike | FR corr | R² |
+  |---------|-----------|---------|-----|
+  | 11163613 | -0.338 | 0.935 | 0.502 |
+  | 15b69921 | -0.538 | 0.875 | 0.234 |
+  | 5ae68c54 | -0.327 | 0.873 | 0.304 |
+  | 6899a67d | -0.461 | 0.790 | 0.122 |
+  | a7eba2cf | -0.287 | 0.900 | 0.545 |
+  | c46b8def | -0.358 | 0.886 | 0.503 |
+  | d85c454e | -0.238 | 0.965 | 0.317 |
+  | de905562 | **-0.119** | 0.913 | 0.369 |
+  | e6594a5b | -0.734 | 0.736 | 0.141 |
+  | ebce500b | -0.756 | 0.644 | 0.076 |
+  | **Average** | **-0.416** | **0.851** | **0.311** |
+
+- **NH v1 评估**（10 sessions, unnormalized features, 20 windows/session）：
+  | Session | bits/spike | FR corr | R² |
+  |---------|-----------|---------|-----|
+  | 11163613 | -0.366 | 0.922 | 0.481 |
+  | 15b69921 | -0.645 | 0.837 | 0.215 |
+  | 5ae68c54 | -0.412 | 0.843 | 0.284 |
+  | 6899a67d | -0.569 | 0.738 | 0.103 |
+  | a7eba2cf | -0.365 | 0.866 | 0.513 |
+  | c46b8def | -0.403 | 0.869 | 0.481 |
+  | d85c454e | -0.256 | 0.963 | 0.315 |
+  | de905562 | -0.127 | 0.904 | 0.371 |
+  | e6594a5b | -0.787 | 0.753 | 0.152 |
+  | ebce500b | -0.817 | 0.603 | 0.066 |
+  | **Average** | **-0.475** | **0.830** | **0.298** |
+
+- **v1 vs v2 对比**：
+  | 指标 | v1 | v2 | 改善 |
+  |------|-----|-----|------|
+  | Avg BPS | -0.475 | -0.416 | +12.4% |
+  | Avg FR corr | 0.830 | 0.851 | +2.5% |
+  | Avg R² | 0.298 | 0.311 | +4.4% |
+  - 归一化特征在所有指标上均有改善
+  - 最大改善在 BPS 上（12.4%），表明归一化帮助模型更好地建模发放率
+  - 注意：v1 仍在训练（epoch 30/100），最终对比应使用 v1 完成后的 checkpoint
+
+#### v2_beh 训练启动 ✅
+- 自动启动脚本成功运行（`auto_launch_v2_beh.sh`）
+- v2 完成后自动运行评估 + 启动 v2_beh
+- v2_beh 配置：IBL+Allen 15 sessions, 行为条件, 200 epochs
+- 当前进度：epoch 2/200
+
 ### 版本记录（补充）
 | 日期 | 版本 | 描述 |
 |------|------|------|
 | 2026-02-21 | v1.4 | 综合进展报告：NH v1 epoch 19 (bps=-0.57), v2 epoch 10 (bps=-0.55, fr_corr=0.79, r2=0.32), POYO 已终止 |
 | 2026-02-22 | v1.5 | 训练监控：v1 epoch 26 (bps=-0.494), v2 epoch 69 (bps=-0.407~-0.411 已收敛, fr_corr=0.834, r2=0.409) |
+| 2026-02-22 | v1.6 | v2 完成(100ep, bps=-0.40), 评估完成(v1 bps=-0.475 vs v2 bps=-0.416), eval bug修复, v2_beh 自动启动 |

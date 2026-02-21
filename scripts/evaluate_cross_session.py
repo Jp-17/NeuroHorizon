@@ -86,9 +86,17 @@ def evaluate_session(model, data, n_windows=50, device="cuda"):
         for k, v in token_dict["model_inputs"].items():
             if isinstance(v, np.ndarray):
                 model_inputs[k] = torch.tensor(v).unsqueeze(0).to(device)
+            elif isinstance(v, torch.Tensor):
+                model_inputs[k] = v.unsqueeze(0).to(device)
+            elif hasattr(v, "obj"):
+                # Padded8Object (namedtuple with .obj field)
+                inner = v.obj
+                if isinstance(inner, torch.Tensor):
+                    model_inputs[k] = inner.unsqueeze(0).to(device)
+                else:
+                    model_inputs[k] = torch.tensor(np.asarray(inner)).unsqueeze(0).to(device)
             else:
-                # Padded8Object
-                model_inputs[k] = collate([v]).to(device)
+                model_inputs[k] = torch.tensor(np.asarray(v)).unsqueeze(0).to(device)
 
         target_counts = torch.tensor(token_dict["target_counts"]).unsqueeze(0).to(device)
         n_units = token_dict["n_units"]

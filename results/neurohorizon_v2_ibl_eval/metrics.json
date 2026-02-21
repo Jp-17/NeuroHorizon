@@ -1,0 +1,99 @@
+{
+  "checkpoint": "logs/neurohorizon_v2_ibl/lightning_logs/version_0/checkpoints/last.ckpt",
+  "n_sessions": 10,
+  "avg_bits_per_spike": -0.41554893404245374,
+  "avg_fr_correlation": 0.8514050790667534,
+  "avg_r2": 0.31120178699493406,
+  "per_session": [
+    {
+      "session_id": "11163613-a6c9-4975-9586-84dc00481547",
+      "n_windows": 20,
+      "n_units": 138,
+      "poisson_ll": -0.29475367069244385,
+      "bits_per_spike": -0.3381271958351135,
+      "fr_correlation": 0.9348036020994186,
+      "r2": 0.501545786857605
+    },
+    {
+      "session_id": "15b69921-d471-4ded-8814-2adad954bcd8",
+      "n_windows": 20,
+      "n_units": 128,
+      "poisson_ll": -0.3271532654762268,
+      "bits_per_spike": -0.5374590754508972,
+      "fr_correlation": 0.8751535564661026,
+      "r2": 0.233933687210083
+    },
+    {
+      "session_id": "5ae68c54-2897-4d3a-8120-426150704385",
+      "n_windows": 20,
+      "n_units": 134,
+      "poisson_ll": -0.45316100120544434,
+      "bits_per_spike": -0.3271659016609192,
+      "fr_correlation": 0.8725086629390717,
+      "r2": 0.30383944511413574
+    },
+    {
+      "session_id": "6899a67d-2e53-4215-a52a-c7021b5da5d4",
+      "n_windows": 20,
+      "n_units": 80,
+      "poisson_ll": -0.2671095132827759,
+      "bits_per_spike": -0.4613925814628601,
+      "fr_correlation": 0.7895807385444641,
+      "r2": 0.12154799699783325
+    },
+    {
+      "session_id": "a7eba2cf-427f-4df9-879b-e53e962eae18",
+      "n_windows": 20,
+      "n_units": 302,
+      "poisson_ll": -0.4426712393760681,
+      "bits_per_spike": -0.2870108485221863,
+      "fr_correlation": 0.8994881361722946,
+      "r2": 0.5449516177177429
+    },
+    {
+      "session_id": "c46b8def-620d-4d70-9397-be5694255f73",
+      "n_windows": 20,
+      "n_units": 294,
+      "poisson_ll": -0.4470517635345459,
+      "bits_per_spike": -0.357770711183548,
+      "fr_correlation": 0.886305171251297,
+      "r2": 0.5030626058578491
+    },
+    {
+      "session_id": "d85c454e-8737-4cba-b6ad-b2339429d99b",
+      "n_windows": 20,
+      "n_units": 17,
+      "poisson_ll": -0.3270878493785858,
+      "bits_per_spike": -0.23840537667274475,
+      "fr_correlation": 0.9644900679588317,
+      "r2": 0.31658661365509033
+    },
+    {
+      "session_id": "de905562-31c6-4c31-9ece-3ee87b97eab4",
+      "n_windows": 20,
+      "n_units": 19,
+      "poisson_ll": -0.7314877510070801,
+      "bits_per_spike": -0.11901487410068512,
+      "fr_correlation": 0.9124563455581665,
+      "r2": 0.3687393069267273
+    },
+    {
+      "session_id": "e6594a5b-552c-421a-b376-1a1baa9dc4fd",
+      "n_windows": 20,
+      "n_units": 70,
+      "poisson_ll": -0.333050936460495,
+      "bits_per_spike": -0.7334545850753784,
+      "fr_correlation": 0.735703456401825,
+      "r2": 0.14137965440750122
+    },
+    {
+      "session_id": "ebce500b-c530-47de-8cb1-963c552703ea",
+      "n_windows": 20,
+      "n_units": 291,
+      "poisson_ll": -0.2892373204231262,
+      "bits_per_spike": -0.7556881904602051,
+      "fr_correlation": 0.6435610532760621,
+      "r2": 0.07643115520477295
+    }
+  ]
+}

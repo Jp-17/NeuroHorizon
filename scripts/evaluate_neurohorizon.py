@@ -76,7 +76,7 @@ def load_model(ckpt_path, device="cuda"):
     return model
 
 
-def load_hdf5_data(data_dir):
+def load_hdf5_data(data_dir, use_raw_features=False):
     """Load all HDF5 sessions eagerly."""
     data_dir = Path(data_dir)
     sessions = {}
@@ -84,9 +84,14 @@ def load_hdf5_data(data_dir):
         rid = fpath.stem
         with h5py.File(fpath, "r") as f:
             data = Data.from_hdf5(f, lazy=False)
+            # Optionally swap normalized features for raw features
+            if use_raw_features and "reference_features_raw" in f["units"]:
+                raw = f["units"]["reference_features_raw"][:]
+                data.units.reference_features = raw
         sessions[rid] = data
         logger.info(f"  Loaded {rid}: {len(data.spikes.timestamps)} spikes, "
-                     f"{len(data.units.id)} units")
+                     f"{len(data.units.id)} units"
+                     + (" [raw features]" if use_raw_features else ""))
     return sessions
 
 
@@ -142,20 +147,21 @@ def evaluate_session(model, data, session_id, device="cuda", n_windows=50):
         # Prepare batch (single sample)
         model_inputs = {}
         for k, v in tokenized["model_inputs"].items():
-            if hasattr(v, "data"):
-                # Padded8Object
-                tensor = torch.tensor(v.data).unsqueeze(0).to(device)
-                model_inputs[k] = tensor
+            if hasattr(v, "obj"):
+                # Padded8Object (namedtuple with .obj field)
+                inner = v.obj
+                if isinstance(inner, torch.Tensor):
+                    model_inputs[k] = inner.unsqueeze(0).to(device)
+                else:
+                    model_inputs[k] = torch.tensor(np.asarray(inner)).unsqueeze(0).to(device)
             elif isinstance(v, np.ndarray):
                 model_inputs[k] = torch.tensor(v).unsqueeze(0).to(device)
+            elif isinstance(v, torch.Tensor):
+                model_inputs[k] = v.unsqueeze(0).to(device)
+            elif isinstance(v, (int, float)):
+                model_inputs[k] = torch.tensor([v]).to(device)
             else:
-                model_inputs[k] = torch.tensor(v).unsqueeze(0).to(device)
-
-        # Handle input_mask from track_mask8
-        if "input_mask" in tokenized["model_inputs"]:
-            mask_obj = tokenized["model_inputs"]["input_mask"]
-            if hasattr(mask_obj, "data"):
-                model_inputs["input_mask"] = torch.tensor(mask_obj.data).unsqueeze(0).to(device)
+                model_inputs[k] = torch.tensor(np.asarray(v)).unsqueeze(0).to(device)
 
         n_units = tokenized["n_units"]
         ref_features = model_inputs["reference_features"]
@@ -309,6 +315,8 @@ def main():
     parser.add_argument("--n-windows", type=int, default=50,
                         help="Number of validation windows per session")
     parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--use-raw-features", action="store_true",
+                        help="Use unnormalized reference features (for v1 model)")
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -320,7 +328,7 @@ def main():
 
     # Load data
     logger.info("Loading data...")
-    sessions = load_hdf5_data(args.data_dir)
+    sessions = load_hdf5_data(args.data_dir, use_raw_features=args.use_raw_features)
 
     # Evaluate each session
     all_metrics = []
