@@ -412,6 +412,9 @@
 | tokenizer 检查 data.images 但 HDF5 group 名为 image_embeddings | 修改为 data.image_embeddings |
 | 评估脚本 Padded8Object 属性错误 (hasattr(v,'data')) | 改为 hasattr(v,'obj')，Padded8Object 是 namedtuple(obj=...) |
 | v1 评估使用归一化后特征（v1 训练时用原始特征） | 添加 --use-raw-features 参数，使用 reference_features_raw 备份 |
+| POYO poyo_small.yaml _target_ 指向 POYO 而非 POYOPlus | 修改为 torch_brain.models.POYOPlus |
+| task_emb Embedding(len(specs)) OOB（modality ID=20 > len=1） | 改为 Embedding(max(spec.id)+1, dim) |
+| POYO loss=0.0 (float) Lightning 拒绝 + target 1D MSELoss 要求 2D | torch.tensor(0.0, ...) + unsqueeze(-1) |
 
 ### 版本记录
 | 日期 | 版本 | 描述 |
@@ -670,9 +673,34 @@
 - v2_beh 配置：IBL+Allen 15 sessions, 行为条件, 200 epochs
 - 当前进度：epoch 2/200
 
+#### Session 11: POYO 基线重修复 + 重启 (2026-02-22)
+- **Context**: Session 继续，发现之前的 POYO 基线脚本存在 3 个未修复的 bug
+- **Bug 1: Hydra _target_ 指向 POYO 而非 POYOPlus**
+  - `configs/model/poyo_small.yaml` 中 `_target_: torch_brain.models.POYO` → `torch_brain.models.POYOPlus`
+  - POYO 不接受 `readout_specs` 参数，POYOPlus 接受
+- **Bug 2: task_emb Embedding 索引越界**
+  - `poyo_plus.py:102`：`Embedding(len(readout_specs), dim)` 创建大小为 1 的 embedding
+  - 但 `output_decoder_index` 使用 modality registry ID（wheel_velocity = 20），导致 CUDA assert
+  - 修复：`Embedding(max(spec.id for spec in readout_specs.values()) + 1, dim)`
+- **Bug 3: Loss tensor 初始化 + Target 维度**
+  - `loss = 0.0` (Python float) → Lightning 拒绝返回值
+  - 修复：`loss = torch.tensor(0.0, device=self.device, requires_grad=True)`
+  - Target 1D 但 MSELoss 要求 2D → 添加 `if target.ndim == 1: target = target.unsqueeze(-1)`
+- **CPU 测试通过**：2 epochs, batch_size=2, loss 从 0.40 降至 ~0.03
+- **GPU 训练已启动**：200 epochs, batch_size=32, version_21, step 56+ loss 正常波动
+- **清理工作**：删除了 subagent 创建的无关文件（train_v2*.yaml, train_baseline.py）
+
+#### NeuroHorizon v1 100-epoch 训练进度 (Session 11)
+- **进度**：epoch 31/100 (31%), 运行时间 ~7.5h
+- **loss**: 稳定在 0.35-0.45 范围
+- **LR**: cosine annealing, 当前 ~8.7e-5
+- **Checkpoint**: epoch 29 已保存 (97.6 MB)
+- **GPU**: 3.8 GiB
+
 ### 版本记录（补充）
 | 日期 | 版本 | 描述 |
 |------|------|------|
 | 2026-02-21 | v1.4 | 综合进展报告：NH v1 epoch 19 (bps=-0.57), v2 epoch 10 (bps=-0.55, fr_corr=0.79, r2=0.32), POYO 已终止 |
 | 2026-02-22 | v1.5 | 训练监控：v1 epoch 26 (bps=-0.494), v2 epoch 69 (bps=-0.407~-0.411 已收敛, fr_corr=0.834, r2=0.409) |
 | 2026-02-22 | v1.6 | v2 完成(100ep, bps=-0.40), 评估完成(v1 bps=-0.475 vs v2 bps=-0.416), eval bug修复, v2_beh 自动启动 |
+| 2026-02-22 | v1.7 | POYO 基线重修复(3 bugs: POYOPlus target + task_emb index OOB + loss tensor init)，CPU 验证通过，200-epoch GPU 训练启动；NH v1 epoch 31 (loss ~0.38-0.44 稳定) |
