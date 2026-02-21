@@ -704,3 +704,15 @@
 | 2026-02-22 | v1.5 | 训练监控：v1 epoch 26 (bps=-0.494), v2 epoch 69 (bps=-0.407~-0.411 已收敛, fr_corr=0.834, r2=0.409) |
 | 2026-02-22 | v1.6 | v2 完成(100ep, bps=-0.40), 评估完成(v1 bps=-0.475 vs v2 bps=-0.416), eval bug修复, v2_beh 自动启动 |
 | 2026-02-22 | v1.7 | POYO 基线重修复(3 bugs: POYOPlus target + task_emb index OOB + loss tensor init)，CPU 验证通过，200-epoch GPU 训练启动；NH v1 epoch 31 (loss ~0.38-0.44 稳定) |
+| 2026-02-22 | v1.8 | v2_beh/v2_mm GPU OOM 失败（与 POYO v21 冲突），需等 v1/POYO 完成后重启；v1 epoch 32 val bps=-0.473 |
+
+#### v2_beh / v2_mm 失败分析 (Session 10 续)
+- **问题**：auto_launch_v2_beh.sh 在 v2_ibl 完成后启动了 v2_beh，但同一 GPU 上有：
+  - NH v1 (PID 34659): ~3.8 GiB
+  - 新 POYO 基线 v21 (PID 126746): ~14 GiB（由另一个 session 启动）
+  - 总占用 ~18 GiB / 24 GiB
+- v2_beh（15 sessions, batch_size=16）需要 ~9 GiB，超过剩余 6 GiB → OOM
+- v2_beh 只跑了 3 个 epoch，无 checkpoint
+- v2_mm 也只跑了不到 1 个 epoch
+- **修复**：需等 v1 或 POYO 完成后重新启动
+- **优先级**：v1 完成后（~14h）立即启动 v2_beh，或 POYO v21 完成后立即启动
