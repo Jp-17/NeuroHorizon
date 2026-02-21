@@ -165,12 +165,25 @@ class NHTrainWrapper(L.LightningModule):
             log_rates, batch["target_counts"], batch["unit_mask"]
         )
 
-        # Compute bits per spike
-        from torch_brain.utils.neurohorizon_metrics import bits_per_spike
+        # Compute metrics
+        from torch_brain.utils.neurohorizon_metrics import (
+            bits_per_spike,
+            firing_rate_correlation,
+            r2_binned_counts,
+        )
+
         bps = bits_per_spike(log_rates, batch["target_counts"], batch["unit_mask"])
+        fr_corr = firing_rate_correlation(
+            log_rates, batch["target_counts"], batch["unit_mask"]
+        )
+        r2 = r2_binned_counts(
+            log_rates, batch["target_counts"], batch["unit_mask"]
+        )
 
         self.log("val_loss", loss, prog_bar=True)
         self.log("val_bits_per_spike", bps, prog_bar=True)
+        self.log("val_fr_corr", fr_corr, prog_bar=True)
+        self.log("val_r2", r2, prog_bar=True)
 
         return loss
 
@@ -313,6 +326,7 @@ def main(cfg: DictConfig):
         devices=cfg.gpus,
         num_nodes=cfg.nodes,
         num_sanity_val_steps=0,
+        gradient_clip_val=1.0,
     )
 
     log.info(

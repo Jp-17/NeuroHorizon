@@ -197,9 +197,48 @@
     - 动物在实验过程中行为模式变化
   - 无 NaN（gradient clipping 有效），~84s/epoch，预计还需 ~4.4h
 
+#### 参考特征归一化 ✅
+- 发现问题：参考特征（33维）尺度差异极大
+  - `firing_rate`: mean=12.2, std=20.8, max=224（远超其他特征）
+  - `isi_hist_*`: std 在 0.001~0.16 之间
+  - `autocorr_*`: std 在 0.08~0.15 之间
+  - IDEncoder 的 MLP 输入被 firing_rate 主导
+- 创建了 `scripts/normalize_reference_features.py`
+  - z-score 归一化（mean=0, std=1 per feature）
+  - 原始特征备份到 HDF5 `reference_features_raw`
+  - 归一化统计保存到 `ref_feature_stats.json`
+- 10 个 IBL session 全部归一化完成
+- **注意**：当前运行中的训练使用未归一化的特征（内存已加载），下次训练将使用归一化后的特征
+
+#### 评估脚本 ✅
+- 创建了 `scripts/evaluate_neurohorizon.py` — NeuroHorizon 后训练评估
+  - 加载 checkpoint，在验证集上运行详细评估
+  - 计算每 session、每 unit 的 bits/spike、FR correlation、R²
+  - 生成预测 vs 真实值可视化图
+  - 输出 JSON 格式汇总指标
+- 创建了 `scripts/evaluate_poyo_baseline.py` — POYO 基线后训练评估
+  - 加载 POYO checkpoint + vocabulary 初始化
+  - 计算 R²、MSE、相关系数
+
+#### 训练代码改进 ✅
+- 增强了 `examples/neurohorizon/train.py` 的 validation_step
+  - 添加 val_fr_corr 和 val_r2 指标（之前只有 bits/spike）
+- 添加了 gradient_clip_val=1.0 到 NeuroHorizon Trainer
+
+#### 训练进度更新
+- **NeuroHorizon** (epoch 7/100):
+  - train_loss: 0.52→0.49→0.49→0.48→0.48→0.47→0.47→0.46（持续下降）
+  - val_loss=0.467, val_bits_per_spike=-1.008（epoch 4）
+  - 下次验证在 epoch 9
+- **POYO 基线** (epoch 19/200):
+  - train_loss 持续下降到 2.22
+  - val_loss=5.04, val_r2=-0.15（epoch 9）
+  - 下次验证在 epoch 19
+
 ### 待完成
 - NeuroHorizon 100-epoch 训练完成后分析结果（bits/spike 是否从 -1.0 提升至正值）
 - POYO 基线 200-epoch 训练完成后分析结果（val_r2 是否改善）
+- 训练完成后用归一化特征重新训练 NeuroHorizon（预期显著改善 IDEncoder 效果）
 - 考虑 POYO 基线改进：target normalization / 更短 val 时间窗
 - 比较 NeuroHorizon encoding vs POYO decoding 性能
 - Phase 3: 多模态扩展
@@ -223,6 +262,7 @@
 | Lightning setup() 覆盖 transform | 在 setup() 添加 hasattr guard 防止重复创建 |
 | Hydra _target_ 被外部还原为 POYOPlus | 在代码中绕过 hydra.utils.instantiate，显式 POYO() |
 | R2 形状不匹配 (N,1) vs (N,) | .view(-1) 展平后再计算 R² |
+| 参考特征尺度差异极大（firing_rate max=224 vs isi_hist max~1） | z-score 归一化（mean=0, std=1），原始备份到 reference_features_raw |
 
 ### 版本记录
 | 日期 | 版本 | 描述 |
@@ -233,5 +273,6 @@
 | 2026-02-21 | v0.4 | Phase 2.5-2.6 完成：训练流程（EagerDataset + Hydra + Lightning）、评估指标、端到端验证通过、1 epoch 训练成功（loss 0.95→0.39） |
 | 2026-02-21 | v0.5 | Allen 数据完成（5 sessions），POYO 基线脚本就绪，100-epoch 训练运行中 |
 | 2026-02-21 | v0.6 | POYO 基线 2 个 bug 修复（target 维度 + setup guard），POYO 基线 200-epoch 训练启动，与 NeuroHorizon 并行 |
+| 2026-02-21 | v0.7 | 参考特征归一化（z-score），评估脚本（NH + POYO），训练代码改进（更多验证指标 + gradient clipping） |
 
 ---
