@@ -98,18 +98,40 @@
 ### 当前进行中
 
 #### Phase 0.3: Allen 数据下载
-- 后台运行中（5 sessions）
+- 后台运行中（已处理 4 个 session: 715093703, 719161530, 721123822, 732592105）
+- 修复了 Allen HDF5 中 running 组缺少 domain 的问题
 
-#### Phase 2.5: 训练流程
-- 需要创建 `examples/neurohorizon/train.py`
-- 需要创建 Hydra 配置文件
+#### Phase 2.5: 训练流程 ✅
+- 创建了 `examples/neurohorizon/train.py` — 训练脚本（PyTorch Lightning + Hydra）
+- 创建了 Hydra 配置文件：
+  - `examples/neurohorizon/configs/defaults.yaml` — 基础训练配置
+  - `examples/neurohorizon/configs/model/neurohorizon_small.yaml` — Small 模型配置 (~8M params)
+  - `examples/neurohorizon/configs/model/neurohorizon_base.yaml` — Base 模型配置 (~33M params)
+  - `examples/neurohorizon/configs/train.yaml` — Hydra defaults 链
+- 关键组件：
+  - `EagerDataset`: 继承 `torch_brain.dataset.Dataset`，使用 eager loading 解决 temporaldata lazy loading 兼容性问题
+  - `neurohorizon_collate()`: 自定义 collate，处理可变 n_units padding + Padded8Object
+  - `NHTrainWrapper(L.LightningModule)`: 训练/验证步骤，AdamW + OneCycleLR
+  - `NHDataModule(L.LightningDataModule)`: 数据加载，支持 train/valid/test domain 分割
+- 遇到问题及解决：
+  1. `torch_brain.data.Dataset` vs `torch_brain.dataset.Dataset` 混淆 → 使用新版 `torch_brain.dataset.Dataset`
+  2. behavior 组缺少 domain → 修复所有 HDF5 文件 + 更新 preprocess_ibl.py
+  3. `LazyIrregularTimeSeries._timestamp_indices_1s` 缺失 → 使用 `Data.from_hdf5(f, lazy=False)` 的 EagerDataset 子类
+  4. Padded8Object collation → 使用 `torch_brain.data.collate()` 处理
+- 端到端测试通过：batch_size=4, 3 sessions, forward + backward + optimizer step + metrics 全部正常
 
-#### Phase 2.6: 评估指标
-- 需要创建 `torch_brain/utils/neurohorizon_metrics.py`
+#### Phase 2.6: 评估指标 ✅
+- 创建了 `torch_brain/utils/neurohorizon_metrics.py`
+- 指标：
+  - `poisson_log_likelihood()`: 平均 Poisson 对数似然
+  - `bits_per_spike()`: (LL_model - LL_null) / (n_spikes * log(2))，null = mean-rate model
+  - `firing_rate_correlation()`: 时间平均预测 vs 真实 firing rate 的 Pearson 相关
+  - `r2_binned_counts()`: 预测 rate vs 真实 spike counts 的 R²
+- 已集成到训练脚本的 validation_step 中
 
 ### 待完成
 - Phase 1: POYO 基线验证（IBL wheel velocity 解码）
-- Phase 2.5-2.6: 训练流程 + 评估指标
+- 完整训练测试（1 epoch 后台运行中）
 - Phase 3: 多模态扩展
 - Phase 4: 实验
 - Phase 5: 分析与论文
@@ -123,6 +145,10 @@
 | SpikeSortingLoader 接口复杂 | 改用直接 ONE API (one.load_dataset) |
 | HDF5 缺少 temporaldata 元数据属性 | 参照 brainsets 格式添加 object/timekeys/absolute_start 属性 |
 | validate_data.py 检查 session.id 方式错误 | 修复为同时检查属性和数据集 |
+| torch_brain.data.Dataset vs torch_brain.dataset.Dataset | 使用新版 torch_brain.dataset.Dataset（dataset_dir 接口）|
+| HDF5 behavior 组缺少 domain → 无法 slice | 修复所有 HDF5 + 更新预处理脚本 |
+| LazyIrregularTimeSeries 缺少 _timestamp_indices_1s | 使用 eager loading (lazy=False) 的 EagerDataset 子类 |
+| Padded8Object 不是 ndarray/dict | 使用 torch_brain.data.collate() 处理 |
 
 ### 版本记录
 | 日期 | 版本 | 描述 |
@@ -130,5 +156,6 @@
 | 2026-02-21 | v0.1 | 项目分析完成，计划制定，开始执行 Phase 0 |
 | 2026-02-21 | v0.2 | Phase 0 完成：环境搭建、IBL 数据管线（10 sessions）、参考特征提取、数据验证 |
 | 2026-02-21 | v0.3 | Phase 2.1-2.4 完成：PoissonNLLLoss、wheel_velocity 模态、IDEncoder、NeuroHorizon 模型（8.1M params） |
+| 2026-02-21 | v0.4 | Phase 2.5-2.6 完成：训练流程（EagerDataset + Hydra + Lightning）、评估指标、端到端验证通过 |
 
 ---

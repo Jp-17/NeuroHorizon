@@ -1,0 +1,35 @@
+# NeuroHorizon default training configuration
+
+# Paths
+data_dir: /root/autodl-tmp/datasets/ibl_processed
+log_dir: ./logs/neurohorizon
+
+# Training
+epochs: 100
+batch_size: 16
+eval_epochs: 5
+eval_batch_size: null
+seed: 42
+
+# Optimizer
+optim:
+  base_lr: 6.25e-6  # scaled by batch_size -> effective 1e-4
+  weight_decay: 0.01
+  warmup_frac: 0.1
+
+# Logging
+wandb:
+  enable: false
+  entity: null
+  project: neurohorizon
+  run_name: null
+  log_model: false
+
+# GPU / CPU
+precision: bf16-mixed
+nodes: 1
+gpus: 1
+num_workers: 4
+
+# Checkpointing
+ckpt_path: null

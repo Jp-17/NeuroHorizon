@@ -1,0 +1,17 @@
+# NeuroHorizon Base model configuration (~30M params)
+_target_: torch_brain.models.NeuroHorizon
+sequence_length: 1.0
+pred_length: 0.5
+bin_size: 0.02
+latent_step: 0.1
+num_latents_per_step: 64
+dim: 512
+depth: 8
+dec_depth: 4
+dim_head: 64
+cross_heads: 8
+self_heads: 8
+ref_dim: 33
+ffn_dropout: 0.2
+lin_dropout: 0.2
+atn_dropout: 0.0

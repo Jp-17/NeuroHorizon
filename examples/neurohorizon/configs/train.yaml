@@ -1,0 +1,12 @@
+# Main training config for NeuroHorizon
+defaults:
+  - defaults.yaml
+  - model: neurohorizon_small.yaml
+  - _self_
+
+batch_size: 16
+epochs: 100
+eval_epochs: 5
+
+wandb:
+  run_name: neurohorizon_small_ibl

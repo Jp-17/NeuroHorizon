@@ -163,4 +163,9 @@ data/raw
 
 checkpoint.pth
 
-uv.lock
+uv.locklogs/
+*.ckpt
+__pycache__/
+*.pyc
+outputs/
+.hydra/

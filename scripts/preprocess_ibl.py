@@ -280,6 +280,10 @@ def process_session(one, eid: str, output_dir: Path, min_good_units: int = 10):
             behavior_grp.create_dataset(
                 "wheel_velocity", data=wheel_velocity.astype(np.float64)
             )
+            # Behavior domain (required for temporaldata slicing)
+            beh_t_start = float(wheel_ts[0]) if len(wheel_ts) > 0 else t_start
+            beh_t_end = float(wheel_ts[-1]) if len(wheel_ts) > 0 else t_end
+            create_interval(behavior_grp, "domain", [beh_t_start], [beh_t_end])
 
             # Trials - as Interval
             trials_grp = create_interval(f, "trials", [], [])
