@@ -225,15 +225,34 @@
   - 添加 val_fr_corr 和 val_r2 指标（之前只有 bits/spike）
 - 添加了 gradient_clip_val=1.0 到 NeuroHorizon Trainer
 
+#### 多模态模块 ✅
+- 创建了 `torch_brain/nn/multimodal.py`
+  - `MultimodalCrossAttention`: 投影模态 embedding + RoPE 时间对齐的交叉注意力
+  - `MultimodalEncoder`: 封装图像和行为模态交叉注意力层（2.3M 参数）
+- 导出更新到 `torch_brain/nn/__init__.py`
+- Allen 刺激帧已保存为 numpy 文件（DINOv2 提取需要网络访问）
+
 #### 训练进度更新
-- **NeuroHorizon** (epoch 7/100):
-  - train_loss: 0.52→0.49→0.49→0.48→0.48→0.47→0.47→0.46（持续下降）
-  - val_loss=0.467, val_bits_per_spike=-1.008（epoch 4）
-  - 下次验证在 epoch 9
-- **POYO 基线** (epoch 19/200):
-  - train_loss 持续下降到 2.22
-  - val_loss=5.04, val_r2=-0.15（epoch 9）
-  - 下次验证在 epoch 19
+- **NeuroHorizon** (epoch 10/100):
+  - train_loss: 0.52→0.49→0.49→0.48→0.48→0.47→0.47→0.46→0.45→0.44
+  - **Epoch 9 验证结果**：
+    - val_loss: 0.467 → **0.421** (↓9.8%)
+    - val_bits_per_spike: -1.008 → **-0.724** (↑28% 改善)
+    - 趋势良好，模型持续学习中
+    - 无过拟合：val_loss (0.421) ≈ train_loss (0.445)
+    - 如果保持当前趋势，预计 epoch 25-35 附近 bits/spike 可能转正
+  - ~700s/epoch，预计还需 ~17.5h
+- **POYO 基线** (epoch 45/200):
+  - train_loss 持续下降到 ~1.99
+  - 验证指标趋势：
+    | Epoch | val_loss | val_r2 |
+    |-------|----------|--------|
+    | 9  | 5.0434 | -0.1493 |
+    | 19 | 4.5692 | -0.0668 |
+    | 29 | 4.6172 | -0.1369 |
+    | 39 | 4.4949 | -0.0504 |
+  - val_r2 在 -0.05 ~ -0.15 之间震荡，temporal distribution shift 限制了改善
+  - ~84s/epoch，预计还需 ~3.6h
 
 ### 待完成
 - NeuroHorizon 100-epoch 训练完成后分析结果（bits/spike 是否从 -1.0 提升至正值）
