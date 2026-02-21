@@ -184,14 +184,23 @@
   - 预计总耗时 ~20 小时（~739s/epoch × 100 epochs）
 
 #### 两训练并行状态
-- GPU 总共 24564 MiB，NeuroHorizon + POYO baseline = ~13-16 GiB
-- POYO 基线训练状态：
-  - epoch 2, median_loss=3.24（从 3.42 下降），无 NaN（gradient clipping 有效）
-  - 预计总耗时 ~5 小时（~86s/epoch × 200 epochs）
+- GPU 总共 24564 MiB，NeuroHorizon + POYO baseline = ~16-20 GiB
+- **NeuroHorizon 进度** (epoch 6/100):
+  - train_loss: 0.52→0.49→0.49→0.48→0.48→0.47→0.47（稳定下降）
+  - val_loss=0.4670, val_bits_per_spike=-1.008（epoch 5，模型尚未超过 null model）
+  - ~801s/epoch，预计还需 ~20h
+- **POYO 基线进度** (epoch 11/200):
+  - train_loss median: 3.42→3.30→3.25→3.16→2.95→2.71→2.53→2.40→2.38→2.34→2.29→2.25
+  - **首次验证 (epoch 10)：val_loss=5.04, val_r2=-0.15**
+  - val_loss >> train_loss 原因分析：时间序列数据的 temporal split 导致分布漂移
+    - 例：session 5ae68c54 训练集 wv_mean=0.50, 验证集 wv_mean=-1.52
+    - 动物在实验过程中行为模式变化
+  - 无 NaN（gradient clipping 有效），~84s/epoch，预计还需 ~4.4h
 
 ### 待完成
-- NeuroHorizon 100-epoch 训练完成后分析结果（bits/spike, firing rate correlation, R² 等）
-- POYO 基线 200-epoch 训练完成后分析结果（val_loss, val_r2）
+- NeuroHorizon 100-epoch 训练完成后分析结果（bits/spike 是否从 -1.0 提升至正值）
+- POYO 基线 200-epoch 训练完成后分析结果（val_r2 是否改善）
+- 考虑 POYO 基线改进：target normalization / 更短 val 时间窗
 - 比较 NeuroHorizon encoding vs POYO decoding 性能
 - Phase 3: 多模态扩展
 - Phase 4: 实验
