@@ -8,6 +8,9 @@ from .position_embeddings import RotaryTimeEmbedding, SinusoidalTimeEmbedding
 from .rotary_attention import RotaryCrossAttention, RotarySelfAttention
 from .feedforward import FeedForward
 
+# multimodal
+from .multimodal import MultimodalCrossAttention, MultimodalEncoder
+
 # readout layers
 from . import loss
 from .multitask_readout import (
