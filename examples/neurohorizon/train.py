@@ -26,6 +26,7 @@ from torch.utils.data import DataLoader
 from torch_brain.data import collate
 from torch_brain.data.sampler import RandomFixedWindowSampler
 from torch_brain.dataset import Dataset, DatasetIndex
+from torch_brain.dataset.dataset import _ensure_index_has_namespace
 from torch_brain.models import NeuroHorizon
 from torch_brain.utils import seed_everything
 from torch_brain.utils import callbacks as tbrain_callbacks
@@ -40,11 +41,11 @@ class EagerDataset(Dataset):
     The manually-created HDF5 files lack temporaldata's internal indexing
     structures (_timestamp_indices_1s), causing errors with lazy loading.
     Eager loading avoids this by fully reading data into memory.
+
+    Overrides __getitem__ to avoid deep-copying large Data objects.
     """
 
     def __init__(self, **kwargs):
-        # Override keep_files_open behavior to use eager loading
-        import copy
         import h5py
         from pathlib import Path
         from temporaldata import Data
@@ -65,6 +66,19 @@ class EagerDataset(Dataset):
         for r in recording_ids:
             with h5py.File(fpaths[r], "r") as f:
                 self._data_objects[r] = Data.from_hdf5(f, lazy=False)
+
+    def __getitem__(self, index):
+        """Get a time-sliced sample without deep-copying the full recording.
+
+        Data.slice() returns a new object, so the original is not modified.
+        This avoids the extremely slow deepcopy of Data objects with millions of spikes.
+        """
+        index = _ensure_index_has_namespace(index)
+        data = self._data_objects[index.recording_id]
+        sample = data.slice(index.start, index.end)
+        if self.transform is not None:
+            sample = self.transform(sample)
+        return sample
 
 
 def neurohorizon_collate(batch):
