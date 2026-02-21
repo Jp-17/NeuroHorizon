@@ -1,0 +1,23 @@
+# NeuroHorizon Small model with multimodal cross-attention (~10.5M params)
+_target_: torch_brain.models.NeuroHorizon
+sequence_length: 1.0
+pred_length: 0.5
+bin_size: 0.02
+latent_step: 0.1
+num_latents_per_step: 64
+dim: 256
+depth: 4
+dec_depth: 2
+dim_head: 64
+cross_heads: 4
+self_heads: 4
+ref_dim: 33
+ffn_dropout: 0.2
+lin_dropout: 0.2
+atn_dropout: 0.0
+use_multimodal: true
+multimodal_every: 2
+image_dim: 768
+behavior_dim: 1
+use_image: true
+use_behavior: true

@@ -22,6 +22,7 @@ from torch_brain.nn import (
     Embedding,
     FeedForward,
     IDEncoder,
+    MultimodalEncoder,
     RotaryCrossAttention,
     RotarySelfAttention,
     RotaryTimeEmbedding,
@@ -163,6 +164,12 @@ class NeuroHorizon(nn.Module):
         emb_init_scale: Embedding initialization scale.
         t_min: Minimum rotary embedding frequency.
         t_max: Maximum rotary embedding frequency.
+        use_multimodal: Whether to enable multimodal cross-attention.
+        multimodal_every: Insert multimodal layer every N encoder layers.
+        image_dim: Dimension of image embeddings (768 for DINOv2 ViT-B/14).
+        behavior_dim: Dimension of behavior features.
+        use_image: Whether to use image modality.
+        use_behavior: Whether to use behavior modality.
     """
 
     def __init__(
@@ -186,6 +193,12 @@ class NeuroHorizon(nn.Module):
         emb_init_scale: float = 0.02,
         t_min: float = 1e-4,
         t_max: float = 2.0627,
+        use_multimodal: bool = False,
+        multimodal_every: int = 2,
+        image_dim: int = 768,
+        behavior_dim: int = 1,
+        use_image: bool = True,
+        use_behavior: bool = True,
     ):
         super().__init__()
 
@@ -196,6 +209,7 @@ class NeuroHorizon(nn.Module):
         self.num_latents_per_step = num_latents_per_step
         self.dim = dim
         self.ref_dim = ref_dim
+        self.use_multimodal = use_multimodal
 
         num_pred_bins = round(pred_length / bin_size)
         self.num_pred_bins = num_pred_bins
@@ -251,6 +265,23 @@ class NeuroHorizon(nn.Module):
                 ])
             )
 
+        # Multimodal cross-attention layers (inserted every N encoder layers)
+        if use_multimodal:
+            self.multimodal_layers = nn.ModuleDict()
+            for i in range(depth):
+                if (i + 1) % multimodal_every == 0:
+                    self.multimodal_layers[str(i)] = MultimodalEncoder(
+                        dim=dim,
+                        image_dim=image_dim,
+                        behavior_dim=behavior_dim,
+                        heads=cross_heads,
+                        dim_head=dim_head,
+                        dropout=atn_dropout,
+                        ffn_dropout=ffn_dropout,
+                        use_image=use_image,
+                        use_behavior=use_behavior,
+                    )
+
         # ---- Decoder (autoregressive) ----
         self.dec_layers = nn.ModuleList()
         for _ in range(dec_depth):
@@ -300,6 +331,13 @@ class NeuroHorizon(nn.Module):
         unit_mask: Optional[TensorType["batch", "n_units", bool]] = None,
         # Prediction bin timestamps
         bin_timestamps: TensorType["batch", "n_bins", float],
+        # Multimodal inputs (optional)
+        image_embeddings: Optional[TensorType["batch", "n_img", "img_dim"]] = None,
+        image_timestamps: Optional[TensorType["batch", "n_img"]] = None,
+        image_mask: Optional[TensorType["batch", "n_img"]] = None,
+        behavior_values: Optional[TensorType["batch", "n_beh", "beh_dim"]] = None,
+        behavior_timestamps: Optional[TensorType["batch", "n_beh"]] = None,
+        behavior_mask: Optional[TensorType["batch", "n_beh"]] = None,
     ) -> TensorType["batch", "n_bins", "n_units"]:
         """Forward pass.
 
@@ -336,11 +374,23 @@ class NeuroHorizon(nn.Module):
         latents = latents + self.enc_ffn(latents)
 
         # ---- Encoder self-attention processing ----
-        for self_attn, self_ff in self.proc_layers:
+        for i, (self_attn, self_ff) in enumerate(self.proc_layers):
             latents = latents + self.dropout(
                 self_attn(latents, latent_timestamp_emb)
             )
             latents = latents + self.dropout(self_ff(latents))
+
+            # Inject multimodal information after designated layers
+            if self.use_multimodal and str(i) in self.multimodal_layers:
+                latents = self.multimodal_layers[str(i)](
+                    latents, latent_timestamp_emb, self.rotary_emb,
+                    image_embeddings=image_embeddings,
+                    image_timestamps=image_timestamps,
+                    image_mask=image_mask,
+                    behavior_values=behavior_values,
+                    behavior_timestamps=behavior_timestamps,
+                    behavior_mask=behavior_mask,
+                )
 
         # ---- Decoder: autoregressive bin prediction ----
         # Initialize bin queries
@@ -463,12 +513,77 @@ class NeuroHorizon(nn.Module):
                 "latent_timestamps": latent_timestamps.astype(np.float64),
                 "reference_features": reference_features,
                 "bin_timestamps": bin_timestamps.astype(np.float64),
+                **self._tokenize_multimodal(data, start, end),
             },
             "target_counts": spike_counts,
             "n_units": n_units,
             "session_id": data.session.id,
             "absolute_start": data.absolute_start,
         }
+
+    def _tokenize_multimodal(self, data: Data, start: float, end: float) -> Dict:
+        """Extract multimodal tokens from data if available.
+
+        Returns dict of additional model_inputs keys for multimodal data.
+        Empty dict if no multimodal data or use_multimodal is False.
+        """
+        if not self.use_multimodal:
+            return {}
+
+        result = {}
+
+        # ---- Image embeddings (e.g., DINOv2 for Allen visual stimuli) ----
+        if hasattr(data, "images") and hasattr(data.images, "embeddings"):
+            img_ts = np.array(data.images.timestamps)
+            img_emb = np.array(data.images.embeddings)
+
+            # Filter to input window
+            img_mask = (img_ts >= start) & (img_ts < end)
+            if img_mask.any():
+                result["image_embeddings"] = pad8(
+                    img_emb[img_mask].astype(np.float32)
+                )
+                result["image_timestamps"] = pad8(
+                    img_ts[img_mask].astype(np.float64)
+                )
+                result["image_mask"] = track_mask8(img_ts[img_mask])
+
+        # ---- Behavior data (running speed, wheel velocity) ----
+        if hasattr(data, "running") and hasattr(data.running, "timestamps"):
+            beh_ts = np.array(data.running.timestamps)
+            beh_vals = np.array(data.running.running_speed)
+
+            # Filter to input window
+            beh_mask = (beh_ts >= start) & (beh_ts < end)
+            if beh_mask.any():
+                beh_filtered = beh_vals[beh_mask]
+                if beh_filtered.ndim == 1:
+                    beh_filtered = beh_filtered[:, np.newaxis]
+                result["behavior_values"] = pad8(
+                    beh_filtered.astype(np.float32)
+                )
+                result["behavior_timestamps"] = pad8(
+                    beh_ts[beh_mask].astype(np.float64)
+                )
+                result["behavior_mask"] = track_mask8(beh_ts[beh_mask])
+        elif hasattr(data, "behavior") and hasattr(data.behavior, "timestamps"):
+            beh_ts = np.array(data.behavior.timestamps)
+            beh_vals = np.array(data.behavior.wheel_velocity)
+
+            beh_mask = (beh_ts >= start) & (beh_ts < end)
+            if beh_mask.any():
+                beh_filtered = beh_vals[beh_mask]
+                if beh_filtered.ndim == 1:
+                    beh_filtered = beh_filtered[:, np.newaxis]
+                result["behavior_values"] = pad8(
+                    beh_filtered.astype(np.float32)
+                )
+                result["behavior_timestamps"] = pad8(
+                    beh_ts[beh_mask].astype(np.float64)
+                )
+                result["behavior_mask"] = track_mask8(beh_ts[beh_mask])
+
+        return result
 
     def compute_loss(
         self,

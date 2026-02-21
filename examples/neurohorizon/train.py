@@ -86,12 +86,18 @@ def neurohorizon_collate(batch):
 
     Handles variable n_units across sessions by padding to max_n_units.
     Padded8Object items (from pad8/track_mask8) are collated via torch_brain.data.collate.
+    Only collates keys present in ALL samples (multimodal keys may be absent).
     """
     max_n_units = max(b["n_units"] for b in batch)
     batch_size = len(batch)
 
+    # Use intersection of keys across all samples (multimodal keys may be absent)
+    all_keys = set(batch[0]["model_inputs"].keys())
+    for b in batch[1:]:
+        all_keys &= set(b["model_inputs"].keys())
+
     model_inputs = {}
-    for key in batch[0]["model_inputs"]:
+    for key in all_keys:
         items = [b["model_inputs"][key] for b in batch]
 
         if key == "reference_features":

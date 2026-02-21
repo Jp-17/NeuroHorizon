@@ -254,13 +254,42 @@
   - val_r2 在 -0.05 ~ -0.15 之间震荡，temporal distribution shift 限制了改善
   - ~84s/epoch，预计还需 ~3.6h
 
+#### 训练进度更新 (Session 5)
+- **NeuroHorizon** (epoch 10/100, 10%):
+  - train_loss 稳定下降: 0.52→0.49→0.49→0.48→0.48→0.47→0.47→0.46→0.45→0.44
+  - 验证指标（每5 epoch）：
+    | Epoch | val_loss | val_bits_per_spike |
+    |-------|----------|-------------------|
+    | 4     | 0.4670   | -1.0075           |
+    | 9     | 0.4214   | -0.7242           |
+  - bits/spike 改善 28%，趋势良好，预计 epoch 25-35 转正
+  - 无过拟合（val ≈ train）
+  - **注意**：当前训练未记录 val_fr_corr 和 val_r2（代码修改在训练启动后）
+  - 下次验证在 epoch 14
+- **POYO 基线** (epoch 51/200, 25.5%):
+  - train_loss 下降到 ~1.1-1.7（从初始 ~3.4）
+  - **验证指标**：
+    | Epoch | val_loss | val_r2   |
+    |-------|----------|----------|
+    | 9     | 5.043    | -0.1493  |
+    | 19    | 4.569    | -0.0668  |
+    | 29    | 4.617    | -0.1369  |
+    | 39    | 4.495    | -0.0504  |
+    | 49    | 5.065    | **-0.2067** |
+  - **严重过拟合**：epoch 49 val_loss 回升到 5.065（比最好的 4.495 高 12.7%）
+  - val_r2 恶化到 -0.21（历史最差）
+  - 分析原因：
+    1. `div_factor=1` + `pct_start=0.5` 意味着 LR 前100 epoch 保持在最大值 0.002
+    2. LR 从 epoch 100 开始衰减，可能会帮助
+    3. 根本问题仍是 temporal distribution shift（train vs valid 行为分布不同）
+  - 最佳 checkpoint: epoch 39 (val_loss=4.495, val_r2=-0.050)
+  - GPU stale test process 已清理
+
 ### 待完成
 - NeuroHorizon 100-epoch 训练完成后分析结果（bits/spike 是否从 -1.0 提升至正值）
-- POYO 基线 200-epoch 训练完成后分析结果（val_r2 是否改善）
+- POYO 基线 200-epoch 训练完成后分析结果（LR decay 后 val_r2 是否回升）
 - 训练完成后用归一化特征重新训练 NeuroHorizon（预期显著改善 IDEncoder 效果）
-- 考虑 POYO 基线改进：target normalization / 更短 val 时间窗
-- 比较 NeuroHorizon encoding vs POYO decoding 性能
-- Phase 3: 多模态扩展
+- Phase 3: 多模态扩展（模块已创建，需集成到 NeuroHorizon 模型）
 - Phase 4: 实验
 - Phase 5: 分析与论文
 
@@ -295,5 +324,6 @@
 | 2026-02-21 | v0.6 | POYO 基线 2 个 bug 修复（target 维度 + setup guard），POYO 基线 200-epoch 训练启动，与 NeuroHorizon 并行 |
 | 2026-02-21 | v0.7 | deepcopy 瓶颈修复（POYO+NH），参考特征归一化，评估脚本，多模态模块，multimodal 代码，训练监控 |
 | 2026-02-21 | v0.7 | 参考特征归一化（z-score），评估脚本（NH + POYO），训练代码改进（更多验证指标 + gradient clipping） |
+| 2026-02-21 | v0.8 | 训练监控更新：NH epoch 10 (bps -0.72↑), POYO epoch 51 (r2 -0.21↓严重过拟合), 多模态集成准备 |
 
 ---
