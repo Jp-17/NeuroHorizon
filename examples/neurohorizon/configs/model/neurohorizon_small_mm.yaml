@@ -1,4 +1,5 @@
-# NeuroHorizon Small model with multimodal cross-attention (~10.5M params)
+# NeuroHorizon Small model with full multimodal cross-attention (~12.8M params)
+# Uses CLIP ViT-L/14 image embeddings (1024-dim) + behavior (1-dim)
 _target_: torch_brain.models.NeuroHorizon
 sequence_length: 1.0
 pred_length: 0.5
@@ -17,7 +18,7 @@ lin_dropout: 0.2
 atn_dropout: 0.0
 use_multimodal: true
 multimodal_every: 2
-image_dim: 768
+image_dim: 1024
 behavior_dim: 1
 use_image: true
 use_behavior: true

@@ -394,6 +394,10 @@
 | EagerDataset deepcopy 瓶颈 (POYO 训练卡在 step 663) | 覆写 __getitem__ 避免 copy.deepcopy，Data.slice() 已返回新对象 |
 | collate 多模态 key 使用 intersection 导致丢失 | 改用 union 语义 + _collate_multimodal_keys 零填充缺失样本 |
 | EagerDataset 仅支持单数据目录 | 添加 dataset_dirs 参数支持多目录加载（IBL + Allen） |
+| DINOv2 无法下载（网络受限） | 使用缓存的 CLIP ViT-L/14 替代，从 safetensors 离线加载 |
+| image_embeddings HDF5 group 缺少 temporaldata 元数据 | 添加 _unicode_keys (bytes), timekeys (bytes), domain (Interval) 属性 |
+| Allen 刺激数据格式 (start/end/frame) 与预期 (timestamps) 不匹配 | 展开 frame index → per-presentation embeddings，按 onset_time 排序 |
+| tokenizer 检查 data.images 但 HDF5 group 名为 image_embeddings | 修改为 data.image_embeddings |
 
 ### 版本记录
 | 日期 | 版本 | 描述 |
@@ -409,5 +413,56 @@
 | 2026-02-21 | v0.8 | 训练监控更新：NH epoch 10 (bps -0.72↑), POYO epoch 51 (r2 -0.21↓严重过拟合), 多模态集成准备 |
 | 2026-02-21 | v0.9 | Phase 3 完成：多模态集成（model + tokenizer + collate + configs），实验基础设施（cross-session eval + ablation scripts），IDEncoder 消融模式 |
 | 2026-02-21 | v1.0 | Phase 3.5：多模态训练准备（union collate、多目录 EagerDataset、v2 configs、DINOv2 injection script），NH epoch 13 / POYO epoch 68 监控 |
+| 2026-02-21 | v1.1 | 图像 embedding 提取与注入完成（CLIP ViT-L/14），全模态 E2E 测试通过（image+behavior+neural），v2 配置完善 |
 
 ---
+
+#### Phase 3.6: 图像 Embedding 提取与注入 ✅
+- **CLIP ViT-L/14 替代 DINOv2**：
+  - 网络访问受限无法下载 DINOv2，使用已缓存的 CLIP ViT-L/14（1.71 GiB）
+  - 从 HuggingFace 本地缓存加载 safetensors 权重（`HF_HUB_OFFLINE=1` 模式）
+  - 输出维度：1024（vs DINOv2 的 768），质量相当
+  - `scripts/extract_image_embeddings.py`：从 Allen 刺激帧提取 CLS token 特征
+- **刺激帧处理**：
+  - Natural Movie 1: 900 frames → (900, 1024) embeddings
+  - Natural Movie 3: 3600 frames → (3600, 1024) embeddings
+  - Natural Scenes: 118 images → (118, 1024) embeddings
+  - 总提取时间 ~40s（batch_size=16, bf16 推理）
+- **Embedding 注入**：
+  - `scripts/inject_image_embeddings.py`：将 per-frame embeddings 映射到 stimulus presentations
+  - Allen HDF5 存储格式：`start/end/frame`（每次刺激呈现的时间 + 帧索引）
+  - 展开为 per-presentation embeddings（~59,900 presentations/session × 1024 维）
+  - 修复 temporaldata 兼容性：添加 `_unicode_keys`, `timekeys` (bytes dtype), domain 元数据
+  - 5 个 Allen sessions 全部注入完成（~245 MB/session）
+- **Tokenizer 更新**：
+  - `_tokenize_multimodal()` 改用 `data.image_embeddings`（匹配 HDF5 group 名）
+  - 切片后自动提取窗口内的图像 embedding + timestamps
+- **全模态端到端测试通过**：
+  - 模型：12.8M params（image_dim=1024 + behavior_dim=1）
+  - Allen 数据 (t=3000s)：30 image embeddings + 39 behavior values
+  - forward → loss (0.94) → backward 全部正常
+- **v2 配置更新**：
+  - `neurohorizon_small_mm.yaml` 更新 image_dim=1024（CLIP 输出维度）
+  - 新增 `train_v2_mm.yaml`：全模态配置（IBL+Allen + image + behavior）
+  - 新增 `train_v2_ibl.yaml`：IBL-only 归一化特征对照配置
+
+#### NH v2 训练计划（更新）
+准备就绪，待 GPU 空间释放（POYO 完成后）：
+1. **v2_ibl**（对照）：IBL 10 sessions，归一化特征，无多模态，100 epochs
+   - 隔离归一化特征的贡献
+   - 与 v1 直接对比
+2. **v2_beh**（行为条件）：IBL+Allen 15 sessions，归一化特征，behavior 条件，200 epochs
+   - 测试行为条件 + 更多数据的综合效果
+3. **v2_mm**（全模态）：IBL+Allen 15 sessions，归一化特征，image + behavior 条件，200 epochs
+   - 测试视觉刺激信息对编码预测的贡献
+
+#### 训练进度监控
+- **NeuroHorizon v1** (epoch 12/100):
+  - train_loss: ~0.43 (稳定下降)
+  - 验证指标：epoch 4 val_bps=-1.008, epoch 9 val_bps=-0.724 (+28% 改善)
+  - 下次验证在 epoch 14
+- **POYO 基线** (epoch 65/200):
+  - train_loss: ~1.5, val_loss: ~4.66 (严重过拟合)
+  - val_r2: epoch 59 = -0.210 (持续恶化)
+  - 最佳 checkpoint: epoch 39 (val_r2=-0.050, val_loss=4.495)
+  - LR decay at epoch 100 可能帮助，但 temporal distribution shift 是根本问题

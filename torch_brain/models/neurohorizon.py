@@ -553,10 +553,12 @@ class NeuroHorizon(nn.Module):
 
         result = {}
 
-        # ---- Image embeddings (e.g., DINOv2 for Allen visual stimuli) ----
-        if hasattr(data, "images") and hasattr(data.images, "embeddings"):
-            img_ts = np.array(data.images.timestamps)
-            img_emb = np.array(data.images.embeddings)
+        # ---- Image embeddings (e.g., CLIP/DINOv2 for Allen visual stimuli) ----
+        if hasattr(data, "image_embeddings") and hasattr(
+            data.image_embeddings, "embeddings"
+        ):
+            img_ts = np.array(data.image_embeddings.timestamps)
+            img_emb = np.array(data.image_embeddings.embeddings)
 
             # Filter to input window
             img_mask = (img_ts >= start) & (img_ts < end)

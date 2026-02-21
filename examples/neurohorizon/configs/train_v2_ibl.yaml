@@ -1,0 +1,18 @@
+# NeuroHorizon v2 IBL-only training config
+# Improvements over v1:
+# - Normalized reference features (z-score, already in HDF5)
+# - Additional validation metrics (fr_corr, r2)
+# - Same architecture as v1 for fair comparison
+defaults:
+  - defaults.yaml
+  - model: neurohorizon_small.yaml
+  - _self_
+
+log_dir: ./logs/neurohorizon_v2_ibl
+
+batch_size: 16
+epochs: 100
+eval_epochs: 5
+
+wandb:
+  run_name: neurohorizon_v2_ibl_normalized
