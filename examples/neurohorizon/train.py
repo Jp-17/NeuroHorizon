@@ -162,6 +162,8 @@ def _collate_multimodal_keys(batch, model_inputs, mm_keys_present):
     finds the max sequence length across samples that have it, then pads
     missing samples with zeros and False masks.
     """
+    from torch_brain.data.collate import Padded8Object
+
     batch_size = len(batch)
 
     # Group keys by modality prefix
@@ -172,7 +174,6 @@ def _collate_multimodal_keys(batch, model_inputs, mm_keys_present):
 
     for prefix, keys in modalities.items():
         mask_key = f"{prefix}_mask"
-        # Determine if this modality uses Padded8Object (from pad8/track_mask8)
         # Find a sample that has these keys to determine the format
         ref_sample = None
         for b in batch:
@@ -182,25 +183,27 @@ def _collate_multimodal_keys(batch, model_inputs, mm_keys_present):
         if ref_sample is None:
             continue
 
-        # For Padded8Object items, we need to handle them via collate()
-        # For missing samples, create zero-length Padded8Objects
         for key in keys:
             ref_item = ref_sample["model_inputs"].get(key)
             if ref_item is None:
                 continue
 
-            if hasattr(ref_item, 'data'):
+            if isinstance(ref_item, Padded8Object):
                 # Padded8Object: create zero-length padded objects for missing
                 items = []
                 for b in batch:
                     if key in b["model_inputs"]:
                         items.append(b["model_inputs"][key])
                     else:
-                        # Create empty Padded8Object matching the reference shape
+                        # Create empty Padded8Object matching reference shape
+                        ref_arr = ref_item.obj
                         if key == mask_key:
                             items.append(track_mask8(np.array([], dtype=np.float64)))
+                        elif ref_arr.ndim > 1:
+                            empty = np.zeros((0,) + ref_arr.shape[1:], dtype=ref_arr.dtype)
+                            items.append(pad8(empty))
                         else:
-                            items.append(pad8(np.array([], dtype=ref_item.data.dtype).reshape(0, *ref_item.data.shape[1:]) if ref_item.data.ndim > 1 else np.array([], dtype=ref_item.data.dtype)))
+                            items.append(pad8(np.array([], dtype=ref_arr.dtype)))
                 model_inputs[key] = collate(items)
             elif isinstance(ref_item, np.ndarray):
                 # Regular numpy array: pad to max length
