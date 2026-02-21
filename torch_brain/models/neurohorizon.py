@@ -170,6 +170,10 @@ class NeuroHorizon(nn.Module):
         behavior_dim: Dimension of behavior features.
         use_image: Whether to use image modality.
         use_behavior: Whether to use behavior modality.
+        embedding_mode: Unit embedding strategy.
+            "idencoder" (default): IDEncoder MLP from reference features.
+            "random": Fixed random embeddings (ablation baseline).
+            "mean": Project mean-pooled features (tests individual feature importance).
     """
 
     def __init__(
@@ -199,6 +203,7 @@ class NeuroHorizon(nn.Module):
         behavior_dim: int = 1,
         use_image: bool = True,
         use_behavior: bool = True,
+        embedding_mode: str = "idencoder",
     ):
         super().__init__()
 
@@ -210,6 +215,7 @@ class NeuroHorizon(nn.Module):
         self.dim = dim
         self.ref_dim = ref_dim
         self.use_multimodal = use_multimodal
+        self.embedding_mode = embedding_mode
 
         num_pred_bins = round(pred_length / bin_size)
         self.num_pred_bins = num_pred_bins
@@ -221,6 +227,13 @@ class NeuroHorizon(nn.Module):
             num_layers=3,
             dropout=0.1,
         )
+        if embedding_mode == "random":
+            # Fixed random projection (not learned) for ablation
+            self.random_proj = nn.Linear(ref_dim, dim, bias=False)
+            self.random_proj.weight.requires_grad_(False)
+        elif embedding_mode == "mean":
+            # Simple linear projection from ref_dim to dim
+            self.mean_proj = nn.Linear(ref_dim, dim)
         self.token_type_emb = Embedding(4, dim, init_scale=emb_init_scale)
         self.latent_emb = Embedding(
             num_latents_per_step, dim, init_scale=emb_init_scale
@@ -346,9 +359,17 @@ class NeuroHorizon(nn.Module):
         """
         B = input_unit_index.shape[0]
 
-        # ---- Compute unit embeddings via IDEncoder ----
+        # ---- Compute unit embeddings ----
         # reference_features: (B, N_units, ref_dim) -> (B, N_units, dim)
-        unit_embeddings = self.id_encoder.mlp(reference_features)
+        if self.embedding_mode == "idencoder":
+            unit_embeddings = self.id_encoder.mlp(reference_features)
+        elif self.embedding_mode == "random":
+            with torch.no_grad():
+                unit_embeddings = self.random_proj(reference_features)
+        elif self.embedding_mode == "mean":
+            unit_embeddings = self.mean_proj(reference_features)
+        else:
+            unit_embeddings = self.id_encoder.mlp(reference_features)
 
         # ---- Encode input spikes ----
         # Look up unit embeddings for each spike
