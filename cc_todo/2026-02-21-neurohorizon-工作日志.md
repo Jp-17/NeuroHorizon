@@ -322,6 +322,57 @@
   - `"mean"`：简单线性投影，测试 MLP 深度贡献
 - 所有模式 forward/backward 测试通过
 
+#### Phase 3.5: 多模态训练准备 ✅
+- **Collate 改进**：
+  - 修改 `neurohorizon_collate()` 使用 union 语义处理多模态 key
+  - `_collate_multimodal_keys()` 函数处理缺失样本的零填充 + False mask
+  - 通过测试：混合 batch（有/无 behavior）正确处理
+- **EagerDataset 多目录支持**：
+  - 新增 `dataset_dirs` 参数，支持同时加载多个数据目录（IBL + Allen）
+  - 向后兼容：`dataset_dir` 单目录参数仍可用
+- **新增配置文件**：
+  - `configs/model/neurohorizon_small_beh.yaml` — 行为条件模型（~10.2M params）
+  - `configs/train_v2.yaml` — v2 训练：IBL+Allen 15 sessions + behavior 条件
+  - `configs/train_v2_norm.yaml` — v2 对照：仅 IBL + 归一化特征（无多模态）
+- **DINOv2 工具链**：
+  - `scripts/extract_dino_embeddings.py` — 从 Allen 刺激帧提取 DINOv2 embedding（已有）
+  - `scripts/inject_dino_embeddings.py` — 将提取的 embedding 注入 Allen HDF5 文件（新增）
+- **端到端测试**：
+  - 混合 Allen + IBL 数据 batch → multimodal 模型 forward → loss 计算通过
+  - Behavior-only 模型：10,225,153 参数
+  - union 语义 collation 验证：缺失多模态数据的样本 mask 全 False
+
+#### 训练进度更�� (Session 6)
+- **NeuroHorizon v1** (epoch 13/100, 13%):
+  - train_loss 稳定下降: 最新 0.442
+  - 验证指标：
+    | Epoch | val_loss | val_bits_per_spike |
+    |-------|----------|-------------------|
+    | 4     | 0.4670   | -1.0075           |
+    | 9     | 0.4214   | -0.7242           |
+  - 下次验证在 epoch 14
+  - 趋势良好，无过拟合
+- **POYO 基线** (epoch 68/200, 34%):
+  - train_loss 1.66（严重过拟合）
+  - 验证指标：
+    | Epoch | val_loss | val_r2    |
+    |-------|----------|-----------|
+    | 9     | 5.043    | -0.1493   |
+    | 19    | 4.569    | -0.0668   |
+    | 29    | 4.617    | -0.1369   |
+    | 39    | 4.495    | -0.0504   |
+    | 49    | 5.065    | -0.2067   |
+    | 59    | 4.658    | **-0.2095** |
+  - R² 持续为负且恶化，best checkpoint 仍在 epoch 39
+  - 根本原因：temporal split 导致 train vs valid 行为分布差异
+
+#### NH v2 训练计划
+准备就绪，待 v1 训练完成后启动：
+1. **v2_norm**（对照）：IBL 10 sessions，归一化特征，无多模态，200 epochs
+   - 隔离归一化特征的贡献
+2. **v2_beh**（完整）：IBL+Allen 15 sessions，归一化特征，行为条件，200 epochs
+   - 测试多模态 + 更多数据的综合效果
+
 ### 遇到的问题与解决方案
 
 | 问题 | 解决方案 |
@@ -341,6 +392,8 @@
 | R2 形状不匹配 (N,1) vs (N,) | .view(-1) 展平后再计算 R² |
 | 参考特征尺度差异极大（firing_rate max=224 vs isi_hist max~1） | z-score 归一化（mean=0, std=1），原始备份到 reference_features_raw |
 | EagerDataset deepcopy 瓶颈 (POYO 训练卡在 step 663) | 覆写 __getitem__ 避免 copy.deepcopy，Data.slice() 已返回新对象 |
+| collate 多模态 key 使用 intersection 导致丢失 | 改用 union 语义 + _collate_multimodal_keys 零填充缺失样本 |
+| EagerDataset 仅支持单数据目录 | 添加 dataset_dirs 参数支持多目录加载（IBL + Allen） |
 
 ### 版本记录
 | 日期 | 版本 | 描述 |
@@ -355,5 +408,6 @@
 | 2026-02-21 | v0.7 | 参考特征归一化（z-score），评估脚本（NH + POYO），训练代码改进（更多验证指标 + gradient clipping） |
 | 2026-02-21 | v0.8 | 训练监控更新：NH epoch 10 (bps -0.72↑), POYO epoch 51 (r2 -0.21↓严重过拟合), 多模态集成准备 |
 | 2026-02-21 | v0.9 | Phase 3 完成：多模态集成（model + tokenizer + collate + configs），实验基础设施（cross-session eval + ablation scripts），IDEncoder 消融模式 |
+| 2026-02-21 | v1.0 | Phase 3.5：多模态训练准备（union collate、多目录 EagerDataset、v2 configs、DINOv2 injection script），NH epoch 13 / POYO epoch 68 监控 |
 
 ---

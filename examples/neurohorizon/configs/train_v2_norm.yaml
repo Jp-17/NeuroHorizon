@@ -1,0 +1,16 @@
+# NeuroHorizon v2 control: IBL only, no multimodal
+# Uses normalized reference features (vs v1 which used unnormalized)
+# This isolates the effect of feature normalization
+defaults:
+  - defaults.yaml
+  - model: neurohorizon_small.yaml
+  - _self_
+
+log_dir: ./logs/neurohorizon_v2_norm
+
+batch_size: 16
+epochs: 200
+eval_epochs: 10
+
+wandb:
+  run_name: neurohorizon_v2_norm_ibl

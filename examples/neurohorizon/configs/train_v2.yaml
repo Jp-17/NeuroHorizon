@@ -1,0 +1,24 @@
+# NeuroHorizon v2 full training config
+# Improvements over v1:
+# - Normalized reference features (z-score, already in HDF5)
+# - Combined IBL + Allen data (15 sessions total)
+# - Behavior conditioning via multimodal cross-attention
+# - Longer training (200 epochs)
+defaults:
+  - defaults.yaml
+  - model: neurohorizon_small_beh.yaml
+  - _self_
+
+log_dir: ./logs/neurohorizon_v2_beh
+
+# Combined data directories
+data_dirs:
+  - /root/autodl-tmp/datasets/ibl_processed
+  - /root/autodl-tmp/datasets/allen_processed
+
+batch_size: 16
+epochs: 200
+eval_epochs: 10
+
+wandb:
+  run_name: neurohorizon_v2_beh_ibl_allen

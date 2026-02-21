@@ -43,6 +43,8 @@ class EagerDataset(Dataset):
     Eager loading avoids this by fully reading data into memory.
 
     Overrides __getitem__ to avoid deep-copying large Data objects.
+
+    Supports loading from multiple data directories via dataset_dirs parameter.
     """
 
     def __init__(self, **kwargs):
@@ -50,10 +52,27 @@ class EagerDataset(Dataset):
         from pathlib import Path
         from temporaldata import Data
 
-        dataset_dir = Path(kwargs["dataset_dir"])
+        # Support single dir (dataset_dir) or multiple dirs (dataset_dirs)
+        dataset_dirs = kwargs.get("dataset_dirs")
+        if dataset_dirs is None:
+            dataset_dirs = [kwargs["dataset_dir"]]
+        dataset_dirs = [Path(d) for d in dataset_dirs]
+
         recording_ids = kwargs.get("recording_ids")
         if recording_ids is None:
-            recording_ids = sorted([x.stem for x in dataset_dir.glob("*.h5")])
+            recording_ids = []
+            for d in dataset_dirs:
+                recording_ids.extend(sorted([x.stem for x in d.glob("*.h5")]))
+
+        # Build file path mapping across all directories
+        fpaths = {}
+        for d in dataset_dirs:
+            for h5f in d.glob("*.h5"):
+                if h5f.stem in recording_ids:
+                    fpaths[h5f.stem] = h5f
+
+        # Filter to only recordings we found
+        recording_ids = [r for r in recording_ids if r in fpaths]
 
         # Store for parent class compatibility
         self._recording_ids = recording_ids
@@ -61,7 +80,6 @@ class EagerDataset(Dataset):
         self.namespace_attributes = kwargs.get("namespace_attributes")
 
         # Load eagerly (lazy=False)
-        fpaths = {r: dataset_dir / f"{r}.h5" for r in recording_ids}
         self._data_objects = {}
         for r in recording_ids:
             with h5py.File(fpaths[r], "r") as f:
@@ -322,13 +340,22 @@ class NHDataModule(L.LightningDataModule):
         return intervals
 
     def setup(self, stage=None):
-        data_dir = Path(self.cfg.data_dir)
-        self.log.info(f"Loading data from {data_dir}")
-
-        self.dataset = EagerDataset(
-            dataset_dir=data_dir,
-            transform=self.model.tokenize,
-        )
+        # Support both data_dir (single) and data_dirs (multiple)
+        data_dirs = getattr(self.cfg, "data_dirs", None)
+        if data_dirs is not None:
+            data_dirs = [str(d) for d in data_dirs]
+            self.log.info(f"Loading data from {len(data_dirs)} directories: {data_dirs}")
+            self.dataset = EagerDataset(
+                dataset_dirs=data_dirs,
+                transform=self.model.tokenize,
+            )
+        else:
+            data_dir = Path(self.cfg.data_dir)
+            self.log.info(f"Loading data from {data_dir}")
+            self.dataset = EagerDataset(
+                dataset_dir=data_dir,
+                transform=self.model.tokenize,
+            )
 
         self.log.info(
             f"Loaded {len(self.dataset.recording_ids)} recordings: "
