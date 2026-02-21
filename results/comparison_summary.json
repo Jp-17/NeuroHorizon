@@ -1,12 +1,23 @@
 [
   {
-    "Model": "NH v1",
+    "Model": "NH v1 (unnormalized)",
     "Best val_loss": "0.3895",
     "Best epoch (loss)": 19,
     "Best bits/spike": "-0.5226",
     "Best epoch (bps)": 19,
     "Final val_loss": "0.3895",
     "Final bits/spike": "-0.5226"
+  },
+  {
+    "Model": "NH v2 (normalized)",
+    "Best val_loss": "0.3788",
+    "Best epoch (loss)": 19,
+    "Best bits/spike": "-0.4557",
+    "Best epoch (bps)": 19,
+    "Best R\u00b2": "0.3970",
+    "Best epoch (R\u00b2)": 19,
+    "Final val_loss": "0.3788",
+    "Final bits/spike": "-0.4557"
   },
   {
     "Model": "POYO baseline",
