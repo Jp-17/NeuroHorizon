@@ -429,6 +429,7 @@
 | 2026-02-21 | v1.1 | 图像 embedding 提取与注入完成（CLIP ViT-L/14），全模态 E2E 测试通过（image+behavior+neural），v2 配置完善 |
 | 2026-02-21 | v1.2 | 训练监控更新：NH v1 epoch 14 val_bps=-0.573（预计 epoch 27 转正），POYO epoch 84（8次验证全负 R²），auto_launch_v2 就绪 |
 | 2026-02-21 | v1.3 | Phase 4 实验脚本完成（horizon eval + multimodal ablation + results collector + training queue），POYO epoch 89 val_r2=-0.52 灾难性恶化 |
+| 2026-02-21 | v1.4 | NH v1 epoch 19 val_bps=-0.523（BPS改善率放缓至+0.02/epoch），POYO epoch 99 partial recovery (val_r2=-0.22)，LR decay 已启动 |
 
 ---
 
@@ -472,20 +473,21 @@
    - 测试视觉刺激信息对编码预测的贡献
 
 #### 训练进度监控 (最新更新)
-- **NeuroHorizon v1** (epoch 15/100, 15%):
-  - train_loss: ~0.40 (稳定下降)
+- **NeuroHorizon v1** (epoch 20/100, 20%):
+  - train_loss: ~0.39 (稳定下降)
   - 验证指标：
     | Epoch | val_loss | val_bits_per_spike |
     |-------|----------|-------------------|
     | 4     | 0.4670   | -1.0075           |
     | 9     | 0.4214   | -0.7242           |
-    | 14    | 0.3982   | **-0.5729**       |
-  - BPS 改善率：+0.0435/epoch
-  - **预计 BPS=0（超过 null model）在 epoch ~27**
+    | 14    | 0.3982   | -0.5729           |
+    | 19    | 0.3895   | **-0.5226**       |
+  - BPS 改善率从 +0.0435/epoch 降至 +0.0202/epoch（学习曲线收敛中）
+  - **修正预计 BPS=0 在 epoch ~45**（之前预计 ~27）
   - 无过拟合（val_loss ≈ train_loss）
-  - 下次验证在 epoch 19
-- **POYO 基线** (epoch 90/200, 45%):
-  - train_loss: ~1.0-1.3 (持续下降)
+  - 下次验证在 epoch 24
+- **POYO 基线** (epoch 108/200, 54%):
+  - train_loss: ~0.8-1.0 (LR decay 开始，loss 下降加速)
   - 验证指标：
     | Epoch | val_loss | val_r2    |
     |-------|----------|-----------|
@@ -498,11 +500,10 @@
     | 69    | 4.924    | -0.1951   |
     | 79    | 4.702    | -0.1521   |
     | 89    | **5.692** | **-0.5204** (worst) |
-  - **epoch 89 灾难性恶化**：val_r2 从 -0.15 骤降到 -0.52
-  - 分析：LR 保持最大值 0.002 到 epoch 100，模型过度拟合训练集
-  - epoch 100 开始 LR cosine decay，可能有所改善
+    | 99    | 4.934    | -0.2208   |
+  - epoch 89 灾难性恶化后，epoch 99 partial recovery (-0.52 → -0.22)
+  - LR cosine decay 从 epoch 100 开始，后半段可能更稳定
   - 最佳 checkpoint 仍在 epoch 39 (val_r2=-0.050)
-  - auto_launch_v2.sh 后台运行中，等待 POYO PID 完成后自动启动 NH v2
 - **GPU 状态**：
   - PID 34659 (NH v1): 3826 MiB
   - PID 46244 (POYO): 14804 MiB
