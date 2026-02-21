@@ -518,3 +518,42 @@
 - 更新 `scripts/run_ablations.py` — 新增多模态消融实验（neural-only vs +behavior vs +image vs +both）
 - 创建 `scripts/collect_results.py` — 综合结果收集器（扫描所有训练日志 + 评估结果）
 - 创建 `scripts/training_queue.sh` — 顺序训练队列（v2_ibl → v2_beh → v2_mm → 消融实验）
+
+#### 训练进度更新 (Session 8 - 最终整理)
+- **NeuroHorizon v1** (epoch 19/100, 19%):
+  - train_loss: 从 0.52 下降到 ~0.40（稳定下降）
+  - 验证指标：
+    | Epoch | val_loss | val_bits_per_spike |
+    |-------|----------|-------------------|
+    | 4     | 0.4670   | -1.0075           |
+    | 9     | 0.4214   | -0.7242           |
+    | 14    | 0.3982   | -0.5729           |
+  - BPS 改善率：+0.0435/epoch，预计 epoch 27-35 转正
+  - 无过拟合（val_loss ≈ train_loss）
+- **NeuroHorizon v2 IBL** (epoch 10/100, 10%):
+  - 使用 z-score 归一化参考特征
+  - 验证指标（**新增 fr_corr 和 r2**）：
+    | Epoch | val_loss | val_bps | val_fr_corr | val_r2 |
+    |-------|----------|---------|-------------|--------|
+    | 4     | 0.4138   | -0.679  | 0.733       | 0.320  |
+    | 9     | 0.3937   | -0.552  | 0.789       | 0.319  |
+  - **关键发现**：归一化特征使 v2 在 epoch 4 的 BPS (-0.679) 已优于 v1 epoch 4 (-1.008)，提升 33%
+  - v2 epoch 9 BPS=-0.552 接近 v1 epoch 14 的 -0.573，归一化加速约 5 epoch 收敛
+  - firing rate correlation 0.789 表明模型能较好地预测神经元发放率模式
+  - R² 0.32 说明模型解释了约 32% 的 spike count 变异
+- **POYO 基线** — 已终止 (epoch 106/200):
+  - 所有验证 R² 为负值，最佳 -0.050 (epoch 39)
+  - 释放 14.8 GB GPU 内存
+- **GPU 当前状态**：
+  - PID 34659 (NH v1): 3826 MiB
+  - PID 87666 (NH v2 IBL): 3826 MiB
+  - 总占用 ~11.5 GiB / 24 GiB（POYO 已终止）
+
+#### 综合进展报告 ✅
+- 创建了 `cc_todo/2026-02-21-neurohorizon-综合进展报告.md`
+- 包含：项目概述、已完成工作（Phase 0-3）、训练结果（v1/v2/POYO）、代码清单、问题解决、待做工作
+
+### 版本记录（补充）
+| 日期 | 版本 | 描述 |
+|------|------|------|
+| 2026-02-21 | v1.4 | 综合进展报告：NH v1 epoch 19 (bps=-0.57), v2 epoch 10 (bps=-0.55, fr_corr=0.79, r2=0.32), POYO 已终止 |
