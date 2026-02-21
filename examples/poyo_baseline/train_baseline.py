@@ -330,6 +330,7 @@ def main(cfg: DictConfig):
         devices=cfg.gpus,
         num_nodes=cfg.nodes,
         num_sanity_val_steps=0,
+        gradient_clip_val=1.0,
     )
 
     log.info(f"Rank {trainer.local_rank}, world size {trainer.world_size}")
