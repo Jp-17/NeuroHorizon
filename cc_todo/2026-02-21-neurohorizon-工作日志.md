@@ -415,6 +415,7 @@
 | 2026-02-21 | v1.0 | Phase 3.5：多模态训练准备（union collate、多目录 EagerDataset、v2 configs、DINOv2 injection script），NH epoch 13 / POYO epoch 68 监控 |
 | 2026-02-21 | v1.1 | 图像 embedding 提取与注入完成（CLIP ViT-L/14），全模态 E2E 测试通过（image+behavior+neural），v2 配置完善 |
 | 2026-02-21 | v1.2 | 训练监控更新：NH v1 epoch 14 val_bps=-0.573（预计 epoch 27 转正），POYO epoch 84（8次验证全负 R²），auto_launch_v2 就绪 |
+| 2026-02-21 | v1.3 | Phase 4 实验脚本完成（horizon eval + multimodal ablation + results collector + training queue），POYO epoch 89 val_r2=-0.52 灾难性恶化 |
 
 ---
 
@@ -470,8 +471,8 @@
   - **预计 BPS=0（超过 null model）在 epoch ~27**
   - 无过拟合（val_loss ≈ train_loss）
   - 下次验证在 epoch 19
-- **POYO 基线** (epoch 84/200, 42%):
-  - train_loss: ~1.3 (持续下降)
+- **POYO 基线** (epoch 90/200, 45%):
+  - train_loss: ~1.0-1.3 (持续下降)
   - 验证指标：
     | Epoch | val_loss | val_r2    |
     |-------|----------|-----------|
@@ -483,8 +484,11 @@
     | 59    | 4.658    | -0.2095   |
     | 69    | 4.924    | -0.1951   |
     | 79    | 4.702    | -0.1521   |
-  - 严重过拟合，LR decay 尚未开始（epoch 100 开始）
-  - 最佳 checkpoint: epoch 39 (val_r2=-0.050)
+    | 89    | **5.692** | **-0.5204** (worst) |
+  - **epoch 89 灾难性恶化**：val_r2 从 -0.15 骤降到 -0.52
+  - 分析：LR 保持最大值 0.002 到 epoch 100，模型过度拟合训练集
+  - epoch 100 开始 LR cosine decay，可能有所改善
+  - 最佳 checkpoint 仍在 epoch 39 (val_r2=-0.050)
   - auto_launch_v2.sh 后台运行中，等待 POYO PID 完成后自动启动 NH v2
 - **GPU 状态**：
   - PID 34659 (NH v1): 3826 MiB
@@ -494,3 +498,9 @@
 - **模型对比**（来自 compare_models.py）：
   - NH v1 best val_loss=0.4214 vs POYO best val_loss=4.4949
   - 注意：任务不同（neural encoding vs behavior decoding），loss 不直接可比
+
+#### Phase 4: 实验准备 ✅
+- 创建 `scripts/evaluate_horizons.py` — 不同预测时间跨度的评估（100ms/200ms/500ms/1s）
+- 更新 `scripts/run_ablations.py` — 新增多模态消融实验（neural-only vs +behavior vs +image vs +both）
+- 创建 `scripts/collect_results.py` — 综合结果收集器（扫描所有训练日志 + 评估结果）
+- 创建 `scripts/training_queue.sh` — 顺序训练队列（v2_ibl → v2_beh → v2_mm → 消融实验）
