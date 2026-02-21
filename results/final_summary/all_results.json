@@ -1,0 +1,28 @@
+{
+  "training": {
+    "NH v1 (unnormalized)": {
+      "total_epochs": 17,
+      "final_train_loss": 0.42034219308146115,
+      "best_val_loss": 0.3982459604740143,
+      "best_val_loss_epoch": 14,
+      "final_val_loss": 0.3982459604740143,
+      "best_bps": -0.5728756189346313,
+      "best_bps_epoch": 14,
+      "final_bps": -0.5728756189346313,
+      "log_dir": "logs/neurohorizon/lightning_logs/version_5",
+      "version": "version_5"
+    },
+    "POYO baseline": {
+      "total_epochs": 89,
+      "final_train_loss": 1.6344336468726397,
+      "best_val_loss": 4.494879722595215,
+      "best_val_loss_epoch": 39,
+      "final_val_loss": 4.701657295227051,
+      "best_r2": -0.05038856714963913,
+      "best_r2_epoch": 39,
+      "log_dir": "logs/poyo_baseline/lightning_logs/version_20",
+      "version": "version_20"
+    }
+  },
+  "evaluation": {}
+}
