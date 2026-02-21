@@ -174,12 +174,20 @@
 - **进度更新**：
   - Epoch 0 完成：1746 steps, avg_loss=0.5198, min_loss=0.3743, 耗时 722s
   - Epoch 1 完成：avg_loss=0.4950, min_loss=0.3568
-  - Epoch 4 进行中：step ~7962, loss ~0.43-0.44
-  - Loss 持续下降趋势良好
+  - Epoch 2 完成：avg_loss=0.4874, min_loss=0.3540
+  - Epoch 3 完成：avg_loss=0.4825, min_loss=0.3623
+  - Epoch 4 完成：avg_loss=0.4785, min_loss=0.3513
+  - **首次验证 (epoch 5)：val_loss=0.4670, val_bits_per_spike=-1.008**
+  - bits/spike 为负值 = 模型尚未超过 null model（均值发放率模型），训练初期正常
+  - val_loss (0.467) 接近 train_loss (0.479)，未过拟合
+  - Checkpoint 已保存（94MB），继续训练中
+  - 预计总耗时 ~20 小时（~739s/epoch × 100 epochs）
 
 #### 两训练并行状态
-- GPU 总共 24564 MiB，NeuroHorizon + POYO baseline = ~14167 MiB
-- 充足的 GPU 显存支持并行训练
+- GPU 总共 24564 MiB，NeuroHorizon + POYO baseline = ~13-16 GiB
+- POYO 基线训练状态：
+  - epoch 2, median_loss=3.24（从 3.42 下降），无 NaN（gradient clipping 有效）
+  - 预计总耗时 ~5 小时（~86s/epoch × 200 epochs）
 
 ### 待完成
 - NeuroHorizon 100-epoch 训练完成后分析结果（bits/spike, firing rate correlation, R² 等）
