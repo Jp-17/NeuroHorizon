@@ -1,6 +1,6 @@
-"""POYO+ Baseline Training Script for IBL Wheel Velocity Decoding
+"""POYO Baseline Training Script for IBL Wheel Velocity Decoding
 
-Trains the POYO+ model on IBL data to decode wheel velocity from spikes.
+Trains the POYO model on IBL data to decode wheel velocity from spikes.
 This serves as the decoding baseline to compare against NeuroHorizon's encoding.
 
 Usage:
@@ -29,34 +29,28 @@ from torch.utils.data import DataLoader
 from torch_brain.data import collate
 from torch_brain.data.sampler import RandomFixedWindowSampler
 from torch_brain.dataset import Dataset, DatasetIndex
-from torch_brain.models.poyo_plus import POYOPlus
+from torch_brain.models.poyo import POYO
 from torch_brain.optim import SparseLamb
 from torch_brain.registry import MODALITY_REGISTRY, ModalitySpec
 from torch_brain.utils import callbacks as tbrain_callbacks
 from torch_brain.utils import seed_everything
-from torch_brain.utils.stitcher import (
-    DataForDecodingStitchEvaluator,
-    DecodingStitchEvaluator,
-)
 
 torch.set_float32_matmul_precision("medium")
 logger = logging.getLogger(__name__)
 
-# Readout config to inject into Data objects
+# Single-readout config for POYO
 IBL_READOUT_CONFIG = {
-    "multitask_readout": [
-        {
-            "readout_id": "wheel_velocity",
-        }
-    ]
+    "readout": {
+        "readout_id": "wheel_velocity",
+    }
 }
 
 
 class IBLEagerDataset(Dataset):
-    """Dataset for IBL data with eager loading and POYO+-compatible interface.
+    """Dataset for IBL data with eager loading and POYO-compatible interface.
 
-    Injects readout config into Data objects so POYO+'s tokenize can use
-    prepare_for_multitask_readout.
+    Injects readout config into Data objects so POYO's tokenize can use
+    prepare_for_readout.
     """
 
     def __init__(self, dataset_dir, transform=None):
@@ -78,7 +72,7 @@ class IBLEagerDataset(Dataset):
                 self._data_objects[r] = data
 
     def get_recording_hook(self, data):
-        """Inject config into sliced recordings."""
+        """Inject config into recordings."""
         data.config = IBL_READOUT_CONFIG
 
     def get_unit_ids(self):
@@ -104,13 +98,13 @@ class IBLEagerDataset(Dataset):
 
 
 class POYOTrainWrapper(L.LightningModule):
-    """Lightning wrapper for POYO+ baseline training."""
+    """Lightning wrapper for POYO baseline training."""
 
-    def __init__(self, cfg: DictConfig, model: POYOPlus, readout_specs: dict):
+    def __init__(self, cfg: DictConfig, model: POYO, modality_spec: ModalitySpec):
         super().__init__()
         self.cfg = cfg
         self.model = model
-        self.readout_specs = readout_specs
+        self.modality_spec = modality_spec
         self.save_hyperparameters(OmegaConf.to_container(cfg))
 
     def configure_optimizers(self):
@@ -151,44 +145,63 @@ class POYOTrainWrapper(L.LightningModule):
     def training_step(self, batch, batch_idx):
         output_values = self.model(**batch["model_inputs"])
 
-        # Compute loss across all readout tasks
-        total_loss = 0.0
-        for readout_name, spec in self.readout_specs.items():
-            if readout_name in output_values:
-                preds = output_values[readout_name]
-                targets = batch["target_values"][readout_name]
-                weights = batch["target_weights"][readout_name]
-                loss = spec.loss_fn(preds, targets, weights)
-                total_loss = total_loss + loss
+        mask = batch["model_inputs"]["output_mask"]
+        output_values = output_values[mask]
+        target_values = batch["target_values"][mask]
+        target_weights = batch["target_weights"][mask]
 
-        self.log("train_loss", total_loss, prog_bar=True)
-        return total_loss
+        # Ensure target has same ndim as output (scalar targets need unsqueeze)
+        if target_values.ndim == 1 and output_values.ndim == 2:
+            target_values = target_values.unsqueeze(-1)
+
+        loss = self.modality_spec.loss_fn(output_values, target_values, target_weights)
+        self.log("train_loss", loss, prog_bar=True)
+        return loss
 
     def validation_step(self, batch, batch_idx):
         output_values = self.model(**batch["model_inputs"])
 
-        data_for_eval = DataForDecodingStitchEvaluator(
-            timestamps=batch["model_inputs"]["output_timestamps"],
-            preds=output_values,
-            targets=batch["target_values"],
-            eval_masks=batch["eval_mask"],
-            session_ids=batch["session_id"],
-            absolute_starts=batch["absolute_start"],
+        # Simple validation loss
+        mask = batch["model_inputs"]["output_mask"]
+        output_values_masked = output_values[mask]
+        target_values = batch["target_values"][mask]
+        target_weights = batch["target_weights"][mask]
+
+        # Ensure target has same ndim as output (scalar targets need unsqueeze)
+        if target_values.ndim == 1 and output_values_masked.ndim == 2:
+            target_values = target_values.unsqueeze(-1)
+
+        loss = self.modality_spec.loss_fn(
+            output_values_masked, target_values, target_weights
         )
-        return data_for_eval
+        self.log("val_loss", loss, prog_bar=True)
+
+        # R2 metric (flatten for computation)
+        pred_flat = output_values_masked.view(-1)
+        target_flat = target_values.view(-1)
+        if target_flat.numel() > 0:
+            ss_res = ((pred_flat - target_flat) ** 2).sum()
+            ss_tot = ((target_flat - target_flat.mean()) ** 2).sum()
+            r2 = 1 - ss_res / ss_tot.clamp(min=1e-8)
+            self.log("val_r2", r2, prog_bar=True)
+
+        return loss
 
 
 class POYOBaselineDataModule(L.LightningDataModule):
-    """Data module for POYO+ baseline on IBL data."""
+    """Data module for POYO baseline on IBL data."""
 
     def __init__(self, cfg: DictConfig):
         super().__init__()
         self.cfg = cfg
         self.log = logging.getLogger(__name__)
-        # Only include wheel_velocity readout
-        self.readout_specs = {"wheel_velocity": MODALITY_REGISTRY["wheel_velocity"]}
+        self.readout_spec = MODALITY_REGISTRY["wheel_velocity"]
 
     def setup(self, stage=None):
+        # Guard against Lightning calling setup() again after link_model()
+        if hasattr(self, "train_dataset"):
+            return
+
         data_dir = Path(self.cfg.data_dir)
         self.log.info(f"Loading IBL data from {data_dir}")
 
@@ -200,7 +213,7 @@ class POYOBaselineDataModule(L.LightningDataModule):
             f"{self.train_dataset.recording_ids}"
         )
 
-    def link_model(self, model: POYOPlus):
+    def link_model(self, model: POYO):
         """Initialize model vocabularies and attach tokenizer."""
         self.sequence_length = model.sequence_length
 
@@ -211,7 +224,9 @@ class POYOBaselineDataModule(L.LightningDataModule):
         unit_ids = self.train_dataset.get_unit_ids()
         session_ids = self.train_dataset.recording_ids
 
-        self.log.info(f"Initializing vocab: {len(unit_ids)} units, {len(session_ids)} sessions")
+        self.log.info(
+            f"Initializing vocab: {len(unit_ids)} units, {len(session_ids)} sessions"
+        )
         model.unit_emb.initialize_vocab(unit_ids)
         model.session_emb.initialize_vocab(session_ids)
 
@@ -259,7 +274,7 @@ class POYOBaselineDataModule(L.LightningDataModule):
 
 @hydra.main(version_base="1.3", config_path="./configs", config_name="train.yaml")
 def main(cfg: DictConfig):
-    logger.info("POYO+ Baseline on IBL")
+    logger.info("POYO Baseline on IBL")
     seed_everything(cfg.seed)
 
     log = logging.getLogger(__name__)
@@ -277,29 +292,25 @@ def main(cfg: DictConfig):
     # Data module
     data_module = POYOBaselineDataModule(cfg=cfg)
     data_module.setup()
-    readout_specs = data_module.readout_specs
+    readout_spec = data_module.readout_spec
 
-    # Create POYOPlus model with only wheel_velocity readout
-    model = hydra.utils.instantiate(cfg.model, readout_specs=readout_specs)
+    # Create POYO model (explicitly use POYO, not POYOPlus)
+    model_cfg = OmegaConf.to_container(cfg.model, resolve=True)
+    model_cfg.pop("_target_", None)  # Remove hydra target
+    model = POYO(readout_spec=readout_spec, **model_cfg)
     data_module.link_model(model)
 
     log.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
     # Lightning wrapper
-    wrapper = POYOTrainWrapper(cfg=cfg, model=model, readout_specs=readout_specs)
-
-    stitch_evaluator = DecodingStitchEvaluator(
-        session_ids=data_module.get_session_ids(),
-        modality_spec=readout_specs["wheel_velocity"],
-    )
+    wrapper = POYOTrainWrapper(cfg=cfg, model=model, modality_spec=readout_spec)
 
     callbacks = [
-        stitch_evaluator,
         ModelSummary(max_depth=2),
         ModelCheckpoint(
             save_last=True,
-            monitor="average_val_metric",
-            mode="max",
+            monitor="val_loss",
+            mode="min",
             every_n_epochs=cfg.eval_epochs,
         ),
         LearningRateMonitor(logging_interval="step"),

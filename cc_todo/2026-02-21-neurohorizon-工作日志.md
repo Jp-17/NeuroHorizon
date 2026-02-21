@@ -145,21 +145,39 @@
   - `r2_binned_counts()`: 预测 rate vs 真实 spike counts 的 R²
 - 已集成到训练脚本的 validation_step 中
 
-#### Phase 1: POYO 基线 (进行中)
-- 创建了 `examples/poyo_baseline/train.py` — POYOPlus wheel velocity decoding baseline
-- 创建了 `IBLPOYODataset` — eager loading + config injection
-- 配置文件已创建（defaults, model, train）
-- 修复了 `warmup_frac` 配置缺失问题
-- 需要等 NeuroHorizon 100-epoch 训练完成后再全面运行（GPU 竞争）
+#### Phase 1: POYO 基线 ✅ 训练中
+- 创建了 `examples/poyo_baseline/train_baseline.py` — POYO wheel velocity decoding baseline
+- 创建了 `IBLEagerDataset` — eager loading + readout config injection
+- 配置文件：`configs/defaults.yaml`, `configs/model/poyo_small.yaml`, `configs/train.yaml`
+- **修复 Bug 1: target 维度不匹配**
+  - 问题：POYO 输出 `[batch, seq, 1]` 经 mask 后变 `[N, 1]`，target 变 `[N]`（1D），MSELoss 要求 2D
+  - 修复：在 training_step 和 validation_step 中添加 `if target_values.ndim == 1 and output_values.ndim == 2: target_values = target_values.unsqueeze(-1)`
+- **修复 Bug 2: Lightning setup 覆盖 transform**
+  - 问题：`data_module.setup()` 手动调用后设置 `transform = model.tokenize`，但 `trainer.fit()` 再次调用 `setup()` 会创建新的 Dataset 对象（transform=None），导致 collate 收到 `temporaldata.Data` 对象而非 dict
+  - 错误信息：`TypeError: default_collate: batch must contain tensors, numpy arrays, numbers, dicts or lists; found <class 'temporaldata.temporaldata.Data'>`
+  - 修复：在 `setup()` 中添加 `if hasattr(self, 'train_dataset'): return` 防护
+- 端到端测试通过：IBLEagerDataset → RandomFixedWindowSampler → DataLoader → collate → POYO.forward() → MSELoss → backward
+- **训练已启动**：200 epochs, batch_size=64, SparseLamb optimizer, 与 NeuroHorizon 并行运行
+- 模型参数：~3.5M (POYO Small: dim=128, depth=8)
+- 当前进度：epoch 0, step ~456, loss 从 ~2.0 下降中
 
-#### 100-epoch 训练进行中
-- 训练配置：batch_size=16, 10 IBL sessions, 100 epochs
-- 当前进度：epoch 0, step ~1043/3493, loss ~0.42-0.52
-- 后台运行中（PID 34659, GPU 3.8GB）
+#### NeuroHorizon 100-epoch 训练进行中
+- 训练配置：batch_size=16, 10 IBL sessions, 100 epochs, bf16-mixed
+- PID 34659, GPU 3.8GB
+- **进度更新**：
+  - Epoch 0 完成：1746 steps, avg_loss=0.5198, min_loss=0.3743, 耗时 722s
+  - Epoch 1 完成：avg_loss=0.4950, min_loss=0.3568
+  - Epoch 3 进行中：step ~5907, loss ~0.49
+  - Loss 持续下降趋势良好
+
+#### 两训练并行状态
+- GPU 总共 24564 MiB，NeuroHorizon ~3835 MiB + POYO baseline ~1622 MiB = ~5457 MiB
+- 充足的 GPU 显存支持并行训练
 
 ### 待完成
-- Phase 1: POYO 基线完整训练（等 GPU 资源）
-- NeuroHorizon 100-epoch 训练完成后分析结果
+- NeuroHorizon 100-epoch 训练完成后分析结果（bits/spike, firing rate correlation, R² 等）
+- POYO 基线 200-epoch 训练完成后分析结果（val_loss, val_r2）
+- 比较 NeuroHorizon encoding vs POYO decoding 性能
 - Phase 3: 多模态扩展
 - Phase 4: 实验
 - Phase 5: 分析与论文
@@ -177,6 +195,8 @@
 | HDF5 behavior 组缺少 domain → 无法 slice | 修复所有 HDF5 + 更新预处理脚本 |
 | LazyIrregularTimeSeries 缺少 _timestamp_indices_1s | 使用 eager loading (lazy=False) 的 EagerDataset 子类 |
 | Padded8Object 不是 ndarray/dict | 使用 torch_brain.data.collate() 处理 |
+| POYO MSELoss target 维度不匹配 | unsqueeze target when ndim==1 and output ndim==2 |
+| Lightning setup() 覆盖 transform | 在 setup() 添加 hasattr guard 防止重复创建 |
 
 ### 版本记录
 | 日期 | 版本 | 描述 |
@@ -186,5 +206,6 @@
 | 2026-02-21 | v0.3 | Phase 2.1-2.4 完成：PoissonNLLLoss、wheel_velocity 模态、IDEncoder、NeuroHorizon 模型（8.1M params） |
 | 2026-02-21 | v0.4 | Phase 2.5-2.6 完成：训练流程（EagerDataset + Hydra + Lightning）、评估指标、端到端验证通过、1 epoch 训练成功（loss 0.95→0.39） |
 | 2026-02-21 | v0.5 | Allen 数据完成（5 sessions），POYO 基线脚本就绪，100-epoch 训练运行中 |
+| 2026-02-21 | v0.6 | POYO 基线 2 个 bug 修复（target 维度 + setup guard），POYO 基线 200-epoch 训练启动，与 NeuroHorizon 并行 |
 
 ---

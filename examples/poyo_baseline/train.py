@@ -156,6 +156,8 @@ class TrainWrapper(L.LightningModule):
                 continue
             pred = output[readout_id]
             target = target_values[readout_id].float()
+            if target.ndim == 1:
+                target = target.unsqueeze(-1)
 
             weights = 1.0
             if (
@@ -191,6 +193,8 @@ class TrainWrapper(L.LightningModule):
                 continue
             pred = output[readout_id]
             target = target_values[readout_id].float()
+            if target.ndim == 1:
+                target = target.unsqueeze(-1)
 
             weights = 1.0
             if (

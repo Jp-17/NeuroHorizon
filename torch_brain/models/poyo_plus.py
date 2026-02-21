@@ -99,7 +99,7 @@ class POYOPlus(nn.Module):
         self.unit_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
         self.session_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
         self.token_type_emb = Embedding(4, dim, init_scale=emb_init_scale)
-        self.task_emb = Embedding(len(readout_specs), dim, init_scale=emb_init_scale)
+        self.task_emb = Embedding(max(spec.id for spec in readout_specs.values()) + 1, dim, init_scale=emb_init_scale)
         self.latent_emb = Embedding(
             num_latents_per_step, dim, init_scale=emb_init_scale
         )
