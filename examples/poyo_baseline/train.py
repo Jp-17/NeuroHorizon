@@ -127,18 +127,16 @@ class TrainWrapper(L.LightningModule):
             weight_decay=self.cfg.optim.weight_decay,
         )
 
-        total_steps = self.trainer.estimated_stepping_batches
-        if total_steps < 1:
-            total_steps = 1
+        total_steps = max(self.trainer.estimated_stepping_batches, 1)
+        warmup_steps = int(total_steps * self.cfg.optim.warmup_frac)
 
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(
-            optimizer,
-            max_lr=max_lr,
-            total_steps=total_steps,
-            pct_start=self.cfg.optim.warmup_frac,
-            anneal_strategy="cos",
-            div_factor=25,
-        )
+        def lr_lambda(step):
+            if step < warmup_steps:
+                return (step + 1) / max(warmup_steps, 1)
+            progress = (step - warmup_steps) / max(total_steps - warmup_steps, 1)
+            return 0.5 * (1 + torch.cos(torch.tensor(progress * 3.14159)).item())
+
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
         return {
             "optimizer": optimizer,

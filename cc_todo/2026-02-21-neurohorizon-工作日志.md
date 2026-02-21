@@ -97,9 +97,16 @@
 
 ### 当前进行中
 
-#### Phase 0.3: Allen 数据下载
-- 后台运行中（已处理 4 个 session: 715093703, 719161530, 721123822, 732592105）
+#### Phase 0.3: Allen 数据下载 ✅
+- 后台运行完成，5 个 Allen sessions 下载并预处理：
+  - allen_715093703: 67.9M spikes, 875 units, 9629s
+  - allen_719161530: 64.6M spikes, 751 units, 9665s
+  - allen_721123822: 35.1M spikes, 439 units, 9811s
+  - allen_732592105: 60.4M spikes, 818 units, 9415s
+  - allen_737581020: 44.9M spikes, 566 units, 9277s
 - 修复了 Allen HDF5 中 running 组缺少 domain 的问题
+- 参考特征提取完成（33维/unit）
+- 数据验证全部通过
 
 #### Phase 2.5: 训练流程 ✅
 - 创建了 `examples/neurohorizon/train.py` — 训练脚本（PyTorch Lightning + Hydra）
@@ -138,9 +145,21 @@
   - `r2_binned_counts()`: 预测 rate vs 真实 spike counts 的 R²
 - 已集成到训练脚本的 validation_step 中
 
+#### Phase 1: POYO 基线 (进行中)
+- 创建了 `examples/poyo_baseline/train.py` — POYOPlus wheel velocity decoding baseline
+- 创建了 `IBLPOYODataset` — eager loading + config injection
+- 配置文件已创建（defaults, model, train）
+- 修复了 `warmup_frac` 配置缺失问题
+- 需要等 NeuroHorizon 100-epoch 训练完成后再全面运行（GPU 竞争）
+
+#### 100-epoch 训练进行中
+- 训练配置：batch_size=16, 10 IBL sessions, 100 epochs
+- 当前进度：epoch 0, step ~1043/3493, loss ~0.42-0.52
+- 后台运行中（PID 34659, GPU 3.8GB）
+
 ### 待完成
-- Phase 1: POYO 基线验证（IBL wheel velocity 解码）
-- 完整训练测试（1 epoch 后台运行中）
+- Phase 1: POYO 基线完整训练（等 GPU 资源）
+- NeuroHorizon 100-epoch 训练完成后分析结果
 - Phase 3: 多模态扩展
 - Phase 4: 实验
 - Phase 5: 分析与论文
@@ -166,5 +185,6 @@
 | 2026-02-21 | v0.2 | Phase 0 完成：环境搭建、IBL 数据管线（10 sessions）、参考特征提取、数据验证 |
 | 2026-02-21 | v0.3 | Phase 2.1-2.4 完成：PoissonNLLLoss、wheel_velocity 模态、IDEncoder、NeuroHorizon 模型（8.1M params） |
 | 2026-02-21 | v0.4 | Phase 2.5-2.6 完成：训练流程（EagerDataset + Hydra + Lightning）、评估指标、端到端验证通过、1 epoch 训练成功（loss 0.95→0.39） |
+| 2026-02-21 | v0.5 | Allen 数据完成（5 sessions），POYO 基线脚本就绪，100-epoch 训练运行中 |
 
 ---
