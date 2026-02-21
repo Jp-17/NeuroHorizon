@@ -414,6 +414,7 @@
 | 2026-02-21 | v0.9 | Phase 3 完成：多模态集成（model + tokenizer + collate + configs），实验基础设施（cross-session eval + ablation scripts），IDEncoder 消融模式 |
 | 2026-02-21 | v1.0 | Phase 3.5：多模态训练准备（union collate、多目录 EagerDataset、v2 configs、DINOv2 injection script），NH epoch 13 / POYO epoch 68 监控 |
 | 2026-02-21 | v1.1 | 图像 embedding 提取与注入完成（CLIP ViT-L/14），全模态 E2E 测试通过（image+behavior+neural），v2 配置完善 |
+| 2026-02-21 | v1.2 | 训练监控更新：NH v1 epoch 14 val_bps=-0.573（预计 epoch 27 转正），POYO epoch 84（8次验证全负 R²），auto_launch_v2 就绪 |
 
 ---
 
@@ -456,13 +457,40 @@
 3. **v2_mm**（全模态）：IBL+Allen 15 sessions，归一化特征，image + behavior 条件，200 epochs
    - 测试视觉刺激信息对编码预测的贡献
 
-#### 训练进度监控
-- **NeuroHorizon v1** (epoch 12/100):
-  - train_loss: ~0.43 (稳定下降)
-  - 验证指标：epoch 4 val_bps=-1.008, epoch 9 val_bps=-0.724 (+28% 改善)
-  - 下次验证在 epoch 14
-- **POYO 基线** (epoch 65/200):
-  - train_loss: ~1.5, val_loss: ~4.66 (严重过拟合)
-  - val_r2: epoch 59 = -0.210 (持续恶化)
-  - 最佳 checkpoint: epoch 39 (val_r2=-0.050, val_loss=4.495)
-  - LR decay at epoch 100 可能帮助，但 temporal distribution shift 是根本问题
+#### 训练进度监控 (最新更新)
+- **NeuroHorizon v1** (epoch 15/100, 15%):
+  - train_loss: ~0.40 (稳定下降)
+  - 验证指标：
+    | Epoch | val_loss | val_bits_per_spike |
+    |-------|----------|-------------------|
+    | 4     | 0.4670   | -1.0075           |
+    | 9     | 0.4214   | -0.7242           |
+    | 14    | 0.3982   | **-0.5729**       |
+  - BPS 改善率：+0.0435/epoch
+  - **预计 BPS=0（超过 null model）在 epoch ~27**
+  - 无过拟合（val_loss ≈ train_loss）
+  - 下次验证在 epoch 19
+- **POYO 基线** (epoch 84/200, 42%):
+  - train_loss: ~1.3 (持续下降)
+  - 验证指标：
+    | Epoch | val_loss | val_r2    |
+    |-------|----------|-----------|
+    | 9     | 5.043    | -0.1493   |
+    | 19    | 4.569    | -0.0668   |
+    | 29    | 4.617    | -0.1369   |
+    | 39    | 4.495    | **-0.0504** (best) |
+    | 49    | 5.065    | -0.2067   |
+    | 59    | 4.658    | -0.2095   |
+    | 69    | 4.924    | -0.1951   |
+    | 79    | 4.702    | -0.1521   |
+  - 严重过拟合，LR decay 尚未开始（epoch 100 开始）
+  - 最佳 checkpoint: epoch 39 (val_r2=-0.050)
+  - auto_launch_v2.sh 后台运行中，等待 POYO PID 完成后自动启动 NH v2
+- **GPU 状态**：
+  - PID 34659 (NH v1): 3826 MiB
+  - PID 46244 (POYO): 14804 MiB
+  - PID 61917 (其他项目 masking_pretrain): 3886 MiB
+  - 总占用 ~22.5 GiB / 24 GiB，POYO 完成后释放 ~15 GiB
+- **模型对比**（来自 compare_models.py）：
+  - NH v1 best val_loss=0.4214 vs POYO best val_loss=4.4949
+  - 注意：任务不同（neural encoding vs behavior decoding），loss 不直接可比

@@ -150,7 +150,7 @@ class TrainWrapper(L.LightningModule):
         target_values = batch["target_values"]
         target_weights = batch["target_weights"]
 
-        loss = 0.0
+        loss = torch.tensor(0.0, device=self.device, requires_grad=True)
         for readout_id, spec in self.model.readout_specs.items():
             if readout_id not in output:
                 continue
@@ -187,7 +187,7 @@ class TrainWrapper(L.LightningModule):
         target_values = batch["target_values"]
         target_weights = batch["target_weights"]
 
-        loss = 0.0
+        loss = torch.tensor(0.0, device=self.device)
         for readout_id, spec in self.model.readout_specs.items():
             if readout_id not in output:
                 continue
