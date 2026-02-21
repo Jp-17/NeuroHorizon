@@ -110,3 +110,33 @@ class MallowDistanceLoss(Loss):
         )
         loss = (weights * loss).sum() / weights.sum()
         return loss
+
+
+class PoissonNLLLoss(Loss):
+    r"""Poisson Negative Log-Likelihood Loss for spike count prediction.
+
+    Computes the Poisson NLL loss between predicted log-rates and target spike counts.
+    Input is expected to be log-rate (log lambda), target is non-negative spike counts.
+    """
+
+    def forward(
+        self,
+        input: TensorType["batch_size", "dim"],
+        target: TensorType["batch_size", "dim"],
+        weights: Optional[TensorType["batch_size"]] = None,
+    ) -> torch.Tensor:
+        r"""Compute Poisson NLL loss.
+
+        Args:
+            input (Tensor): Predicted log-rates, shape (batch_size, n_units).
+            target (Tensor): Target spike counts, shape (batch_size, n_units).
+            weights (Tensor, optional): Per-sample weights, shape (batch_size,).
+        """
+        # F.poisson_nll_loss with log_input=True: loss = exp(input) - target * input
+        loss = F.poisson_nll_loss(input, target, log_input=True, reduction="none")
+        # Average over the output dimension (units)
+        loss = loss.mean(dim=-1)
+
+        if weights is not None:
+            return (weights * loss).sum() / weights.sum()
+        return loss.mean()

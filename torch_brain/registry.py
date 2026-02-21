@@ -264,3 +264,12 @@ register_modality(
     value_key="pupil.size_2d",
     loss_fn=torch_brain.nn.loss.MSELoss(),
 )
+
+register_modality(
+    "wheel_velocity",
+    dim=1,
+    type=DataType.CONTINUOUS,
+    timestamp_key="behavior.timestamps",
+    value_key="behavior.wheel_velocity",
+    loss_fn=torch_brain.nn.loss.MSELoss(),
+)

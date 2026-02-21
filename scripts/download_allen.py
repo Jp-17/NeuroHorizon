@@ -148,37 +148,50 @@ def process_allen_session(cache, session_id: int, output_dir: Path, stimulus_nam
             running_vals = np.zeros(2)
             logger.warning(f"  No running speed data")
 
-        # Write HDF5
+        # Write HDF5 (temporaldata-compatible format)
         with h5py.File(output_file, "w") as f:
+            # Root attributes for temporaldata.Data
+            f.attrs["object"] = "Data"
+            f.attrs["absolute_start"] = 0.0
+
+            # Helper to create Interval groups
+            def create_interval(parent, name, starts, ends):
+                grp = parent.create_group(name)
+                grp.attrs["object"] = "Interval"
+                grp.attrs["timekeys"] = np.array([b"start", b"end"])
+                grp.attrs["allow_split_mask_overlap"] = False
+                grp.attrs["_unicode_keys"] = np.array([], dtype="S1")
+                grp.create_dataset("start", data=np.asarray(starts, dtype=np.float64))
+                grp.create_dataset("end", data=np.asarray(ends, dtype=np.float64))
+                return grp
+
             # Session
             session_grp = f.create_group("session")
-            session_grp.create_dataset("id", data=f"allen_{session_id}")
+            session_grp.attrs["object"] = "Data"
+            session_grp.attrs["absolute_start"] = 0.0
+            session_grp.attrs["id"] = f"allen_{session_id}"
 
             # Domain
-            domain_grp = f.create_group("domain")
-            domain_grp.create_dataset("start", data=np.array([t_start]))
-            domain_grp.create_dataset("end", data=np.array([t_end]))
+            create_interval(f, "domain", [t_start], [t_end])
 
             # Train/valid/test domains
-            for name, (s, e) in [
-                ("train_domain", (t_start, train_end)),
-                ("valid_domain", (train_end, valid_end)),
-                ("test_domain", (valid_end, t_end)),
-            ]:
-                grp = f.create_group(name)
-                grp.create_dataset("start", data=np.array([s]))
-                grp.create_dataset("end", data=np.array([e]))
+            create_interval(f, "train_domain", [t_start], [train_end])
+            create_interval(f, "valid_domain", [train_end], [valid_end])
+            create_interval(f, "test_domain", [valid_end], [t_end])
 
-            # Spikes
+            # Spikes - as IrregularTimeSeries
             spikes_grp = f.create_group("spikes")
-            spikes_grp.create_dataset("timestamps", data=spike_times)
-            spikes_grp.create_dataset("unit_index", data=spike_unit_idx)
-            spike_domain = spikes_grp.create_group("domain")
-            spike_domain.create_dataset("start", data=np.array([t_start]))
-            spike_domain.create_dataset("end", data=np.array([t_end]))
+            spikes_grp.attrs["object"] = "IrregularTimeSeries"
+            spikes_grp.attrs["timekeys"] = np.array([b"timestamps"])
+            spikes_grp.attrs["_unicode_keys"] = np.array([], dtype="S1")
+            spikes_grp.create_dataset("timestamps", data=spike_times.astype(np.float64))
+            spikes_grp.create_dataset("unit_index", data=spike_unit_idx.astype(np.int64))
+            create_interval(spikes_grp, "domain", [t_start], [t_end])
 
-            # Units
+            # Units - as ArrayDict
             units_grp = f.create_group("units")
+            units_grp.attrs["object"] = "ArrayDict"
+            units_grp.attrs["_unicode_keys"] = np.array([], dtype="S1")
             units_grp.create_dataset(
                 "id",
                 data=np.array(unit_id_list, dtype=h5py.special_dtype(vlen=str)),
@@ -188,16 +201,23 @@ def process_allen_session(cache, session_id: int, output_dir: Path, stimulus_nam
                 data=np.array(brain_region_list, dtype=h5py.special_dtype(vlen=str)),
             )
 
-            # Behavior (running speed)
+            # Behavior (running speed) - as IrregularTimeSeries
             running_grp = f.create_group("running")
-            running_grp.create_dataset("timestamps", data=running_ts)
-            running_grp.create_dataset("running_speed", data=running_vals)
+            running_grp.attrs["object"] = "IrregularTimeSeries"
+            running_grp.attrs["timekeys"] = np.array([b"timestamps"])
+            running_grp.attrs["_unicode_keys"] = np.array([], dtype="S1")
+            running_grp.create_dataset("timestamps", data=running_ts.astype(np.float64))
+            running_grp.create_dataset("running_speed", data=running_vals.astype(np.float64))
 
-            # Stimulus presentations
+            # Stimulus presentations - as Interval with extra fields
             for stim_name, stim_info in stim_data.items():
-                stim_grp = f.create_group(stim_name)
-                for key, val in stim_info.items():
-                    stim_grp.create_dataset(key, data=val)
+                stim_grp = create_interval(
+                    f, stim_name,
+                    stim_info["start_time"],
+                    stim_info["stop_time"],
+                )
+                if "frame" in stim_info:
+                    stim_grp.create_dataset("frame", data=stim_info["frame"])
 
         n_spikes = len(spike_times)
         n_units = len(unit_id_list)

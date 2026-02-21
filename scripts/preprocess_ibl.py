@@ -90,9 +90,8 @@ def process_session(one, eid: str, output_dir: Path, min_good_units: int = 10):
         return True
 
     try:
-        # Load spike sorting data using SpikeSortingLoader
-        from brainbox.io.one import SpikeSortingLoader
-
+        # Load spike data directly via ONE API
+        # Get probe insertions for this session
         pids = one.alyx.rest("insertions", "list", session=eid)
         if not pids:
             logger.warning(f"  No probe insertions for {eid}")
@@ -106,56 +105,56 @@ def process_session(one, eid: str, output_dir: Path, min_good_units: int = 10):
         unit_offset = 0
 
         for pid_info in pids:
-            pid = pid_info["id"]
             probe_name = pid_info.get("name", "probe00")
 
             try:
-                ssl = SpikeSortingLoader(pid=pid, one=one)
-                spikes, clusters, channels = ssl.load_spike_sorting()
-                clusters = ssl.merge_clusters(spikes, clusters, channels)
-            except Exception as e:
-                logger.warning(f"  Failed to load probe {probe_name} for {eid}: {e}")
+                # Load spike sorting data
+                spike_times_probe = one.load_dataset(eid, "spikes.times", collection=f"alf/{probe_name}/pykilosort")
+                spike_clusters_probe = one.load_dataset(eid, "spikes.clusters", collection=f"alf/{probe_name}/pykilosort")
+            except Exception:
+                # Try without specifying collection (let ONE find it)
+                try:
+                    spike_times_probe = one.load_dataset(eid, "spikes.times")
+                    spike_clusters_probe = one.load_dataset(eid, "spikes.clusters")
+                except Exception as e:
+                    logger.warning(f"  Failed to load spikes for {probe_name}: {e}")
+                    continue
+
+            if spike_times_probe is None or len(spike_times_probe) == 0:
                 continue
 
-            if spikes is None or len(spikes.get("times", [])) == 0:
-                continue
+            # Try to load cluster quality labels
+            try:
+                cluster_metrics = one.load_dataset(eid, "clusters.metrics", collection=f"alf/{probe_name}/pykilosort")
+                if hasattr(cluster_metrics, 'label'):
+                    good_mask = cluster_metrics['label'] == 1
+                    good_cluster_ids = np.where(good_mask)[0]
+                else:
+                    # Use all clusters if no label
+                    unique_clusters = np.unique(spike_clusters_probe)
+                    good_cluster_ids = unique_clusters
+            except Exception:
+                # No quality labels, use all clusters
+                unique_clusters = np.unique(spike_clusters_probe)
+                good_cluster_ids = unique_clusters
 
-            # Quality filter: label == 1 (good)
-            if "label" in clusters:
-                good_mask = clusters["label"] == 1
-            elif "metrics" in clusters and hasattr(clusters["metrics"], "label"):
-                good_mask = clusters["metrics"]["label"] == 1
-            else:
-                # If no quality label, use all clusters
-                good_mask = np.ones(len(clusters.get("cluster_id", [])), dtype=bool)
-
-            good_cluster_ids = np.where(good_mask)[0]
             if len(good_cluster_ids) == 0:
                 continue
 
             # Filter spikes to good clusters
-            spike_cluster = spikes["clusters"]
-            spike_in_good = np.isin(spike_cluster, good_cluster_ids)
-            filtered_spike_times = spikes["times"][spike_in_good]
-            filtered_spike_clusters = spike_cluster[spike_in_good]
+            spike_in_good = np.isin(spike_clusters_probe, good_cluster_ids)
+            filtered_spike_times = spike_times_probe[spike_in_good]
+            filtered_spike_clusters = spike_clusters_probe[spike_in_good]
 
             # Remap cluster IDs to contiguous local indices
-            cluster_to_local = {c: i for i, c in enumerate(good_cluster_ids)}
+            cluster_to_local = {int(c): i for i, c in enumerate(good_cluster_ids)}
             filtered_spike_local_idx = np.array(
-                [cluster_to_local[c] + unit_offset for c in filtered_spike_clusters]
+                [cluster_to_local[int(c)] + unit_offset for c in filtered_spike_clusters]
             )
 
             # Unit IDs: globally unique (eid/probe/cluster_id)
-            unit_ids = [f"{eid}/{probe_name}/cluster_{c}" for c in good_cluster_ids]
-
-            # Brain regions per unit
-            if "acronym" in clusters:
-                brain_regions = [
-                    clusters["acronym"][c] if c < len(clusters["acronym"]) else "unknown"
-                    for c in good_cluster_ids
-                ]
-            else:
-                brain_regions = ["unknown"] * len(good_cluster_ids)
+            unit_ids = [f"{eid}/{probe_name}/cluster_{int(c)}" for c in good_cluster_ids]
+            brain_regions = ["unknown"] * len(good_cluster_ids)
 
             all_spike_times.append(filtered_spike_times)
             all_spike_unit_idx.append(filtered_spike_local_idx)
@@ -215,41 +214,50 @@ def process_session(one, eid: str, output_dir: Path, min_good_units: int = 10):
         train_end = t_start + duration * 0.8
         valid_end = t_start + duration * 0.9
 
-        # Write HDF5 file
+        # Write HDF5 file (temporaldata-compatible format)
         with h5py.File(output_file, "w") as f:
+            # Root attributes for temporaldata.Data
+            f.attrs["object"] = "Data"
+            f.attrs["absolute_start"] = 0.0
+
             # Session info
             session_grp = f.create_group("session")
-            session_grp.create_dataset("id", data=eid)
+            session_grp.attrs["object"] = "Data"
+            session_grp.attrs["absolute_start"] = 0.0
+            session_grp.attrs["id"] = eid
+
+            # Helper to create Interval groups
+            def create_interval(parent, name, starts, ends):
+                grp = parent.create_group(name)
+                grp.attrs["object"] = "Interval"
+                grp.attrs["timekeys"] = np.array([b"start", b"end"])
+                grp.attrs["allow_split_mask_overlap"] = False
+                grp.attrs["_unicode_keys"] = np.array([], dtype="S1")
+                grp.create_dataset("start", data=np.asarray(starts, dtype=np.float64))
+                grp.create_dataset("end", data=np.asarray(ends, dtype=np.float64))
+                return grp
 
             # Domain (full session)
-            domain_grp = f.create_group("domain")
-            domain_grp.create_dataset("start", data=np.array([t_start]))
-            domain_grp.create_dataset("end", data=np.array([t_end]))
+            create_interval(f, "domain", [t_start], [t_end])
 
             # Train/valid/test domains
-            train_domain = f.create_group("train_domain")
-            train_domain.create_dataset("start", data=np.array([t_start]))
-            train_domain.create_dataset("end", data=np.array([train_end]))
+            create_interval(f, "train_domain", [t_start], [train_end])
+            create_interval(f, "valid_domain", [train_end], [valid_end])
+            create_interval(f, "test_domain", [valid_end], [t_end])
 
-            valid_domain = f.create_group("valid_domain")
-            valid_domain.create_dataset("start", data=np.array([train_end]))
-            valid_domain.create_dataset("end", data=np.array([valid_end]))
-
-            test_domain = f.create_group("test_domain")
-            test_domain.create_dataset("start", data=np.array([valid_end]))
-            test_domain.create_dataset("end", data=np.array([t_end]))
-
-            # Spikes
+            # Spikes - as IrregularTimeSeries
             spikes_grp = f.create_group("spikes")
+            spikes_grp.attrs["object"] = "IrregularTimeSeries"
+            spikes_grp.attrs["timekeys"] = np.array([b"timestamps"])
+            spikes_grp.attrs["_unicode_keys"] = np.array([], dtype="S1")
             spikes_grp.create_dataset("timestamps", data=spike_times.astype(np.float64))
             spikes_grp.create_dataset("unit_index", data=spike_unit_idx.astype(np.int64))
-            # Spike domain
-            spike_domain = spikes_grp.create_group("domain")
-            spike_domain.create_dataset("start", data=np.array([t_start]))
-            spike_domain.create_dataset("end", data=np.array([t_end]))
+            create_interval(spikes_grp, "domain", [t_start], [t_end])
 
-            # Units
+            # Units - as ArrayDict
             units_grp = f.create_group("units")
+            units_grp.attrs["object"] = "ArrayDict"
+            units_grp.attrs["_unicode_keys"] = np.array([], dtype="S1")
             units_grp.create_dataset(
                 "id",
                 data=np.array(all_unit_ids, dtype=h5py.special_dtype(vlen=str)),
@@ -263,19 +271,28 @@ def process_session(one, eid: str, output_dir: Path, min_good_units: int = 10):
                 data=np.array(all_unit_quality, dtype=np.int64),
             )
 
-            # Behavior (wheel)
+            # Behavior (wheel) - as IrregularTimeSeries
             behavior_grp = f.create_group("behavior")
+            behavior_grp.attrs["object"] = "IrregularTimeSeries"
+            behavior_grp.attrs["timekeys"] = np.array([b"timestamps"])
+            behavior_grp.attrs["_unicode_keys"] = np.array([], dtype="S1")
             behavior_grp.create_dataset("timestamps", data=wheel_ts.astype(np.float64))
             behavior_grp.create_dataset(
                 "wheel_velocity", data=wheel_velocity.astype(np.float64)
             )
 
-            # Trials
-            trials_grp = f.create_group("trials")
+            # Trials - as Interval
+            trials_grp = create_interval(f, "trials", [], [])
             if trial_data.get("intervals") is not None:
                 intervals = trial_data["intervals"]
-                trials_grp.create_dataset("start", data=intervals[:, 0].astype(np.float64))
-                trials_grp.create_dataset("end", data=intervals[:, 1].astype(np.float64))
+                del trials_grp["start"]
+                del trials_grp["end"]
+                trials_grp.create_dataset(
+                    "start", data=intervals[:, 0].astype(np.float64)
+                )
+                trials_grp.create_dataset(
+                    "end", data=intervals[:, 1].astype(np.float64)
+                )
             for key in ["stimOn_times", "response_times", "choice", "contrastLeft",
                         "contrastRight", "feedbackType"]:
                 if trial_data.get(key) is not None:
@@ -340,19 +357,13 @@ def main():
         cache_dir=str(args.cache_dir),
     )
 
-    # Get sessions
+    # Get sessions (simple query to avoid timeout with complex django filters)
     logger.info("Querying BWM sessions...")
     sessions = one.alyx.rest(
         "sessions",
         "list",
         task_protocol="ephys",
         project="brainwide",
-        performance_gte=70,
-        django=(
-            "extended_qc__behavior,1,"
-            "~json__IS_MOCK,True,"
-            "n_correct_trials__gte,400"
-        ),
     )
     logger.info(f"Found {len(sessions)} BWM sessions")
 

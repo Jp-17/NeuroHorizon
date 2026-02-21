@@ -44,9 +44,9 @@ def validate_hdf5_file(filepath: Path) -> list[str]:
             f.close()
             return errors
 
-        # 2. Check session.id
+        # 2. Check session.id (stored as group attribute in temporaldata format)
         session_grp = f["session"]
-        if "id" not in session_grp:
+        if "id" not in session_grp.attrs and "id" not in session_grp:
             errors.append("Missing session/id")
 
         # 3. Check domain

@@ -1,6 +1,7 @@
 # embedding layers
 from .embedding import Embedding
 from .infinite_vocab_embedding import InfiniteVocabEmbedding
+from .id_encoder import IDEncoder
 
 # rotary attention-based models
 from .position_embeddings import RotaryTimeEmbedding, SinusoidalTimeEmbedding

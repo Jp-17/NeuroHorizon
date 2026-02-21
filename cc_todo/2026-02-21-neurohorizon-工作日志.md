@@ -23,29 +23,112 @@
 - Jia Lab 数据：确认不可用，使用 IBL + Allen Natural Movies 替代
 - 执行顺序：数据管线优先 (Phase 0)
 
+#### 4. Phase 0.1: 环境扩展 ✅
+- poyo 环境：安装了 ONE-api, ibllib（IBL 数据依赖）
+- allen 环境：独立 conda 环境安装 allensdk（与 poyo 依赖冲突，numpy 版本不兼容）
+- scipy 已有
+- 遇到问题：allensdk 要求 numpy==1.23.5，与 IBL 依赖冲突 → 解决方案：独立环境
+
+#### 5. Phase 0.2: IBL 数据下载与预处理 ✅
+- 创建了 `scripts/download_ibl.py` — IBL 数据下载脚本
+- 创建了 `scripts/preprocess_ibl.py` — 数据转 HDF5（temporaldata 格式）
+- 成功处理 10 个 IBL session（12 个中 2 个失败：1 个 good units < 10，1 个下载异常）
+- HDF5 格式包含完整的 temporaldata 元数据属性（object, timekeys, absolute_start 等）
+- 遇到问题：
+  1. Alyx REST 查询使用复杂 django filter 导致超时 → 简化为 task_protocol + project
+  2. SpikeSortingLoader 接口复杂 → 改用直接 ONE API 加载
+  3. 初始 HDF5 缺少 temporaldata 元数据属性 → 参照 brainsets 格式添加
+
+**IBL 数据统计（10 sessions）：**
+| Session | Spikes | Units | Duration |
+|---------|--------|-------|----------|
+| a7eba2cf | 31,168,943 | 302 | 5382s |
+| c46b8def | 27,860,790 | 294 | 5015s |
+| ebce500b | 13,133,018 | 291 | 7200s |
+| 5ae68c54 | 12,355,315 | 134 | 5853s |
+| 11163613 | 7,638,177 | 138 | 5031s |
+| 15b69921 | 6,953,627 | 128 | 5014s |
+| 6899a67d | 2,996,599 | 80 | 6499s |
+| de905562 | 2,191,468 | 19 | 4019s |
+| e6594a5b | 1,586,392 | 70 | 4699s |
+| d85c454e | 454,639 | 17 | 3691s |
+
+#### 6. Phase 0.3: Allen 数据下载 (进行中)
+- 创建了 `scripts/download_allen.py` — Allen Neuropixels 下载+预处理脚本
+- 更新了 HDF5 写入格式为 temporaldata 兼容
+- 后台运行中，已处理 1 个 session (allen_715093703)
+
+#### 7. Phase 0.4: 参考特征提取 ✅
+- 创建了 `scripts/extract_reference_features.py` — IDEncoder 输入特征提取
+- 每个 unit 提取 33 维特征：firing rate(1) + ISI CV(1) + ISI log-histogram(20) + autocorrelation(10) + Fano factor(1)
+- 使用 60s 参考窗口从 session 开头提取
+- 10 个 IBL session 全部提取完成，特征存储在 HDF5 的 `units.reference_features` 字段
+
+#### 8. Phase 0.5: 数据验证 ✅
+- 创建了 `scripts/validate_data.py` — HDF5 完整性验证
+- 修复了 session.id 检查（属性 vs 数据集）
+- 10 个 IBL HDF5 文件全部通过验证
+- `torch_brain.dataset.Dataset` 加载测试通过
+
+#### 9. Phase 2.1: PoissonNLLLoss ✅
+- 在 `torch_brain/nn/loss.py` 中添加了 `PoissonNLLLoss(Loss)` 类
+- 支持 log-rate 输入 + spike count 目标 + 可选权重
+
+#### 10. Phase 2.2: 注册 wheel_velocity 模态 ✅
+- 在 `torch_brain/registry.py` 中注册了 `wheel_velocity` 模态（IBL wheel velocity 解码）
+
+#### 11. Phase 2.3: IDEncoder 实现 ✅
+- 创建了 `torch_brain/nn/id_encoder.py`
+- 3 层 MLP (Linear + GELU + LayerNorm)，输入 33 维 → 输出 model_dim
+- 支持 compute_embeddings() 预计算 + forward() 索引查找
+- 更新了 `torch_brain/nn/__init__.py` 导出
+
+#### 12. Phase 2.4: NeuroHorizon 模型 ✅
+- 创建了 `torch_brain/models/neurohorizon.py`
+- 架构组件：
+  - CausalRotarySelfAttention：因果自注意力（decoder 用）
+  - PerNeuronHead：共享 per-neuron MLP head（处理可变 n_units）
+  - NeuroHorizon：完整模型（Encoder-Processor-Decoder）
+- Small 配置：8.1M 参数（dim=256, depth=4, dec_depth=2）
+- 合成数据上 forward pass + backward pass 验证通过
+- 包含 tokenize() 方法用于数据预处理
+- 包含 compute_loss() 方法用于 Poisson NLL 损失计算
+- 更新了 `torch_brain/models/__init__.py` 导出
+
 ### 当前进行中
 
-#### Phase 0.1: 环境扩展
-- 目标：在 conda `poyo` 环境中安装 IBL/Allen 数据下载依赖
-- 状态：开始执行
+#### Phase 0.3: Allen 数据下载
+- 后台运行中（5 sessions）
+
+#### Phase 2.5: 训练流程
+- 需要创建 `examples/neurohorizon/train.py`
+- 需要创建 Hydra 配置文件
+
+#### Phase 2.6: 评估指标
+- 需要创建 `torch_brain/utils/neurohorizon_metrics.py`
 
 ### 待完成
-- Phase 0.2: IBL 数据下载脚本与预处理
-- Phase 0.3: Allen 数据下载脚本与预处理
-- Phase 0.4: 参考特征提取
-- Phase 0.5: 数据验证
-- Phase 1: POYO 基线验证
-- Phase 2: NeuroHorizon 核心模型实现
+- Phase 1: POYO 基线验证（IBL wheel velocity 解码）
+- Phase 2.5-2.6: 训练流程 + 评估指标
 - Phase 3: 多模态扩展
 - Phase 4: 实验
 - Phase 5: 分析与论文
 
-### 遇到的问题
-（暂无）
+### 遇到的问题与解决方案
+
+| 问题 | 解决方案 |
+|------|----------|
+| allensdk 与 IBL 依赖 numpy 版本冲突 | 创建独立 allen conda 环境 |
+| IBL Alyx REST 复杂 django filter 超时 | 简化查询：仅用 task_protocol + project |
+| SpikeSortingLoader 接口复杂 | 改用直接 ONE API (one.load_dataset) |
+| HDF5 缺少 temporaldata 元数据属性 | 参照 brainsets 格式添加 object/timekeys/absolute_start 属性 |
+| validate_data.py 检查 session.id 方式错误 | 修复为同时检查属性和数据集 |
 
 ### 版本记录
 | 日期 | 版本 | 描述 |
 |------|------|------|
 | 2026-02-21 | v0.1 | 项目分析完成，计划制定，开始执行 Phase 0 |
+| 2026-02-21 | v0.2 | Phase 0 完成：环境搭建、IBL 数据管线（10 sessions）、参考特征提取、数据验证 |
+| 2026-02-21 | v0.3 | Phase 2.1-2.4 完成：PoissonNLLLoss、wheel_velocity 模态、IDEncoder、NeuroHorizon 模型（8.1M params） |
 
 ---
