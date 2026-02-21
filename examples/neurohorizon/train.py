@@ -23,7 +23,7 @@ from lightning.pytorch.callbacks import (
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
-from torch_brain.data import collate
+from torch_brain.data import collate, pad8, track_mask8
 from torch_brain.data.sampler import RandomFixedWindowSampler
 from torch_brain.dataset import Dataset, DatasetIndex
 from torch_brain.dataset.dataset import _ensure_index_has_namespace
@@ -86,22 +86,37 @@ def neurohorizon_collate(batch):
 
     Handles variable n_units across sessions by padding to max_n_units.
     Padded8Object items (from pad8/track_mask8) are collated via torch_brain.data.collate.
-    Only collates keys present in ALL samples (multimodal keys may be absent).
+
+    Multimodal keys (image_*, behavior_*) use union semantics: if any sample
+    in the batch has a multimodal key, missing samples get zero-padded tensors
+    with False masks so the model can gracefully skip them.
     """
     max_n_units = max(b["n_units"] for b in batch)
     batch_size = len(batch)
 
-    # Use intersection of keys across all samples (multimodal keys may be absent)
-    all_keys = set(batch[0]["model_inputs"].keys())
+    # Multimodal keys that use optional union semantics
+    MULTIMODAL_KEYS = {
+        "image_embeddings", "image_timestamps", "image_mask",
+        "behavior_values", "behavior_timestamps", "behavior_mask",
+    }
+
+    # Core keys: use intersection (must be present in all samples)
+    core_keys = set(batch[0]["model_inputs"].keys()) - MULTIMODAL_KEYS
     for b in batch[1:]:
-        all_keys &= set(b["model_inputs"].keys())
+        core_keys &= (set(b["model_inputs"].keys()) - MULTIMODAL_KEYS)
+
+    # Multimodal keys: use union (present in at least one sample)
+    mm_keys_present = set()
+    for b in batch:
+        mm_keys_present |= (set(b["model_inputs"].keys()) & MULTIMODAL_KEYS)
 
     model_inputs = {}
-    for key in all_keys:
+
+    # Collate core keys
+    for key in core_keys:
         items = [b["model_inputs"][key] for b in batch]
 
         if key == "reference_features":
-            # Pad to (B, max_n_units, ref_dim)
             ref_dim = items[0].shape[-1]
             padded = np.zeros((batch_size, max_n_units, ref_dim), dtype=np.float32)
             for i, b in enumerate(batch):
@@ -109,11 +124,14 @@ def neurohorizon_collate(batch):
                 padded[i, :n] = b["model_inputs"][key]
             model_inputs[key] = torch.tensor(padded)
         elif isinstance(items[0], np.ndarray):
-            # Regular numpy arrays (bin_timestamps, latent_index, etc.)
             model_inputs[key] = torch.tensor(np.stack(items))
         else:
-            # Padded8Object from pad8/track_mask8 - use torch_brain collate
+            # Padded8Object from pad8/track_mask8
             model_inputs[key] = collate(items)
+
+    # Collate multimodal keys with union semantics
+    if mm_keys_present:
+        _collate_multimodal_keys(batch, model_inputs, mm_keys_present)
 
     # Unit mask for variable n_units padding
     unit_mask = torch.zeros(batch_size, max_n_units, dtype=torch.bool)
@@ -135,6 +153,72 @@ def neurohorizon_collate(batch):
         "session_id": [b["session_id"] for b in batch],
         "n_units": [b["n_units"] for b in batch],
     }
+
+
+def _collate_multimodal_keys(batch, model_inputs, mm_keys_present):
+    """Collate multimodal keys using union semantics with zero-padding.
+
+    Groups multimodal keys by modality (image, behavior). For each modality,
+    finds the max sequence length across samples that have it, then pads
+    missing samples with zeros and False masks.
+    """
+    batch_size = len(batch)
+
+    # Group keys by modality prefix
+    modalities = {}
+    for key in mm_keys_present:
+        prefix = key.split("_")[0]  # "image" or "behavior"
+        modalities.setdefault(prefix, []).append(key)
+
+    for prefix, keys in modalities.items():
+        mask_key = f"{prefix}_mask"
+        # Determine if this modality uses Padded8Object (from pad8/track_mask8)
+        # Find a sample that has these keys to determine the format
+        ref_sample = None
+        for b in batch:
+            if keys[0] in b["model_inputs"]:
+                ref_sample = b
+                break
+        if ref_sample is None:
+            continue
+
+        # For Padded8Object items, we need to handle them via collate()
+        # For missing samples, create zero-length Padded8Objects
+        for key in keys:
+            ref_item = ref_sample["model_inputs"].get(key)
+            if ref_item is None:
+                continue
+
+            if hasattr(ref_item, 'data'):
+                # Padded8Object: create zero-length padded objects for missing
+                items = []
+                for b in batch:
+                    if key in b["model_inputs"]:
+                        items.append(b["model_inputs"][key])
+                    else:
+                        # Create empty Padded8Object matching the reference shape
+                        if key == mask_key:
+                            items.append(track_mask8(np.array([], dtype=np.float64)))
+                        else:
+                            items.append(pad8(np.array([], dtype=ref_item.data.dtype).reshape(0, *ref_item.data.shape[1:]) if ref_item.data.ndim > 1 else np.array([], dtype=ref_item.data.dtype)))
+                model_inputs[key] = collate(items)
+            elif isinstance(ref_item, np.ndarray):
+                # Regular numpy array: pad to max length
+                max_len = 0
+                for b in batch:
+                    if key in b["model_inputs"]:
+                        max_len = max(max_len, b["model_inputs"][key].shape[0])
+                if max_len == 0:
+                    continue
+
+                shape = list(ref_item.shape)
+                shape[0] = max_len
+                padded = np.zeros([batch_size] + shape, dtype=ref_item.dtype)
+                for i, b in enumerate(batch):
+                    if key in b["model_inputs"]:
+                        arr = b["model_inputs"][key]
+                        padded[i, :arr.shape[0]] = arr
+                model_inputs[key] = torch.tensor(padded)
 
 
 class NHTrainWrapper(L.LightningModule):
