@@ -289,9 +289,38 @@
 - NeuroHorizon 100-epoch 训练完成后分析结果（bits/spike 是否从 -1.0 提升至正值）
 - POYO 基线 200-epoch 训练完成后分析结果（LR decay 后 val_r2 是否回升）
 - 训练完成后用归一化特征重新训练 NeuroHorizon（预期显著改善 IDEncoder 效果）
-- Phase 3: 多模态扩展（模块已创建，需集成到 NeuroHorizon 模型）
+- ~~Phase 3: 多模态扩展（模块已创建，需集成到 NeuroHorizon 模型）~~ ✅ 已完成
 - Phase 4: 实验
 - Phase 5: 分析与论文
+
+#### Phase 3: 多模态集成到 NeuroHorizon ✅
+- 在 `torch_brain/models/neurohorizon.py` 中集成 `MultimodalEncoder`
+  - 新参数：`use_multimodal`, `multimodal_every`, `image_dim`, `behavior_dim`
+  - 在编码器 self-attention 层间插入多模态交叉注意力（每 N 层一次）
+  - 向后兼容：`use_multimodal=False` 默认值保持现有配置不变
+  - 支持优雅降级：多模态模型可在无多模态输入时正常运行
+- `_tokenize_multimodal()` 自动从 Data 对象提取行为数据
+  - Allen: `data.running.running_speed`（~40Hz）
+  - IBL: `data.behavior.wheel_velocity`
+  - 图像 embedding 预留（DINOv2 提取后生效）
+- 更新 collate 函数：union 语义处理多模态 key（缺失样本零填充+False mask）
+- 新配置：`neurohorizon_small_mm.yaml`（~10.5M params），`defaults_allen.yaml`
+- 测试通过：forward/backward + tokenizer（Allen+IBL 数据）
+
+#### 实验基础设施 ✅
+- 创建了 `scripts/evaluate_cross_session.py` — 跨 session 泛化评估
+  - 计算 in-distribution vs cross-session bits/spike gap
+  - 支持指定 train/test session 分组
+- 创建了 `scripts/run_ablations.py` — 消融实验运行器
+  - 支持 IDEncoder、prediction horizon、bin_size 消融
+  - 可配置 overrides，支持 dry-run 模式
+
+#### IDEncoder 消融支持 ✅
+- 在 NeuroHorizon 模型中添加 `embedding_mode` 参数
+  - `"idencoder"`（默认）：3 层 MLP，从参考特征生成 unit embedding
+  - `"random"`：固定随机投影（无梯度），消融基线
+  - `"mean"`：简单线性投影，测试 MLP 深度贡献
+- 所有模式 forward/backward 测试通过
 
 ### 遇到的问题与解决方案
 
@@ -325,5 +354,6 @@
 | 2026-02-21 | v0.7 | deepcopy 瓶颈修复（POYO+NH），参考特征归一化，评估脚本，多模态模块，multimodal 代码，训练监控 |
 | 2026-02-21 | v0.7 | 参考特征归一化（z-score），评估脚本（NH + POYO），训练代码改进（更多验证指标 + gradient clipping） |
 | 2026-02-21 | v0.8 | 训练监控更新：NH epoch 10 (bps -0.72↑), POYO epoch 51 (r2 -0.21↓严重过拟合), 多模态集成准备 |
+| 2026-02-21 | v0.9 | Phase 3 完成：多模态集成（model + tokenizer + collate + configs），实验基础设施（cross-session eval + ablation scripts），IDEncoder 消融模式 |
 
 ---
