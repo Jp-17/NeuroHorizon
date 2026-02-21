@@ -282,6 +282,7 @@
 | Hydra _target_ 被外部还原为 POYOPlus | 在代码中绕过 hydra.utils.instantiate，显式 POYO() |
 | R2 形状不匹配 (N,1) vs (N,) | .view(-1) 展平后再计算 R² |
 | 参考特征尺度差异极大（firing_rate max=224 vs isi_hist max~1） | z-score 归一化（mean=0, std=1），原始备份到 reference_features_raw |
+| EagerDataset deepcopy 瓶颈 (POYO 训练卡在 step 663) | 覆写 __getitem__ 避免 copy.deepcopy，Data.slice() 已返回新对象 |
 
 ### 版本记录
 | 日期 | 版本 | 描述 |
@@ -292,6 +293,7 @@
 | 2026-02-21 | v0.4 | Phase 2.5-2.6 完成：训练流程（EagerDataset + Hydra + Lightning）、评估指标、端到端验证通过、1 epoch 训练成功（loss 0.95→0.39） |
 | 2026-02-21 | v0.5 | Allen 数据完成（5 sessions），POYO 基线脚本就绪，100-epoch 训练运行中 |
 | 2026-02-21 | v0.6 | POYO 基线 2 个 bug 修复（target 维度 + setup guard），POYO 基线 200-epoch 训练启动，与 NeuroHorizon 并行 |
+| 2026-02-21 | v0.7 | deepcopy 瓶颈修复（POYO+NH），参考特征归一化，评估脚本，多模态模块，multimodal 代码，训练监控 |
 | 2026-02-21 | v0.7 | 参考特征归一化（z-score），评估脚本（NH + POYO），训练代码改进（更多验证指标 + gradient clipping） |
 
 ---
