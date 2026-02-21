@@ -120,6 +120,15 @@
   4. Padded8Object collation → 使用 `torch_brain.data.collate()` 处理
 - 端到端测试通过：batch_size=4, 3 sessions, forward + backward + optimizer step + metrics 全部正常
 
+#### 首次完整训练验证 ✅
+- 训练配置：batch_size=16, 10 IBL sessions, bf16-mixed, AdamW + OneCycleLR
+- **1 epoch 结果**：
+  - Train loss: 0.95 → 0.39（7000 步）
+  - Val loss: 0.475
+  - Val bits/spike: -1.09（模型尚未超过 null model，训练初期正常）
+  - Epoch 耗时: ~51 分钟
+- Checkpoint 已保存至 `logs/neurohorizon/lightning_logs/`
+
 #### Phase 2.6: 评估指标 ✅
 - 创建了 `torch_brain/utils/neurohorizon_metrics.py`
 - 指标：
@@ -156,6 +165,6 @@
 | 2026-02-21 | v0.1 | 项目分析完成，计划制定，开始执行 Phase 0 |
 | 2026-02-21 | v0.2 | Phase 0 完成：环境搭建、IBL 数据管线（10 sessions）、参考特征提取、数据验证 |
 | 2026-02-21 | v0.3 | Phase 2.1-2.4 完成：PoissonNLLLoss、wheel_velocity 模态、IDEncoder、NeuroHorizon 模型（8.1M params） |
-| 2026-02-21 | v0.4 | Phase 2.5-2.6 完成：训练流程（EagerDataset + Hydra + Lightning）、评估指标、端到端验证通过 |
+| 2026-02-21 | v0.4 | Phase 2.5-2.6 完成：训练流程（EagerDataset + Hydra + Lightning）、评估指标、端到端验证通过、1 epoch 训练成功（loss 0.95→0.39） |
 
 ---

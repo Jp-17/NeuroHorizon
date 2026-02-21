@@ -1,0 +1,35 @@
+# POYO baseline default training configuration (wheel velocity decoding)
+
+# Paths
+data_dir: /root/autodl-tmp/datasets/ibl_processed
+log_dir: ./logs/poyo_baseline
+
+# Training
+epochs: 200
+batch_size: 64
+eval_epochs: 10
+eval_batch_size: null
+seed: 42
+
+# Optimizer (SparseLamb)
+optim:
+  base_lr: 3.125e-5  # scaled by batch_size -> effective 2e-3
+  weight_decay: 1e-4
+  lr_decay_start: 0.5
+
+# Logging
+wandb:
+  enable: false
+  entity: null
+  project: poyo_baseline
+  run_name: poyo_baseline_ibl
+  log_model: false
+
+# GPU / CPU
+precision: bf16-mixed
+nodes: 1
+gpus: 1
+num_workers: 4
+
+# Checkpointing
+ckpt_path: null

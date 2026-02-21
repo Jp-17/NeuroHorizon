@@ -1,0 +1,8 @@
+# POYO+ baseline training config
+defaults:
+  - defaults
+  - model: poyo_small
+  - _self_
+
+wandb:
+  run_name: poyo_baseline_${model}
