@@ -29,6 +29,7 @@ from torch.utils.data import DataLoader
 from torch_brain.data import collate
 from torch_brain.data.sampler import RandomFixedWindowSampler
 from torch_brain.dataset import Dataset, DatasetIndex
+from torch_brain.dataset.dataset import _ensure_index_has_namespace
 from torch_brain.models.poyo import POYO
 from torch_brain.optim import SparseLamb
 from torch_brain.registry import MODALITY_REGISTRY, ModalitySpec
@@ -50,7 +51,8 @@ class IBLEagerDataset(Dataset):
     """Dataset for IBL data with eager loading and POYO-compatible interface.
 
     Injects readout config into Data objects so POYO's tokenize can use
-    prepare_for_readout.
+    prepare_for_readout. Overrides __getitem__ to avoid deep-copying large
+    Data objects (which is extremely slow with millions of spikes).
     """
 
     def __init__(self, dataset_dir, transform=None):
@@ -71,6 +73,20 @@ class IBLEagerDataset(Dataset):
                 data.config = IBL_READOUT_CONFIG
                 self._data_objects[r] = data
 
+    def __getitem__(self, index):
+        """Get a time-sliced sample without deep-copying the full recording.
+
+        Data.slice() returns a new object, so the original is not modified.
+        This avoids the extremely slow deepcopy of Data objects with millions of spikes.
+        """
+        index = _ensure_index_has_namespace(index)
+        data = self._data_objects[index.recording_id]
+        sample = data.slice(index.start, index.end)
+        sample.config = IBL_READOUT_CONFIG
+        if self.transform is not None:
+            sample = self.transform(sample)
+        return sample
+
     def get_recording_hook(self, data):
         """Inject config into recordings."""
         data.config = IBL_READOUT_CONFIG
@@ -79,9 +95,9 @@ class IBLEagerDataset(Dataset):
         """Return all unique unit IDs across all recordings."""
         all_ids = []
         for rid in self.recording_ids:
-            rec = self.get_recording(rid)
-            if hasattr(rec, "units") and hasattr(rec.units, "id"):
-                all_ids.extend(rec.units.id.tolist())
+            data = self._data_objects[rid]
+            if hasattr(data, "units") and hasattr(data.units, "id"):
+                all_ids.extend(data.units.id.tolist())
         return sorted(set(all_ids))
 
     def get_split_intervals(self, split_name):
@@ -89,11 +105,11 @@ class IBLEagerDataset(Dataset):
         intervals = {}
         domain_attr = f"{split_name}_domain"
         for rid in self.recording_ids:
-            rec = self.get_recording(rid)
-            if hasattr(rec, domain_attr):
-                intervals[rid] = getattr(rec, domain_attr)
+            data = self._data_objects[rid]
+            if hasattr(data, domain_attr):
+                intervals[rid] = getattr(data, domain_attr)
             else:
-                intervals[rid] = rec.domain
+                intervals[rid] = data.domain
         return intervals
 
 
