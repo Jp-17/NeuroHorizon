@@ -156,22 +156,29 @@
   - 问题：`data_module.setup()` 手动调用后设置 `transform = model.tokenize`，但 `trainer.fit()` 再次调用 `setup()` 会创建新的 Dataset 对象（transform=None），导致 collate 收到 `temporaldata.Data` 对象而非 dict
   - 错误信息：`TypeError: default_collate: batch must contain tensors, numpy arrays, numbers, dicts or lists; found <class 'temporaldata.temporaldata.Data'>`
   - 修复：在 `setup()` 中添加 `if hasattr(self, 'train_dataset'): return` 防护
+- **修复 Bug 3: Hydra _target_ 类型错误**
+  - 问题：config 中 `_target_: torch_brain.models.POYOPlus` 反复被还原（可能有 linter/watcher）
+  - 修复：在 `train_baseline.py` 中绕过 hydra.utils.instantiate，显式使用 POYO 类
+  - 代码：`model_cfg.pop("_target_", None); model = POYO(readout_spec=readout_spec, **model_cfg)`
+- **修复 Bug 4: R2 计算形状不匹配**
+  - 问题：validation_step 中 `output_values_masked` 是 (N,1) 但 `target_values` 是 (N,)
+  - 修复：使用 `.view(-1)` 展平后计算 R²
 - 端到端测试通过：IBLEagerDataset → RandomFixedWindowSampler → DataLoader → collate → POYO.forward() → MSELoss → backward
 - **训练已启动**：200 epochs, batch_size=64, SparseLamb optimizer, 与 NeuroHorizon 并行运行
 - 模型参数：~3.5M (POYO Small: dim=128, depth=8)
-- 当前进度：epoch 0, step ~456, loss 从 ~2.0 下降中
+- 当前进度：epoch 0, step ~663, loss 波动较大（初始阶段正常）
 
 #### NeuroHorizon 100-epoch 训练进行中
 - 训练配置：batch_size=16, 10 IBL sessions, 100 epochs, bf16-mixed
-- PID 34659, GPU 3.8GB
+- PID 34659, GPU ~3.8GB
 - **进度更新**：
   - Epoch 0 完成：1746 steps, avg_loss=0.5198, min_loss=0.3743, 耗时 722s
   - Epoch 1 完成：avg_loss=0.4950, min_loss=0.3568
-  - Epoch 3 进行中：step ~5907, loss ~0.49
+  - Epoch 4 进行中：step ~7962, loss ~0.43-0.44
   - Loss 持续下降趋势良好
 
 #### 两训练并行状态
-- GPU 总共 24564 MiB，NeuroHorizon ~3835 MiB + POYO baseline ~1622 MiB = ~5457 MiB
+- GPU 总共 24564 MiB，NeuroHorizon + POYO baseline = ~14167 MiB
 - 充足的 GPU 显存支持并行训练
 
 ### 待完成
@@ -197,6 +204,8 @@
 | Padded8Object 不是 ndarray/dict | 使用 torch_brain.data.collate() 处理 |
 | POYO MSELoss target 维度不匹配 | unsqueeze target when ndim==1 and output ndim==2 |
 | Lightning setup() 覆盖 transform | 在 setup() 添加 hasattr guard 防止重复创建 |
+| Hydra _target_ 被外部还原为 POYOPlus | 在代码中绕过 hydra.utils.instantiate，显式 POYO() |
+| R2 形状不匹配 (N,1) vs (N,) | .view(-1) 展平后再计算 R² |
 
 ### 版本记录
 | 日期 | 版本 | 描述 |
