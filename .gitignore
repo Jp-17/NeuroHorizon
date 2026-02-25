@@ -155,8 +155,9 @@ smux*
 */*/logs
 */*/outputs
 
-data/processed
-data/raw
+data/
+cc_todo/20260221-cc-1st/results/
+cc_todo/20260221-cc-1st/figures/
 
 .DS_Store
 **/.DS_Store
