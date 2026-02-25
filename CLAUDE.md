@@ -1,0 +1,151 @@
+# NeuroHorizon — Claude 工作指南
+
+## 项目简介
+
+**NeuroHorizon** 是一个基于 **POYO/POYO+** 框架（NeurIPS 2023）进行改造扩展的神经科学研究项目，目标是构建"跨 Session 鲁棒的长时程神经脉冲数据预测编码模型"。
+
+项目详细背景、研究动机、核心创新点和技术方案，请参阅：
+- **研究方案**：[cc_core_files/proposal.md](cc_core_files/proposal.md)
+- **执行计划**：[cc_core_files/plan.md](cc_core_files/plan.md)
+- **代码库分析**：[cc_core_files/code_research.md](cc_core_files/code_research.md)
+- **数据集规划**：[cc_core_files/dataset.md](cc_core_files/dataset.md)
+
+> 注：上述文档可能随项目推进持续更新，以文档最新版本为准。
+
+---
+
+## 当前项目状态
+
+**项目计划优化阶段**
+
+当前阶段正在进一步完善和修正以下核心规划文档：
+- 研究方案设计（cc_core_files/proposal.md）
+- POYO 代码库分析（cc_core_files/code_research.md）
+- 数据集选型与规划（cc_core_files/dataset.md）
+- 执行计划制定（cc_core_files/plan.md）
+
+**上述文档完全确定后，才会正式开始代码改造和项目执行。**
+
+---
+
+## 核心文档导航
+
+| 文档 | 路径 | 说明 |
+|------|------|------|
+| 研究方案 | cc_core_files/proposal.md | 完整研究提案（背景、创新点、实验设计） |
+| 执行计划 | cc_core_files/plan.md | 分阶段任务执行计划，按此计划推进项目 |
+| 代码分析 | cc_core_files/code_research.md | POYO 代码架构及改造接口分析 |
+| 数据集 | cc_core_files/dataset.md | 数据集选型、下载和使用说明 |
+| 脚本记录 | cc_core_files/scripts.md | 所有脚本的功能、使用方式、存储位置 |
+| 数据记录 | cc_core_files/data.md | 数据集的处理信息、位置、字段含义 |
+| 结果记录 | cc_core_files/results.md | 实验结果说明（产生方式、目的、分析） |
+| 工作进展 | progress.md | 每次任务的执行记录和问题沉淀 |
+
+> 待 proposal.md 和 plan.md 进一步修缮后，将在此处明确标记：
+> - 项目详细规划参考 `cc_core_files/proposal.md`
+> - 项目执行计划参考 `cc_core_files/plan.md`（按照 plan.md 规划执行，完成后在 plan.md 打勾）
+
+---
+
+## 目录结构规范
+
+```
+NeuroHorizon/
+├── torch_brain/              # 主要源代码（基于 POYO 框架改造）
+├── examples/                 # 训练示例脚本
+│   ├── poyo/                 # 原始 POYO 示例
+│   ├── poyo_plus/            # 原始 POYO+ 示例
+│   └── neurohorizon/         # NeuroHorizon 训练脚本（待建）
+├── scripts/                  # 数据处理 & 项目运行 & 测试脚本
+│   ├── data/                 # 数据下载、预处理脚本
+│   └── analysis/             # 分析脚本
+├── data/                     # 数据集存储
+│   ├── raw/                  # 原始下载数据
+│   ├── processed/            # 预处理后数据（HDF5 等）
+│   └── generated/            # 模型生成/推理结果
+├── results/                  # 实验结果存储
+│   ├── figures/              # 可视化图表
+│   ├── logs/                 # 训练日志
+│   └── checkpoints/          # 模型权重
+├── cc_core_files/            # 项目核心文档
+├── cc_todo/                  # 任务工作记录（历史存档）
+│   └── 20260221-cc-1st/      # ⚠️ 已废弃任务，勿参考（见下方警告）
+└── CLAUDE.md                 # 本文件
+```
+
+---
+
+## 任务执行规范
+
+### 任务开始前
+
+1. **阅读 progress.md**：了解历史任务进展，借鉴已有经验，避免重复踩坑
+2. **确认任务范围**：明确当前任务是否对应 plan.md 中的某个阶段/步骤
+
+### 任务执行中
+
+3. **文件命名**：
+   - 新建的文件夹和文件名称使用**英文**
+   - 产出的 Markdown 文档名称在**最前面包含日期**（格式：`YYYYMMDD-` 或 `YYYY-MM-DD-`）
+
+4. **脚本管理**：
+   - 脚本文件放在 `scripts/` 下的合适位置
+   - 脚本创建后，**必须**在 `cc_core_files/scripts.md` 中记录：功能用途、创建时间、使用方式、存储位置
+
+5. **数据管理**：
+   - 下载的数据集放在 `data/` 下，按类型区分（`raw/` `processed/` `generated/` 等）
+   - **必须**在 `cc_core_files/data.md` 中记录：数据集名称、处理信息、存储位置、字段含义
+
+6. **结果管理**：
+   - 实验结果（可视化图表、分析输出等）放在 `results/` 下的合适位置
+   - **必须**在 `cc_core_files/results.md` 中记录：产生方式、目的、结果分析
+
+7. **plan.md 对应任务**：
+   - 如果当前任务对应 `cc_core_files/plan.md` 中的某个任务，在 plan.md 对应位置记录执行情况（完成状态、完成程度、后续工作）
+
+### 任务完成后
+
+8. **更新 progress.md**：记录任务完成时间（日期-小时-分）、完成事项、执行结果、遇到的问题及解决方法
+
+9. **检查 CLAUDE.md**：确认本文件内容是否过时，如有需要及时更新
+
+10. **Git 提交**：每完成一个任务或功能模块，立即执行：
+    ```bash
+    git add <相关文件>
+    git commit -m "中文提交信息"
+    git push
+    ```
+    - Git commit 信息使用**中文**
+    - 不要一次性积累大量更改后再提交，保持细粒度提交
+
+---
+
+## 重要警告
+
+### ⚠️ 已废弃任务：cc_todo/20260221-cc-1st/
+
+`cc_todo/20260221-cc-1st/` 目录记录了一次**已放弃**的早期任务，代码已回退到该次任务之前的状态。
+
+**禁止参考该目录下的任何内容**，包括但不限于：
+- 日志文件（docs/）
+- 实验结果（results/、figures/）
+- 训练日志（logs/）
+
+如果在代码或配置中发现与该次任务相关的内容，需检查是否需要回退到更早的状态。
+
+---
+
+## 经验沉淀
+
+> 此处记录在多次任务中反复遇到的问题和解决方案，积累经验教训。
+
+*（随项目推进持续补充）*
+
+---
+
+## Git 配置
+
+- **账户**：jpagkr@163.com
+- **用户名**：Jp-17
+- **Commit 语言**：中文
+- **Push 时机**：每个任务/模块完成后立即 push
