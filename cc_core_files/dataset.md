@@ -1,671 +1,343 @@
-# NeuroHorizon 数据集下载与使用指南
+# NeuroHorizon 数据集规划
 
-> 本文档针对 `research_proposal_NeuroHorizon.md` 中涉及的核心数据集，重点介绍 **IBL Brain-wide Map** 和 **Allen Brain Observatory Neuropixels Visual Coding** 的下载方式、所需数据部分及使用方法，并附数据集与项目目标的匹配度分析。
+> 本文档记录 NeuroHorizon 项目的数据集候选清单、各数据集简介，以及阶段化选型逻辑。
+> **操作细节**（下载脚本、格式转换、字段说明等）参见 `cc_core_files/data.md` 和 `scripts/data/` 下的脚本。
 
 ---
 
 ## 目录
 
-1. [数据集总览与优先级](#1-数据集总览与优先级)
-2. [IBL 数据集（跨session泛化核心）](#2-ibl-数据集)
-3. [Allen Brain Observatory 数据集（多模态融合核心）](#3-allen-brain-observatory-数据集)
-4. [NeuroHorizon 项目推荐工作流](#4-neurohorizon-项目推荐工作流)
-5. [数据集匹配度深度分析与执行注意事项](#5-数据集匹配度深度分析与执行注意事项)
+1. [候选数据集总览](#1-候选数据集总览)
+2. [各候选数据集简介](#2-各候选数据集简介)
+   - [2.1 Brainsets 原生数据集（torch_brain 框架自带）](#21-brainsets-原生数据集)
+   - [2.2 IBL Brain-wide Map](#22-ibl-brain-wide-map)
+   - [2.3 Allen Visual Coding Neuropixels](#23-allen-visual-coding-neuropixels)
+   - [2.4 NLB（Neural Latents Benchmark，完整版）](#24-nlb-neural-latents-benchmark)
+   - [2.5 FALCON Benchmark](#25-falcon-benchmark)
+3. [数据集选型策略](#3-数据集选型策略)
+4. [各阶段适配注意事项](#4-各阶段适配注意事项)
+5. [存储空间规划](#5-存储空间规划)
+6. [参考资源](#6-参考资源)
 
 ---
 
-## 1. 数据集总览与优先级
+## 1. 候选数据集总览
 
-| 数据集 | NeuroHorizon 用途 | 规模 | 下载方式 | 磁盘空间 |
-|--------|------------------|------|---------|---------|
-| **IBL Brain-wide Map** | 跨session泛化、data scaling | 459 sessions，75,708 高质量units | ONE API (Python) | 按需下载，每session约数百MB |
-| **Allen Neuropixels Visual Coding** | 多模态（neural + image）融合 | 58 sessions，~100,000 units | AllenSDK (Python) | 完整约855GB，NWB文件146.5GB |
+| 数据集 | 物种/脑区 | Sessions 数量 | 接入方式 | NeuroHorizon 主要用途 | 引入时机 |
+|--------|---------|-------------|--------|-------------------|--------|
+| **Brainsets 原生（4+1集）** | 猕猴，运动皮层 | ~100+ sessions（Perich-Miller最多：~70+） | brainsets API，零配置 | 初期自回归改造验证、早期跨session测试 | **阶段一** |
+| **IBL Brain-wide Map** | 小鼠，全脑241脑区 | 459 sessions，12 labs | ONE API（AWS 公开） | 大规模跨session泛化、data scaling law | **阶段二** |
+| **FALCON Benchmark** | 猕猴/人，运动皮层 | 多sub-task，跨日记录 | 官方 challenge API | 标准化跨session泛化benchmark验证 | **阶段二** |
+| **Allen Visual Coding Neuropixels** | 小鼠，视觉皮层8个区 | 58 sessions | AllenSDK（AWS 公开） | 多模态（neural + 视觉图像）融合实验 | **阶段三** |
+| **NLB 完整版** | 猕猴，多脑区 | 5个子数据集 | nlb_tools / brainsets | 与社区benchmark对比，标准化评估 | **补充/可选** |
 
----
-
-## 2. IBL 数据集
-
-### 2.1 数据集概况（2025年版本）
-
-IBL（国际脑实验室）Brain-wide Map 是目前规模最大的标准化全脑 Neuropixels 记录数据集，2025年最新版本包含：
-
-- **459个实验session**，699次探针插入，来自139只小鼠、12个实验室
-- **621,733个总units**，其中 **75,708个通过质量控制**（"good quality"）
-- 覆盖 **241个脑区**（视觉皮层、前额叶、纹状体、丘脑、海马、小脑等）
-- 统一行为任务：视觉决策任务（小鼠根据光栅对比度转动滚轮做出左/右判断）
-- 数据通过 [AWS 开放数据注册表](https://registry.opendata.aws/ibl-brain-wide-map/) 公开获取
-
-### 2.2 安装依赖
-
-```bash
-# 安装 ONE API 和 IBL 工具链
-pip install ONE-api ibllib brainbox
-
-# 可选：安装可视化工具
-pip install iblviewer
-```
-
-### 2.3 连接设置（无需账号，公开访问）
-
-```python
-from one.api import ONE
-
-# 使用公开访问地址（无需注册账号）
-one = ONE(base_url='https://openalyx.internationalbrainlab.org',
-          password='international')
-
-# 验证连接
-print(one.alyx.base_url)
-```
-
-> **注意**：也可以通过 AWS 访问数据（无需单独下载），适合在云端进行大规模实验。
-
-### 2.4 需要下载的数据部分
-
-对于 NeuroHorizon 项目，建议按以下优先级下载：
-
-#### 核心数据（必须）
-
-| 数据对象 | ALF 文件名 | 说明 |
-|---------|-----------|------|
-| `spikes.times` | `spikes.times.npy` | spike 时间戳（秒），IDEncoder + tokenization 核心输入 |
-| `spikes.clusters` | `spikes.clusters.npy` | 每个 spike 对应的 cluster ID |
-| `spikes.amps` | `spikes.amps.npy` | spike 幅值（用于质量评估） |
-| `spikes.depths` | `spikes.depths.npy` | spike 在探针上的深度 |
-| `clusters.metrics` | `clusters.metrics.pqt` | 质量控制指标（必须用于过滤 good units） |
-| `clusters.channels` | `clusters.channels.npy` | cluster 对应的通道 |
-| `clusters.depths` | `clusters.depths.npy` | cluster 深度 |
-| `clusters.brainLocations` | 需要组织学数据 | 脑区归属（需组织学追踪数据才可用） |
-
-#### 行为数据（多模态实验必须）
-
-| 数据对象 | ALF 文件名 | 说明 |
-|---------|-----------|------|
-| `trials.stimOn_times` | `_ibl_trials.stimOn_times.npy` | 刺激呈现时间 |
-| `trials.response_times` | `_ibl_trials.response_times.npy` | 小鼠响应时间 |
-| `trials.choice` | `_ibl_trials.choice.npy` | 小鼠选择（-1=左，1=右） |
-| `trials.contrastLeft` | `_ibl_trials.contrastLeft.npy` | 左侧光栅对比度 |
-| `trials.contrastRight` | `_ibl_trials.contrastRight.npy` | 右侧光栅对比度 |
-| `trials.feedbackType` | `_ibl_trials.feedbackType.npy` | 奖励/惩罚 |
-| `trials.reactionTime` | `_ibl_trials.reactionTime.npy` | 反应时间 |
-| `wheel.position` | `_ibl_wheel.position.npy` | 滚轮位置（连续信号） |
-| `wheel.timestamps` | `_ibl_wheel.timestamps.npy` | 滚轮时间戳 |
-| `wheelMoves.intervals` | `_ibl_wheelMoves.intervals.npy` | 运动片段的时间区间 |
-
-#### 可选数据（建议下载）
-
-| 数据对象 | 说明 |
-|---------|------|
-| `clusters.waveforms` | 波形模板（用于 IDEncoder 特征提取，但waveforms文件较大） |
-| `passiveGabor / passiveRFM` | 被动视觉刺激数据（如有） |
-
-### 2.5 批量搜索并下载 Session 列表
-
-```python
-from one.api import ONE
-import pandas as pd
-
-one = ONE(base_url='https://openalyx.internationalbrainlab.org',
-          password='international')
-
-# ① 搜索所有 Brain-wide Map session（带 spike 数据）
-eids = one.search(
-    project='brainwide',
-    task_protocol='_iblrig_tasks_ephysChoiceWorld',
-    datasets=['spikes.times.npy', '_ibl_trials.table.pqt']
-)
-print(f"找到 {len(eids)} 个满足条件的 session")
-
-# ② 获取所有 session 的 metadata 表格（便于按条件筛选）
-sessions = one.alyx.rest('sessions', 'list', project='brainwide',
-                          task_protocol='_iblrig_tasks_ephysChoiceWorld',
-                          performance_gte=70)  # 可选：按任务表现筛选
-
-# 保存 session 列表
-df = pd.DataFrame(sessions)
-df.to_csv('ibl_sessions.csv', index=False)
-```
-
-### 2.6 加载单个 Session 的 Spike 数据（推荐方式）
-
-IBL 官方推荐使用 `SpikeSortingLoader` 来加载 spike 数据：
-
-```python
-from one.api import ONE
-from brainbox.io.one import SpikeSortingLoader
-
-one = ONE(base_url='https://openalyx.internationalbrainlab.org',
-          password='international')
-
-# 方式一：使用 probe insertion ID (pid)
-pid = 'da8dfec1-d265-44e8-84ce-6ae9c109b8bd'  # 替换为实际的 pid
-ssl = SpikeSortingLoader(pid=pid, one=one)
-spikes, clusters, channels = ssl.load_spike_sorting()
-
-# 方式二：使用 session ID (eid) + probe 名称
-eid = 'caa5dddc-9290-4e27-9f5e-575ba3598614'
-pname = 'probe00'
-ssl = SpikeSortingLoader(eid=eid, pname=pname, one=one)
-spikes, clusters, channels = ssl.load_spike_sorting()
-
-# 合并 cluster 信息
-clusters = ssl.merge_clusters(spikes, clusters, channels)
-
-print(f"总 spikes: {len(spikes['times'])}")
-print(f"总 clusters: {len(clusters['cluster_id'])}")
-print(f"可用字段 - spikes: {list(spikes.keys())}")
-print(f"可用字段 - clusters: {list(clusters.keys())}")
-```
-
-### 2.7 质量过滤（获取 Good Units）
-
-```python
-import numpy as np
-
-# ① 基于 label 过滤（推荐，最简单）
-# label == 1 表示 good quality
-good_mask = clusters['label'] == 1
-good_cluster_ids = clusters['cluster_id'][good_mask]
-print(f"Good quality units: {good_mask.sum()} / {len(good_mask)}")
-
-# ② 仅保留 good units 的 spikes
-spike_mask = np.isin(spikes['clusters'], good_cluster_ids)
-good_spikes = {k: v[spike_mask] for k, v in spikes.items()}
-
-# ③ 精细化过滤（可选，使用 clusters.metrics 中的具体指标）
-# firing_rate > 0.1 Hz，amplitude > 50 uV，presence_ratio > 0.9
-if 'firing_rate' in clusters and 'amp_median' in clusters:
-    quality_mask = (
-        (clusters['label'] == 1) &
-        (clusters['firing_rate'] > 0.1) &
-        (clusters['amp_median'] > 50) &
-        (clusters['presence_ratio'] > 0.9)
-    )
-    filtered_cluster_ids = clusters['cluster_id'][quality_mask]
-    print(f"精细过滤后 units: {quality_mask.sum()}")
-```
-
-### 2.8 加载行为数据（Trial 和 Wheel）
-
-```python
-# 加载 trials 对象（包含所有行为变量）
-trials = one.load_object(eid, 'trials', collection='alf')
-
-# 核心字段说明：
-# trials.stimOn_times     - 刺激呈现时刻（对齐 spike 时间戳的参考点）
-# trials.response_times   - 小鼠做出选择的时刻
-# trials.goCueTrigger_times - Go 信号触发时刻
-# trials.intervals        - 每个 trial 的开始和结束时间 [N, 2]
-# trials.choice           - -1 (左)，1 (右)，0 (未响应)
-# trials.contrastLeft/Right - 左右光栅对比度 (0, 0.0625, 0.125, 0.25, 1.0)
-# trials.feedbackType     - 1 (正确)，-1 (错误)
-# trials.reactionTime     - 反应时间（秒）
-
-print(f"总 trial 数: {len(trials.stimOn_times)}")
-print(f"正确率: {(trials.feedbackType == 1).mean():.2%}")
-
-# 加载连续行为数据（wheel）
-wheel_times = one.load_dataset(eid, '_ibl_wheel.timestamps.npy')
-wheel_pos = one.load_dataset(eid, '_ibl_wheel.position.npy')
-```
-
-### 2.9 针对 NeuroHorizon 的批量下载脚本
-
-```python
-"""
-批量下载 IBL Brain-wide Map 数据用于 NeuroHorizon 训练
-建议首先下载10-20个session进行代码调试，再扩展到全量
-"""
-from one.api import ONE
-from brainbox.io.one import SpikeSortingLoader
-import numpy as np
-import os
-
-one = ONE(base_url='https://openalyx.internationalbrainlab.org',
-          password='international')
-
-# 搜索满足条件的 sessions
-eids = one.search(
-    project='brainwide',
-    datasets=['spikes.times.npy', '_ibl_trials.table.pqt'],
-    task_protocol='_iblrig_tasks_ephysChoiceWorld'
-)
-print(f"共找到 {len(eids)} 个 session")
-
-# 获取每个 session 的 probe 列表
-for eid in eids[:5]:  # 先下载前5个 session 进行测试
-    try:
-        insertions = one.alyx.rest('insertions', 'list', session=eid)
-        for ins in insertions:
-            pid = ins['id']
-            pname = ins['name']
-
-            # 下载 spike sorting 数据
-            ssl = SpikeSortingLoader(pid=pid, one=one)
-            spikes, clusters, channels = ssl.load_spike_sorting()
-            clusters = ssl.merge_clusters(spikes, clusters, channels)
-
-            # 下载 trials 数据
-            trials = one.load_object(eid, 'trials', collection='alf')
-
-            # 可在此处将数据转存为 .npz 或 HDF5 格式
-            save_path = f"./ibl_data/{eid}/{pname}"
-            os.makedirs(save_path, exist_ok=True)
-            np.savez(f"{save_path}/spikes.npz",
-                     times=spikes['times'],
-                     clusters=spikes['clusters'],
-                     amps=spikes['amps'])
-            np.savez(f"{save_path}/clusters.npz",
-                     cluster_id=clusters['cluster_id'],
-                     label=clusters['label'],
-                     firing_rate=clusters.get('firing_rate', np.array([])))
-            print(f"  ✓ {eid}/{pname}: {(clusters['label']==1).sum()} good units")
-    except Exception as e:
-        print(f"  ✗ {eid}: {e}")
-```
-
-### 2.10 IBL 数据的 NeuroHorizon 适配注意事项
-
-- **IDEncoder 参考窗口**：建议取每个 session 开头 10-30 秒（task 开始前的静息期或第一个 trial block）作为参考窗口，提取 firing rate、ISI 统计等特征。
-- **时间对齐**：所有 spike 时间戳均以 session 开始为零点（秒），与 `trials.stimOn_times` 直接对齐。
-- **跨session划分**：按 session 划分 train/val/test（而非按 trial），建议 80/10/10 比例。
-- **脑区过滤**：如需聚焦特定脑区，通过 `channels.brainLocations.acronym` 过滤（需要组织学数据）。
+> **已排除**：Allen Visual Coding Ophys 2016（钙成像，非spike数据，与NeuroHorizon输入不兼容）；Kemp Sleep（与项目目标无关）。
 
 ---
 
-## 3. Allen Brain Observatory 数据集
+## 2. 各候选数据集简介
 
-### 3.1 数据集概况
+### 2.1 Brainsets 原生数据集
 
-Allen Brain Observatory Neuropixels Visual Coding 由艾伦脑科学研究所发布：
+**brainsets** 是 torch_brain/POYO 框架自带的数据管理包，提供标准化的 spike 数据加载接口。
+以下是排除 allen_visual_coding_ophys 和 kemp_sleep 后，适用于 NeuroHorizon 的 4 个子数据集：
 
-- **58个实验 session**（来自不同小鼠，包括野生型和3种转基因品系）
-- 同时记录最多 **8个视觉相关脑区**：V1、LM、AL、PM、AM、RL、LGN、LP
-- 约 **100,000个总 units**
-- 两套刺激集：`brain_observatory_1.1`（与2P数据共享刺激，含自然图像118张）和 `functional_connectivity`（高重复次数刺激）
-- 提供完善的 Python API（AllenSDK），数据以 NWB 格式存储
-- **存储需求**：NWB session 文件约 146.5 GB（58个session，每个 1.7-3.3 GB）；完整数据集（含原始数据）约 80 TB
+#### （1）Perich-Miller Population 2018 ⭐ 跨session首选
+- **论文**：Perich & Miller et al., 2018
+- **brainsets ID**：`perich_miller_population_2018`
+- **物种/脑区**：猕猴（3只：C、J、M），初级运动皮层（M1）+ 前运动皮层（PMd）
+- **任务**：Center-out reaching（8个方向）和 Random target reaching
+- **规模**：约 70+ sessions，每 session 50-200 个神经元
+- **特点**：brainsets 内 session 数量最多，3只猴子跨动物，是在 brainsets 范围内做跨 session 泛化实验的最佳选择。POYO-1 和 POYO+ 均使用了该数据集。
 
-### 3.2 安装依赖
+#### （2）Churchland-Shenoy Neural 2012
+- **论文**：Churchland & Shenoy et al., 2012（Nature Neuroscience）
+- **brainsets ID**：`churchland_shenoy_neural_2012`
+- **物种/脑区**：猕猴，运动皮层（M1/PMd）
+- **任务**：To-target reaching，含 preparatory period（运动准备期）和 execution period（运动执行期）
+- **规模**：数个 session，每 session ~100-200 个神经元
+- **特点**：包含明确的运动准备→执行时间结构，预测窗口设计较为自然（输入=准备期，预测=执行期）
 
-```bash
-# 安装 AllenSDK（注意版本兼容性）
-pip install allensdk
+#### （3）O'Doherty-Sabes Nonhuman 2017
+- **论文**：O'Doherty & Sabes et al., 2017（Nature Neuroscience）
+- **brainsets ID**：`odoherty_sabes_nonhuman_2017`
+- **物种/脑区**：猕猴，M1 + 体感皮层（Area 2）
+- **任务**：BCI-controlled reaching（2D）
+- **规模**：多个 session，每 session ~100-200 个神经元
+- **特点**：包含体感皮层同步记录，是唯一包含非运动皮层的 brainsets 数据集，有助于测试跨脑区泛化能力
 
-# 验证安装
-python -c "from allensdk.brain_observatory.ecephys.ecephys_project_cache import EcephysProjectCache; print('OK')"
-```
+#### （4）Flint-Slutzky Accurate 2012
+- **论文**：Flint & Slutzky et al., 2012
+- **brainsets ID**：`flint_slutzky_accurate_2012`
+- **物种/脑区**：猕猴，运动皮层
+- **任务**：BCI cursor control
+- **规模**：小规模，session 数量有限
+- **特点**：神经元质量好，高精度记录，但 session 数量较少，主要价值在于丰富训练数据多样性
 
-> **版本注意**：AllenSDK 2.0.0 之前版本的 NWB 文件（2020年6月11日前发布）与新版 pynwb 不兼容，建议使用 AllenSDK >= 2.0.0 并下载最新版本的 NWB 文件。
-
-### 3.3 初始化缓存
-
-```python
-import os
-import numpy as np
-from allensdk.brain_observatory.ecephys.ecephys_project_cache import EcephysProjectCache
-
-# 设置本地缓存目录（确保有足够空间）
-cache_dir = '/your/storage/path/allen_cache'  # 替换为实际路径
-manifest_path = os.path.join(cache_dir, 'manifest.json')
-
-# 初始化缓存（首次运行会下载 manifest，几MB）
-cache = EcephysProjectCache.from_warehouse(manifest=manifest_path)
-
-# 查看可用的 session 类型
-print(cache.get_all_session_types())
-# 输出: ['brain_observatory_1.1', 'functional_connectivity']
-```
-
-### 3.4 两套刺激集说明
-
-| 刺激集 | 主要刺激类型 | 特点 | NeuroHorizon 用途 |
-|--------|------------|------|------------------|
-| `brain_observatory_1.1` | 自然图像（118张）、drifting gratings、static gratings、natural movies | 与 2P 数据共享，视觉刺激多样 | 多模态 neural + image 实验（DINOv2 图像编码） |
-| `functional_connectivity` | Gabor patches（高重复次数） | 重复次数多，适合统计分析 | 功能连接研究、高重复trial验证 |
-
-**NeuroHorizon 建议优先使用 `brain_observatory_1.1`**，因为它包含自然图像，可用于验证 DINOv2 多模态融合效果。
-
-### 3.5 需要下载的数据部分
-
-#### 必须下载
-
-通过 `cache.get_session_data(session_id)` 下载包含以下所有内容的 NWB 文件（每个文件 1.7-3.3 GB）：
-
-| 数据类型 | 访问方式 | 说明 |
-|---------|---------|------|
-| **Spike times** | `session.spike_times` | dict: unit_id → array of spike times（秒）|
-| **Units 表格** | `session.units` | 包含 unit 质量指标的 DataFrame |
-| **Stimulus presentations** | `session.stimulus_presentations` | 刺激呈现表（start_time, end_time, stimulus_name 等）|
-| **Running speed** | `session.running_speed` | 小鼠跑动速度时间序列 |
-| **Pupil tracking** | `session.eye_tracking` | 瞳孔直径和位置 |
-
-#### 可选下载（LFP 文件，更大）
-
-LFP 数据单独存储在 LFP NWB 文件中，若只做 spike 分析可跳过。
-
-### 3.6 浏览可用 Session
-
-```python
-# 获取所有 session 的元数据表
-sessions_table = cache.get_session_table()
-print(sessions_table.columns.tolist())
-# 包含：ecephys_session_id, specimen_id, session_type, sex, age_in_days,
-#        full_genotype, unit_count, channel_count, probe_count, ...
-
-# 按 session 类型筛选（推荐多模态实验使用 brain_observatory_1.1）
-bo_sessions = sessions_table[
-    sessions_table.session_type == 'brain_observatory_1.1'
-]
-print(f"Brain Observatory 1.1 sessions: {len(bo_sessions)}")
-
-# 获取高质量 unit 数量多的 session
-top_sessions = bo_sessions.nlargest(10, 'unit_count')
-print(top_sessions[['ecephys_session_id', 'unit_count', 'probe_count']])
-```
-
-### 3.7 下载并加载单个 Session
-
-```python
-# 选择一个 session ID（从 sessions_table 中获取）
-session_id = 756029989  # 替换为实际 ID
-
-# 下载（首次需要下载 NWB 文件，约 2-3 GB，之后从缓存读取）
-session = cache.get_session_data(session_id)
-
-# 基本信息
-print(f"Session ID: {session_id}")
-print(f"总 units: {len(session.units)}")
-print(f"Spike times 字典中的 unit 数: {len(session.spike_times)}")
-print(f"刺激类型: {session.stimulus_presentations.stimulus_name.unique()}")
-```
-
-### 3.8 质量过滤（获取高质量 Units）
-
-```python
-# 默认过滤标准（AllenSDK 自动应用）：
-# - presence_ratio > 0.95（unit 在整个 session 中稳定存在）
-# - isi_violations < 0.5（不应期侵犯率低）
-# - amplitude_cutoff < 0.1（spike 幅值完整）
-
-# 默认加载时已过滤（filter_by_validity=True 是默认值）
-units = session.units
-print(f"默认过滤后 units: {len(units)}")
-
-# 查看质量指标列
-print(units[['presence_ratio', 'isi_violations', 'amplitude_cutoff',
-             'ecephys_structure_acronym']].describe())
-
-# 进一步筛选 V1 (VISp) 的 units（NeuroHorizon 多模态实验重点脑区）
-visp_units = units[units['ecephys_structure_acronym'] == 'VISp']
-print(f"VISp units: {len(visp_units)}")
-
-# 若要加载所有 units（不过滤），可传入自定义参数
-# session = cache.get_session_data(session_id,
-#     unit_filter_kwargs={
-#         'amplitude_cutoff_maximum': np.inf,
-#         'presence_ratio_minimum': -np.inf,
-#         'isi_violations_maximum': np.inf
-#     })
-```
-
-### 3.9 提取刺激对齐的 Spike Counts（NeuroHorizon 核心）
-
-```python
-# ① 获取自然图像刺激呈现表
-natural_scenes = session.get_stimulus_table('natural_scenes')
-print(f"自然图像 presentations: {len(natural_scenes)}")
-print(natural_scenes[['start_time', 'stop_time', 'frame']].head())
-# 'frame' 字段是图像 ID（0-117），可用于加载对应的图像文件
-
-# ② 获取对齐的 spike times（presentationwise）
-spikes_df = session.presentationwise_spike_times(
-    stimulus_presentation_ids=natural_scenes.index.values,
-    unit_ids=visp_units.index.values
-)
-# spikes_df 包含：time_since_stimulus_onset, stimulus_presentation_id, unit_id
-
-# ③ 获取 binned spike counts（直接用于 NeuroHorizon 的预测目标 Y）
-time_step = 0.010  # 10ms bin
-time_bins = np.arange(-0.05, 0.5 + time_step, time_step)  # -50ms 到 500ms
-
-spike_counts = session.presentationwise_spike_counts(
-    stimulus_presentation_ids=natural_scenes.index.values,
-    bin_edges=time_bins,
-    unit_ids=visp_units.index.values
-)
-# spike_counts 是 xarray DataArray，维度为 [时间, 刺激呈现, 单元]
-print(f"Spike counts shape: {spike_counts.shape}")
-# 例如: (56, 2311, 47) = (time_bins, presentations, units)
-
-# ④ 将 spike counts 转为 numpy array（用于 NeuroHorizon 数据集）
-counts_np = spike_counts.data  # shape: [n_timebins, n_presentations, n_units]
-```
-
-### 3.10 获取自然图像并与 DINOv2 对齐
-
-对于 NeuroHorizon 的多模态实验，需要将视觉刺激图像与神经响应对齐：
-
-```python
-# AllenSDK 提供了访问刺激图像的接口
-# 获取自然图像数据（需要单独下载 stimulus template）
-natural_scenes_table = session.get_stimulus_table('natural_scenes')
-
-# 访问刺激模板（图像像素数据）
-template = session.get_stimulus_template('natural_scenes')
-# template 是 numpy array，shape: [n_images, height, width]
-print(f"图像模板 shape: {template.shape}")
-# 例如: (118, 918, 1174) - 118张图像，灰度图
-
-# 将 frame ID 映射到图像，并与 DINOv2 处理对齐
-from torchvision import transforms
-from PIL import Image
-import torch
-
-def preprocess_for_dinov2(gray_image):
-    """将 Allen 灰度图转换为 DINOv2 可处理的 RGB 张量"""
-    # 转为 RGB（重复灰度通道）
-    rgb = np.stack([gray_image] * 3, axis=-1).astype(np.uint8)
-    pil_img = Image.fromarray(rgb)
-
-    transform = transforms.Compose([
-        transforms.Resize(224),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                             std=[0.229, 0.224, 0.225])
-    ])
-    return transform(pil_img)
-
-# 预提取所有 118 张图像的 DINOv2 embeddings（离线处理，节省训练时间）
-# 建议在数据预处理阶段完成，存储为 .pt 文件
-```
-
-### 3.11 提取行为数据
-
-```python
-# 跑动速度（连续信号，对应 IBL 的 wheel velocity）
-running_speed = session.running_speed
-print(f"Running speed 时间点数: {len(running_speed)}")
-# DataFrame with columns: timestamps, velocity
-
-# 瞳孔跟踪数据
-eye_tracking = session.eye_tracking
-print(eye_tracking.columns.tolist())
-# 包含：timestamps, pupil_area, pupil_width, pupil_height, corneal_reflection_*
-
-# 获取刺激期间的平均跑动速度（逐 trial）
-def get_running_speed_per_trial(session, stimulus_table, pre=0.0, post=0.5):
-    """提取每个 trial 的平均跑动速度"""
-    running = session.running_speed
-    speeds = []
-    for _, row in stimulus_table.iterrows():
-        mask = ((running.timestamps >= row.start_time + pre) &
-                (running.timestamps < row.start_time + post))
-        speeds.append(running.velocity[mask].mean() if mask.any() else np.nan)
-    return np.array(speeds)
-
-trial_speeds = get_running_speed_per_trial(session, natural_scenes)
-```
-
-### 3.12 批量下载多个 Session
-
-```python
-# 分批下载 brain_observatory_1.1 的 session
-bo_session_ids = sessions_table[
-    sessions_table.session_type == 'brain_observatory_1.1'
-].index.tolist()
-
-print(f"准备下载 {len(bo_session_ids)} 个 session...")
-
-for sid in bo_session_ids:
-    print(f"下载 session {sid}...")
-    try:
-        session = cache.get_session_data(sid)
-        # NWB 文件已缓存到本地 cache_dir，后续访问无需重新下载
-        print(f"  ✓ units: {len(session.units)}, "
-              f"stimulus types: {session.stimulus_presentations.stimulus_name.nunique()}")
-    except Exception as e:
-        print(f"  ✗ 下载失败: {e}")
-```
-
-### 3.13 Allen 数据集在 NeuroHorizon 中的适配注意事项
-
-- **时间分辨率**：Allen 数据默认以秒为单位的连续时间戳，适合直接用于 spike-level tokenization（与 IBL 格式一致）。
-- **刺激对齐**：`stimulus_presentations.start_time` 是 DINOv2 图像 embedding 注入时间点的参考坐标，建议在该时间点前后各取 50ms 作为缓冲。
-- **IDEncoder 参考窗口**：建议使用 session 开始的前 5 分钟静息期（若有），或者使用 drifting gratings block 的平均响应作为参考。
-- **多脑区分析**：Allen 数据同时记录多个脑区，可以按 `ecephys_structure_acronym` 分组，分别分析不同脑区对视觉刺激的响应。
+#### （5）Pei-Pandarinath NLB 2021（brainsets 内的 NLB 子集）
+- **brainsets ID**：`pei_pandarinath_nlb_2021`
+- **内容**：NLB MC_Maze 数据集（Jenkins 迷宫任务），来自 `jenkins_maze_train`
+- **规模**：1 只猴子（Jenkins），~180 个神经元，单一 session
+- **特点**：brainsets 内只包含 NLB 的部分数据，主要用于 POYO 与 NLB benchmark 的对接（完整 NLB 见第 2.4 节）
 
 ---
 
-## 4. NeuroHorizon 项目推荐工作流
+### 2.2 IBL Brain-wide Map
 
-### 4.1 开发阶段（Phase 1-2，Week 1-11）
-
-```
-Step 1: 从 IBL 下载 10-20 个 session（用于代码调试）
-        → 覆盖 3-5 个不同脑区，确保探针位置多样性
-
-Step 2: 从 Allen 下载 5-10 个 brain_observatory_1.1 session
-        → 优先选择 unit 数量多（>300）的 session
-
-Step 3: 为 IBL 和 Allen 分别实现数据适配器
-        （继承 POYO 的数据加载基类）
-
-Step 4: 完整 IBL 数据集（全部 459 sessions）→ 跨 session 泛化实验
-Step 5: 完整 Allen 数据集（全部 58 sessions）→ 多模态融合实验
-```
-
-### 4.2 数据格式统一化建议
-
-为了在 NeuroHorizon 中统一处理 IBL 和 Allen 数据，建议转换为以下通用格式：
-
-```python
-# 建议的统一数据格式（存储为 HDF5）
-import h5py
-
-def save_session_to_hdf5(filepath, spikes_times, spike_unit_ids,
-                          unit_ids, unit_labels,
-                          behavior_timestamps, behavior_values,
-                          trial_start_times=None, stimulus_ids=None):
-    """将单个 session 保存为统一的 HDF5 格式"""
-    with h5py.File(filepath, 'w') as f:
-        # Spike 数据（按时间排序）
-        f.create_dataset('spikes/times', data=spikes_times)
-        f.create_dataset('spikes/unit_ids', data=spike_unit_ids)
-
-        # Unit 元数据
-        f.create_dataset('units/unit_ids', data=unit_ids)
-        f.create_dataset('units/quality_labels', data=unit_labels)
-
-        # 行为数据
-        f.create_dataset('behavior/timestamps', data=behavior_timestamps)
-        f.create_dataset('behavior/values', data=behavior_values)
-
-        # 可选：trial/刺激对齐信息
-        if trial_start_times is not None:
-            f.create_dataset('trials/start_times', data=trial_start_times)
-        if stimulus_ids is not None:
-            f.create_dataset('trials/stimulus_ids', data=stimulus_ids)
-```
-
-### 4.3 存储空间规划
-
-| 数据集 | 建议下载量 | 预估空间 |
-|--------|----------|---------|
-| IBL（全量 spike + behavior，不含 LFP） | 459 sessions | ~100-200 GB |
-| IBL（预处理后，转存 HDF5） | 全部 | ~50-100 GB |
-| Allen NWB 文件（spike + behavior，不含 LFP） | 58 sessions | ~146.5 GB |
-| Allen 图像 DINOv2 embeddings（预提取） | 118 张图像 × ViT-B | <1 GB |
-| **合计** | | **~300-350 GB** |
-
-### 4.4 关键参考资源
-
-- **IBL ONE API 文档**：https://docs.internationalbrainlab.org/notebooks_external/data_download.html
-- **IBL 加载 Spike Sorting 数据**：https://docs.internationalbrainlab.org/notebooks_external/loading_spikesorting_data.html
-- **IBL 2025 数据发布说明**：https://docs.internationalbrainlab.org/notebooks_external/2025_data_release_brainwidemap.html
-- **IBL AWS 开放数据**：https://registry.opendata.aws/ibl-brain-wide-map/
-- **Allen SDK Neuropixels 文档**：https://allensdk.readthedocs.io/en/latest/visual_coding_neuropixels.html
-- **Allen 数据访问教程**：https://allensdk.readthedocs.io/en/latest/_static/examples/nb/ecephys_data_access.html
-- **Allen Session 分析教程**：https://allensdk.readthedocs.io/en/latest/_static/examples/nb/ecephys_session.html
-- **Allen AWS 开放数据**：https://registry.opendata.aws/allen-brain-observatory/
-- **POYO 代码库**（数据加载参考）：https://github.com/mehdiazabou/poyo-1
+- **全称**：International Brain Lab Brain-wide Map（2025 年版）
+- **物种/脑区**：小鼠，全脑 **241 个脑区**（视觉、前额叶、纹状体、丘脑、海马、小脑等）
+- **规模**：**459 sessions**，139 只小鼠，12 个国际实验室，75,708 个高质量 units（共 621,733 total units）
+- **任务**：标准化视觉决策任务——小鼠根据光栅对比度旋转滚轮做左/右判断
+- **记录技术**：Neuropixels 探针，每次插入记录多脑区
+- **数据格式**：ALF 格式（.npy），通过 ONE API + ibllib 访问，AWS 公开
+- **对 NeuroHorizon 的价值**：
+  - 跨 session 泛化实验的**唯一真正满足规模需求**的数据集（459 vs 58 session）
+  - Data scaling law 实验（10/50/100/200/459 sessions）的核心数据源
+  - 全脑多脑区覆盖，IDEncoder 的泛化性可以在真实神经多样性下验证
+  - POYO/POYO+ 论文本身在 IBL 上有过验证，方法可直接对比
+- **注意**：IBL 是行为驱动的变长 trial，连续时间段的截取策略需要设计（详见第 4 节）
 
 ---
 
-*本文档基于 2025年2月 的最新数据集版本整理，IBL 2025-Q3 新版本已包含更多 session。如有更新请参考官方文档。*
+### 2.3 Allen Visual Coding Neuropixels
+
+> ⚠️ **注意区分**：这是 **Neuropixels 胞外电生理**版本，记录**尖峰放电**；不同于 Allen Visual Coding Ophys（钙成像版本，已排除）。
+
+- **全称**：Allen Brain Observatory — Visual Coding (Neuropixels)
+- **物种/脑区**：小鼠，同步记录最多 **8 个视觉相关脑区**（V1/VISp、LM、AL、PM、AM、RL、LGN、LP）
+- **规模**：**58 sessions**，约 100,000 total units
+- **刺激类型**：
+  - Natural Scenes：118 张自然图像，每张呈现 250ms + ~500ms 灰屏间隔
+  - Natural Movies：约 30 秒连续自然视频（无帧间间隔）
+  - Drifting Gratings / Static Gratings / Locally Sparse Noise
+- **数据格式**：NWB 格式，通过 AllenSDK 访问，AWS 公开
+- **对 NeuroHorizon 的价值**：
+  - **多模态融合实验的首选**：Natural Scenes 配合 DINOv2 图像 embedding 注入
+  - 多脑区同步记录，支持跨脑区分析
+  - Natural Movies 是**长时程连续预测实验**的优质数据源（30s 无间隔刺激驱动神经活动）
+- **局限**：
+  - 仅 58 sessions，不足以支撑 scaling law 实验
+  - Natural Scenes 刺激时长短（250ms），预测窗口（500ms-1s）会跨入灰屏期，需要特别处理
+  - AllenSDK 依赖复杂，建议在独立环境下载，主环境加载预处理后的 HDF5
 
 ---
 
-## 5. 数据集匹配度深度分析与执行注意事项
+### 2.4 NLB（Neural Latents Benchmark，完整版）
 
-本节记录对 IBL 和 Allen 两个数据集与 NeuroHorizon 三大核心目标（长时程预测★★★、跨session泛化★★★、多模态融合★★☆）匹配情况的深度评估，以及在实际执行中需要特别处理的关键细节。
+- **论文**：Pei et al., 2021（NeurIPS 2021 Datasets and Benchmarks）
+- **官网**：neurallatents.github.io
+- **包含 5 个子数据集**：
 
-### 5.1 IBL 数据集匹配度
+| 子数据集 | 脑区 | 任务 | Sessions |
+|---------|------|------|---------|
+| MC_Maze | M1/PMd，猕猴 | 迷宫导航 reaching | ~3 sessions |
+| MC_RTT | M1，猕猴 | Random target reaching | ~3 sessions |
+| Area2_Bump | 体感皮层 Area2，猕猴 | 扰动抵抗 reaching | ~5 sessions |
+| DMFC_RSG | 背内侧前额叶，猕猴 | Ready-Set-Go时间任务 | ~5 sessions |
+| MC_Cycle | M1，猕猴 | 手腕循环运动 | ~3 sessions |
 
-**总体评价：跨session泛化实验高度匹配；长时程预测存在一个需提前处理的细节问题。**
+- **数据获取**：通过 `nlb_tools` 或 brainsets（部分）下载
+- **对 NeuroHorizon 的价值**：
+  - 提供**标准化 train/val/test 分割**，便于与社区方法对比
+  - 包含多个脑区（M1、PMd、体感、前额叶），比其他 brainsets 子集脑区更多样
+  - 可作为改造后模型的 sanity check：在 NLB 上同时验证自回归预测和行为解码性能
+- **定位**：主要作为 benchmark 验证工具，而非主要训练数据扩展
 
-IBL 对跨session泛化实验是无可替代的选择——459个session、12个实验室、标准化行为变量，是测试IDEncoder泛化能力的理想环境，POYO/POYO+也在同一数据集上有过验证，可直接对比。对于data scaling law实验（10/50/100/200+ sessions），IBL是唯一真正满足规模需求的公开数据集，Allen的58个session根本不够。
+---
 
-**关键执行问题：IBL trial结构与1秒预测窗口的对齐策略**
+### 2.5 FALCON Benchmark
 
-IBL是行为驱动的变长trial，刺激呈现时间随对比度不同而变化（低对比度trial更长），trial之间有随机ITI。要从IBL数据构造1秒的"输入窗口→预测窗口"对，有两种可行策略：
+- **全称**：Functional ALignment for CONtinuous Decoding
+- **论文**：Versteeg et al., 2023（NeurIPS 2023 Datasets and Benchmarks）
+- **核心目标**：专门测试神经解码模型在**跨 session / 跨日 / 跨受试者**场景下的泛化能力
+- **包含子任务**：
 
-- **策略A（以stimOn为锚点）**：取 `stimOn_times` 前后各500ms，输入窗口=`[stimOn - 500ms, stimOn]`，预测窗口=`[stimOn, stimOn + 500ms]`。优点：神经活动有明确的任务对齐；缺点：反应时间变长时预测窗口会延伸到decision/reward期，语义较杂。
-- **策略B（连续截取，不依赖trial结构）**：将每个session的连续spike记录直接截取为1秒窗口（不对齐trial），在时间上滑动。优点：最大化数据利用率，不受trial结构限制；缺点：单个窗口的神经活动没有刺激标注，不能做多模态实验。
+| Sub-task | 物种/脑区 | 任务 | 跨 session 难度 |
+|---------|---------|------|--------------|
+| FALCON-M1 | 猕猴，M1 | 手腕力量控制 | 跨日（同一动物） |
+| FALCON-M2 | 猕猴，M1 | 3D reaching | 跨日（同一动物） |
+| FALCON-H1 | 人（BrainGate2），运动皮层 | BCI cursor control | 跨日（同一受试者） |
+| FALCON-H2 | 人（BrainGate2），语音区 | 语音解码 | 跨日（同一受试者） |
 
-**建议**：对于长时程预测实验，优先使用策略B（连续截取），充分利用IBL的连续记录；跨session实验两种策略均可；多模态实验不使用IBL（无语义图像刺激）。
+- **数据获取**：官方 FALCON challenge 网站，需注册下载
+- **对 NeuroHorizon 的价值**：
+  - 设计初衷与 NeuroHorizon 的 IDEncoder 目标高度对齐——零样本/少样本跨 session 泛化
+  - 提供了标准化的"新 session 校准数据量"评估框架（对比不同程度的 held-out session 数据）
+  - 人类 BCI 数据（H1/H2）是实际应用场景的直接体现
+- **局限**：
+  - 每个 sub-task 的训练数据量相对有限，主要作为**测试/benchmark**而非大规模训练扩展
+  - 侧重**解码**任务，用于 NeuroHorizon **编码**任务需要额外适配
 
-**IBL不适用的实验**：
-- neural + image多模态实验（Gabor patch无语义信息，无法对齐DINOv2 embedding）
+---
 
-### 5.2 Allen Brain Observatory 匹配度
+## 3. 数据集选型策略
 
-**总体评价：多模态实验高度匹配；对长时程预测的支持需要特别处理刺激呈现结构。**
+### 3.1 总体思路
 
-Allen数据集对neural + image多模态实验是绝对首选，118张自然图像配合DINOv2是项目最干净的实验设计，多脑区同步记录适合跨脑区分析。
+**渐进式扩展原则**：先利用 torch_brain/brainsets 框架原生支持的数据集快速迭代核心模型改造，待自回归生成机制和跨 session 泛化稳定后，再逐步扩展到 IBL 和 Falcon 的大规模测试，最后引入 Allen Neuropixels 进行多模态实验。
 
-**关键执行问题1：Natural Scenes呈现时长与1秒预测窗口的错配**
+这一策略的核心考量：
+1. **降低初期工程障碍**：brainsets 数据集无需额外数据管线，直接集成进 POYO 训练框架，可以专注于模型改造本身
+2. **快速验证核心机制**：causal 自回归改造的正确性不依赖数据集规模，小规模数据集就能快速验证
+3. **符合风险递进原则**：数据管线复杂度（IBL ONE API、AllenSDK）作为后期工程任务处理，不阻塞模型研究进展
 
-Natural Scenes每张图像仅呈现250ms，之后有约500ms灰屏间隔。如果预测窗口是500ms-1000ms，会有相当比例落在灰屏期而非视觉响应期。这在实验中必须明确说明：**NeuroHorizon预测的是图像结束后的神经自发活动延续，而非另一张图像的视觉响应**。在论文中需要单独分析刺激结束后神经活动的衰减特性。
+---
 
-**建议**：Allen数据中更适合长时程预测实验的是 **Natural Movies** 刺激（约30秒连续视频，而非单张图像）。Natural Movies提供了真正连续的视觉刺激驱动的神经活动，不存在刺激间隔问题，可以直接截取1秒窗口进行预测。建议在执行时优先用Natural Movies验证长时程预测能力，再用Natural Scenes做多模态对齐实验。
+### 3.2 阶段一：初期开发验证 ⬅ 当前阶段
 
-**关键执行问题2：session数量与scaling实验的限制**
+**使用数据集**：Brainsets 原生（Perich-Miller 2018 为主，其余为辅）
 
-Allen只有58个session，提案中data scaling实验要测试"10/50/100/200+"个session的曲线，Allen连200+的基准都达不到。因此：
-- scaling law实验必须在IBL数据上做
-- Allen仅作为多模态和部分跨session实验的数据集
+**目标**：验证 causal 自回归解码器的基本功能，以及 IDEncoder + 自回归 pipeline 的端到端可行性
 
-### 5.3 两个数据集组合的整体评估
+**具体安排**：
 
-| 目标 | IBL适配性 | Allen适配性 | 执行关键点 |
-|------|---------|-----------|----------|
-| 长时程预测（★★★） | ⚠️ 可行，但需处理trial结构 | ⚠️ Natural Scenes有250ms限制，推荐用Natural Movies | 建议用IBL连续截取 + Allen Natural Movies双轨验证 |
-| 跨session泛化（★★★） | ✅ 最佳选择，459个session | ⚠️ 仅58个session，适合验证不适合scaling | scaling用IBL，细粒度泛化分析用Allen |
-| 多模态融合（★★☆） | ❌ 仅Gabor，无语义图像 | ✅ 最佳选择，118张自然图像 | 完全依赖Allen，需提前确认DINOv2 embedding预处理 |
-| Data Scaling Law | ✅ 唯一满足需求（459 sessions） | ❌ 58个session不够 | 必须用IBL |
+| 实验 | 使用数据 | 目标 |
+|------|---------|------|
+| 自回归改造功能验证 | Perich-Miller（选 5-10 个 session） | 确认 causal mask 正确、训练损失下降、预测 spike counts 合理 |
+| 初步跨 session 测试 | Perich-Miller（3 只猴子，70+ sessions） | 测试 IDEncoder 在同任务不同动物/时间上的零样本泛化基准性能 |
+| NLB sanity check（可选） | NLB MC_Maze（brainsets 内） | 验证改造后的模型不破坏原有 POYO 行为解码功能 |
 
-### 5.4 对Jia Lab内部数据的建议
+**Perich-Miller 作为阶段一首选的理由**：
+- brainsets 内 session 数量最多（70+），可直接做初步跨 session 测试
+- 3 只猴子（C/J/M）涵盖跨动物泛化场景，挑战比单动物多 session 更接近真实需求
+- POYO/POYO+ 在该数据集上有公开基线，便于对比
 
-提案将Jia Lab数据列为长时程预测的★★★核心数据集，这一判断是正确的，因为：大量重复trials提供了统计可靠的ground truth PSTH，这是评估1秒预测准确性统计显著性的关键。IBL和Allen在这点上都无法替代——IBL每个刺激重复次数较少，Allen虽然每张图像重复50次但每次只有250ms。如果Jia Lab数据在短期内难以获取，建议优先在Allen的Natural Movies（连续刺激）上验证长时程预测的基本可行性，以避免整体开发时间线受阻。
+---
+
+### 3.3 阶段二：大规模跨 Session 验证
+
+**使用数据集**：IBL Brain-wide Map（主）+ FALCON（验证/benchmark）
+
+**前提条件**：阶段一的自回归改造已验证功能正确，IDEncoder 在 brainsets 数据上有初步泛化表现
+
+**目标**：验证 NeuroHorizon 核心贡献——跨 session、跨实验室、跨脑区的零样本泛化
+
+**具体安排**：
+
+| 实验 | 使用数据 | 目标 |
+|------|---------|------|
+| 跨 session 泛化主实验 | IBL（全部 459 sessions，train/val/test 按 session 划分） | IDEncoder 零样本跨 session R² / PSTH 相关性 |
+| Data Scaling Law | IBL（10/50/100/200/459 sessions 子集） | 揭示模型性能随训练 session 数的增长曲线 |
+| 标准化 benchmark 对比 | FALCON M1/M2 | 在社区公认 benchmark 上量化跨 session 泛化改进 |
+
+**IBL 作为阶段二主力的理由**：
+- 459 sessions 是唯一满足 scaling law 实验规模需求的公开数据集
+- 12 个实验室数据统一标准化，能测试最具挑战性的"跨实验室"泛化
+- 241 个脑区覆盖，IDEncoder 的脑区无关性得以在真实神经多样性下验证
+
+---
+
+### 3.4 阶段三：多模态实验
+
+**使用数据集**：Allen Visual Coding Neuropixels
+
+**前提条件**：阶段二的自回归预测和跨 session 泛化已稳定
+
+**目标**：验证视觉图像（DINOv2 embedding）注入对神经活动预测的提升
+
+**具体安排**：
+
+| 实验 | 使用数据 | 目标 |
+|------|---------|------|
+| 连续预测基准 | Allen Natural Movies（30s 连续视频） | 验证多模态条件下长时程预测能力 |
+| 图像-神经对齐实验 | Allen Natural Scenes（118 张图像）+ DINOv2 | 量化图像 embedding 对刺激响应预测精度的贡献 |
+
+**Allen Neuropixels 的时机安排理由**：
+- 需要额外实现 DINOv2 特征提取 pipeline，工程量较大
+- AllenSDK 依赖环境与 torch_brain 可能有冲突，建议独立环境处理
+- 多模态是"锦上添花"的贡献，核心贡献（自回归预测 + 跨 session 泛化）应先独立验证
+
+---
+
+### 3.5 NLB 完整版的定位
+
+NLB 完整版（包含 MC_Maze、MC_RTT、Area2_Bump 等 5 个子集）不是主要的训练数据扩展，而是：
+
+- **社区对比工具**：NLB 提供了标准化 benchmark，NeuroHorizon 可在其上报告自回归预测性能，便于与社区方法对比
+- **多脑区 sanity check**：Area2_Bump（体感皮层）、DMFC_RSG（前额叶）等超出运动皮层的数据，可验证 IDEncoder 对更广脑区的适用性
+- **引入时机**：可在阶段一完成后、阶段二开始前作为补充验证
+
+---
+
+## 4. 各阶段适配注意事项
+
+### 4.1 Brainsets 原生数据集（阶段一）
+
+**任务转换**：brainsets 数据集原本用于**行为解码**（spikes → cursor velocity），NeuroHorizon 需要转换为**自回归 spike 预测**（past spikes → future spike counts）。  
+- spike 时间戳本身不需要改变，只需将输出从行为变量改为 binned spike counts  
+- 可复用 brainsets 的数据加载和 tokenization 基础设施，仅替换 readout head
+
+**输入/预测窗口设计**：运动任务有明确的 trial 结构（hold period → reach period）  
+- 建议：输入窗口 = hold period（运动准备），预测窗口 = reach period 开头 500ms-1s  
+- 或：采用滑动窗口连续截取（不依赖 trial 结构），最大化数据利用率
+
+**跨 session 划分**：Perich-Miller 2018 按动物/日期划分 train/val/test session，不应按 trial 划分
+
+### 4.2 IBL（阶段二）
+
+**连续时间截取策略**：IBL 是行为驱动的变长 trial，有随机 ITI（试次间间隔）  
+- 策略 A（trial 对齐）：以 `stimOn_times` 为锚点，输入窗口 = `[stimOn - 500ms, stimOn]`，预测窗口 = `[stimOn, stimOn + 500ms]`；清晰但混入了决策/奖励期  
+- 策略 B（连续截取）：直接在连续记录上滑动 1s 窗口，不对齐 trial；最大化数据量，长时程预测实验优先使用  
+- **建议**：长时程预测用策略 B，跨 session 实验两种均可，多模态实验不用 IBL
+
+**质量过滤**：仅使用 `clusters.label == 1`（good quality units），去除低质量 unit
+
+**数据量控制**：先下载 10-20 sessions 调试，再扩展到全部 459 sessions
+
+### 4.3 Allen Neuropixels（阶段三）
+
+**Natural Scenes 预测窗口问题**：每张图片仅呈现 250ms + ~500ms 灰屏间隔，1s 预测窗口会跨入灰屏期  
+- 在论文中需明确说明：预测的是图像结束后的神经自发活动延续  
+- 建议优先使用 **Natural Movies**（30s 连续无间隔）用于长时程预测验证，Natural Scenes 用于图像-神经对齐分析
+
+**DINOv2 预处理**：Allen 图像为灰度图（918×1174），需转为 RGB 后送入 DINOv2  
+- 建议**离线预提取**所有 118 张图像的 DINOv2 embedding，缓存为 `.pt` 文件，训练时直接加载
+
+**AllenSDK 环境**：建议在独立 conda 环境下载数据，转存为 HDF5 后在主环境加载
+
+---
+
+## 5. 存储空间规划
+
+| 数据集 | 下载内容 | 预估空间 |
+|--------|---------|---------|
+| Brainsets 原生（全部） | spike times + behavior（全部子集） | ~10-30 GB |
+| IBL（调试阶段，10-20 sessions） | spike times + behavior | ~5-10 GB |
+| IBL（完整，459 sessions，不含 LFP） | spike times + behavior | ~100-200 GB |
+| IBL（预处理后，HDF5） | 转换后格式 | ~50-100 GB |
+| Allen Neuropixels（58 sessions NWB） | spike times + behavior，不含 LFP | ~146.5 GB |
+| Allen DINOv2 embeddings（预提取） | 118 张图像 × ViT-B/L | <1 GB |
+| FALCON（所有 sub-tasks） | spike times | ~5-20 GB |
+| **合计（完整实验）** | | **~350-450 GB** |
+
+> 当前 `/root/autodl-tmp` 可用空间需提前确认。建议阶段一先只下载 brainsets 数据（~30GB），阶段二前再规划 IBL 存储。
+
+---
+
+## 6. 参考资源
+
+### Brainsets / torch_brain
+- torch_brain 文档：https://torch-brain.readthedocs.io/en/latest/
+- brainsets GitHub（数据加载接口）：https://github.com/neuro-galaxy/brainsets
+- Perich-Miller 2018 原始数据：DANDI Archive 或 via brainsets
+
+### IBL
+- IBL ONE API 文档：https://docs.internationalbrainlab.org
+- IBL 2025 数据发布说明：https://docs.internationalbrainlab.org/notebooks_external/2025_data_release_brainwidemap.html
+- IBL AWS 开放数据：https://registry.opendata.aws/ibl-brain-wide-map/
+
+### Allen Neuropixels
+- AllenSDK Visual Coding Neuropixels 文档：https://allensdk.readthedocs.io/en/latest/visual_coding_neuropixels.html
+- Allen AWS 开放数据：https://registry.opendata.aws/allen-brain-observatory/
+
+### NLB
+- NLB 官网：https://neurallatents.github.io
+- nlb_tools：https://github.com/neurallatents/nlb_tools
+
+### FALCON
+- FALCON Benchmark 官网：https://snel-repo.github.io/falcon/
+- FALCON 论文（NeurIPS 2023）：Versteeg et al., 2023
+
+---
+
+*最后更新：2026-02-27*
