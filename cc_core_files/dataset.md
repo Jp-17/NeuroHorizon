@@ -209,7 +209,6 @@
 **目标**：
 1. 验证 causal 自回归解码器改造的基本功能（pipeline 通畅、causal mask 正确、训练损失下降）
 2. 验证不同预测窗口长度下的生成质量（梯度扩展：250ms → 500ms → 1s）
-3. 验证 IDEncoder + 自回归 pipeline 的端到端可行性
 
 **具体安排**：
 
@@ -217,7 +216,6 @@
 |------|---------|------|
 | 自回归改造功能验证 | Perich-Miller（选 5-10 个 session） | causal mask 正确、训练损失下降、预测 spike counts 合理 |
 | 预测窗口梯度测试 | Perich-Miller（10-20 sessions） | 从 250ms 起步，评估 500ms、1s 的预测质量，视结果决定后续重点窗口 |
-| IDEncoder 基础验证 | Perich-Miller（单动物多 session） | IDEncoder 特征提取、嵌入质量、替换 InfiniteVocabEmbedding 后功能正常 |
 | NLB sanity check（可选） | NLB MC_Maze（brainsets 内） | 验证改造后的模型不破坏原有 POYO 行为解码功能 |
 
 **数据需求**：
@@ -230,14 +228,17 @@
 
 **使用数据集**：Brainsets 原生（Perich-Miller 2018）为基础，IBL 为可选扩展
 
-**前提**：阶段一的自回归改造已验证功能正确，IDEncoder pipeline 可正常运行
+**前提**：阶段一的自回归改造已验证基本功能正确（causal mask、损失收敛、基本 spike 预测可行）
 
-**目标**：验证 IDEncoder 的跨 session 泛化能力（不同动物、不同日期的零样本泛化）
+**目标**：
+1. 实现并验证 IDEncoder 基础功能（特征提取、嵌入质量、替换 InfiniteVocabEmbedding）
+2. 验证 IDEncoder 的跨 session 泛化能力（不同动物、不同日期的零样本泛化）
 
 **具体安排**：
 
 | 实验 | 使用数据 | 目标 | 扩展路径 |
 |------|---------|------|---------|
+| IDEncoder 基础实现与验证（必做） | Perich-Miller（单动物多 session，5-10 sessions） | 实现 id_encoder.py，替换 InfiniteVocabEmbedding，验证特征提取正确性、嵌入质量、pipeline 端到端运行 | 单动物验证通过后进入跨 session 测试 |
 | Brainsets 跨 session 测试（必做） | Perich-Miller（3 只猴子，70+ sessions，按动物划分 train/val/test） | IDEncoder 零样本跨 session/跨动物基准性能（R² / PSTH 相关性） | 先 5 个 session → 验证通过后扩展到全部 70+ |
 | IBL 跨 session 扩展（可选） | IBL（先 10-20 sessions 调试，验证通过后逐步扩展） | 在更大规模（跨实验室、跨脑区）数据上验证 IDEncoder 泛化性 | 10 → 50 → 100 → 459 sessions |
 | FALCON benchmark（可选补充） | FALCON M1/M2 | 在社区公认 benchmark 上量化跨 session 泛化改进 | 阶段二结果稳定后 |
@@ -474,9 +475,19 @@
 - FALCON Benchmark 官网：https://snel-repo.github.io/falcon/
 - FALCON 论文（NeurIPS 2023）：Versteeg et al., 2023
 
-### 参考对比模型（在 IBL 上有结果）
-- NDT3（Wang et al., 2023）
-- NEDS（Neural Encoding and Decoding at Scale, arXiv:2504.08201）：在 IBL Repeated Site 上对比了 POYO+ 基线
+### 参考对比模型
+
+#### 同类基础模型（主要对比基线）
+- **POYO**（Azabou et al., NeurIPS 2023）：spike-level tokenization + Perceiver 编码器，猕猴运动皮层行为解码；NeuroHorizon 的直接代码基础，行为解码 baseline 可直接对比。GitHub: https://github.com/neuro-galaxy/torch_brain
+- **POYO+**（Azabou et al., ICLR 2025 Spotlight）：多 session、多任务扩展，在 Allen Brain Observatory 钙成像数据上验证；任务侧重不同（解码 vs 编码），但跨 session 机制有参考价值
+- **SPINT**（Liu et al., 2023）：提出通过参考窗口统计特征生成 unit embedding 的 IDEncoder 思路，实现梯度无关跨 session 泛化；NeuroHorizon IDEncoder 模块的直接灵感来源，跨 session 泛化设计应与其对比
+- **Neuroformer**（Antoniades et al., 2023）：首个自回归 spike-level 预测框架，支持多模态条件输入（图像、行为）；与 NeuroHorizon 任务最接近（自回归 spike 编码），是阶段一/二的主要对比对象
+- **NDT1 / NDT2**（Ye & Pandarinath, 2021；Ye et al., 2023）：masked spike prediction（类 BERT 范式），binned spike counts 输入；可在 Brainsets 数据上对比 PSTH 预测质量和行为解码 R²
+- **NDT3**（Wang et al., 2023）：大规模跨 session 预训练，在 IBL Repeated Site 上有公开结果，是阶段二/三 IBL 扩展后的主要跨 session 泛化对比基线
+
+#### 在 IBL 上有公开结果（阶段二/三 IBL 扩展后的直接对比目标）
+- **NDT3**（Wang et al., 2023）：IBL Repeated Site 上的跨 session 基线
+- **NEDS**（Neural Encoding and Decoding at Scale, arXiv:2504.08201）：同时包含 spike 预测（编码）和行为解码任务，在 IBL Repeated Site 上对比了 POYO+ 和 NDT3 基线；与 NeuroHorizon 对比场景最接近
 
 ---
 
