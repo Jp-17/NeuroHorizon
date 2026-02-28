@@ -204,3 +204,51 @@
 - SSH heredoc 传递含反引号的字符串时 bash 做了命令替换，导致 Python 字符串匹配失败；解决：将脚本写入本地文件再 scp 上传执行（与前次 dataset.md 修改问题相同，已成为标准操作流程）
 
 **对应 plan.md 任务**：Phase 0 → 0.1.1、0.1.2、0.1.3
+
+---
+
+## 2026-02-28-20h
+
+### 任务：执行 Plan 0.2 数据准备与探索（0.2.1 / 0.2.2 / 0.2.3）
+
+**完成时间**：2026-02-28-20h
+
+**完成内容**：
+
+**0.2.1 检查并下载 Brainsets 数据**
+- 确认项目中无 Perich-Miller 数据（原有 IBL/Allen/NLB 数据来自废弃任务）
+- 通过 DANDI REST API 确认 DANDI:000688 共 111 sessions，总 12.3GB
+- 编写 `scripts/data/perich_miller_pipeline.py`（brainsets pipeline 修改版，过滤至 10 sessions）
+- 选取 4 C-CO + 3 J-CO + 3 M-CO（320MB），下载并处理为 brainsets HDF5 格式
+- 更新 `cc_core_files/data.md` 和 `cc_core_files/scripts.md`
+
+**0.2.2 数据加载验证**
+- 通过 `temporaldata.Data.from_hdf5()` 验证单文件加载：结构完整，字段正确
+- 通过 `torch_brain.data.Dataset` + `RandomFixedWindowSampler` 验证 pipeline：
+  - 10 sessions 正常加载，6372 个训练窗口（1s each）
+  - 单样本读取正常（~350 spikes/window，41 units）
+  - PASSED
+
+**0.2.3 数据深度探索分析**
+- 编写 `scripts/analysis/explore_brainsets.py`，产出：
+  - `results/figures/data_exploration/01_dataset_overview.png`（概览统计）
+  - `results/figures/data_exploration/02_neural_statistics.png`（神经元统计 + 自回归可行性）
+  - `results/figures/data_exploration/exploration_summary.json`（统计摘要 JSON）
+- 关键发现（详见 `cc_todo/phase0-env-baseline/20260228-phase0-data-explore.md`）：
+  - Hold period 均值 676ms（87% > 250ms）→ 250ms 输入窗口可行
+  - Reach period 均值 1090ms（100% > 500ms，75% > 1000ms）→ 三级预测窗口均可行
+  - Per-unit spike 稀疏度（20ms bin）：87.6% zero，均值 0.133；Poisson NLL 适用
+  - 250ms → 12 AR steps；500ms → 25 steps；1000ms → 50 steps（需 scheduled sampling）
+  - Phase 1 推荐起点：c_20131003 session，250ms 预测窗口
+
+**执行结果**：
+- Plan 0.2.1、0.2.2、0.2.3 全部完成，plan.md 对应 checkbox 已打勾
+- 已 git commit + push
+
+**遇到的问题**：
+1. `.gitignore` 的 `data/` 规则导致 `scripts/data/` 被忽略 → 添加 `!scripts/data/` 例外规则
+2. temporaldata lazy loading 需在 h5py 上下文内访问 → 数据访问放在 `with` 块内
+3. torch_brain Dataset API 参数名变化（`interval_dict` → `sampling_intervals`）→ inspect 检查后修正
+4. dandi 包未安装在 poyo 环境 → `pip install dandi==0.61.2 scikit-learn`
+
+**对应 plan.md 任务**：Phase 0.2（0.2.1、0.2.2、0.2.3）

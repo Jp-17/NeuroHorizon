@@ -50,16 +50,16 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 ### 0.2 数据准备与探索
 
-- [ ] **0.2.1** 检查 `NeuroHorizon/data/` 中已有的 Brainsets 数据
+- [x] **0.2.1** 检查 `NeuroHorizon/data/` 中已有的 Brainsets 数据 <!-- 记录：cc_todo/phase0-env-baseline/20260228-phase0-data-explore.md -->
   - 列出 `data/raw/` 和 `data/processed/` 下的内容，判断是否已下载 Perich-Miller 或其他 Brainsets 数据集
   - 若已有数据：确认格式是否符合 brainsets pipeline 要求，可直接复用
   - 若无或不完整：通过 brainsets API 补充下载 `perich_miller_population_2018`（先 5-10 sessions）
   - 记录数据存放位置到 `cc_core_files/data.md`
 
-- [ ] **0.2.2** 数据加载验证
+- [x] **0.2.2** 数据加载验证 <!-- 记录：cc_todo/phase0-env-baseline/20260228-phase0-data-explore.md -->
   - 通过 POYO 数据 pipeline 的 sanity check，确认数据可正常流入训练框架
 
-- [ ] **0.2.3** 数据深度探索与可视化分析
+- [x] **0.2.3** 数据深度探索与可视化分析 <!-- 记录：cc_todo/phase0-env-baseline/20260228-phase0-data-explore.md -->
 
   > 目标：建立对 Perich-Miller 数据集的完整数据直觉，为后续输入/输出窗口设计、自回归可行性评估提供依据。
   >

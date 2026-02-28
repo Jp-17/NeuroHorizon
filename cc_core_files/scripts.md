@@ -67,3 +67,27 @@
 - **功能用途**：计算数据集归一化参数（POYO 框架原有脚本）
 - **创建时间**：（POYO 框架原有）
 - **备注**：POYO 框架自带，非 NeuroHorizon 新增
+
+### explore_brainsets.py
+
+- **路径**：`scripts/analysis/explore_brainsets.py`
+- **功能用途**：Perich-Miller 2018 数据集深度探索分析
+  - 加载全部 10 sessions，统计数据集概览
+  - 分析任务结构（hold/reach/return period 时长分布）
+  - 计算神经元统计特征（发放率分布、spike count 稀疏度、Poisson 适配性）
+  - 评估自回归可行性（各预测窗口 steps 数和可行比例）
+  - 生成 PSTH、Raster plot、firing rate 分布等可视化图表
+  - 输出 exploration_summary.json 汇总关键统计量
+- **创建时间**：2026-02-28
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  python scripts/analysis/explore_brainsets.py
+  ```
+- **输入**：`data/processed/perich_miller_population_2018/*.h5`
+- **输出**：
+  - `results/figures/data_exploration/01_dataset_overview.png`
+  - `results/figures/data_exploration/02_neural_statistics.png`
+  - `results/figures/data_exploration/exploration_summary.json`
+- **依赖**：poyo conda 环境（temporaldata, h5py, matplotlib, numpy）
+- **备注**：对应 plan.md 任务 0.2.3
