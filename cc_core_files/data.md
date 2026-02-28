@@ -58,6 +58,44 @@ data/
 
 ---
 
+### Perich-Miller Population 2018（Brainsets 下载）
+
+- **存储路径**：
+  - raw: `data/raw/perich_miller_population_2018/`（原始 NWB 文件）
+  - processed: `data/processed/perich_miller_population_2018/`（brainsets 标准 HDF5 格式）
+- **数据来源**：DANDI Archive（DANDI:000688/draft），通过 brainsets CLI 下载
+- **下载时间**：2026-02-28
+- **数据规模**：10 sessions（初始子集），总计约 320MB raw / 100MB processed
+  - sub-C（猴 C）：4 sessions（center_out_reaching，2013年）
+  - sub-J（猴 J）：3 sessions（center_out_reaching，2016年，全部）
+  - sub-M（猴 M）：3 sessions（center_out_reaching，2015年）
+  - 完整数据集共 111 sessions（C:68 / J:3 / M:28 / T:12），总 ~12.3GB，按需扩展
+- **数据内容**：
+  - 神经数据：spike times（Utah Array，M1/PMd 皮层，手动 spike sorting）
+  - 行为数据：cursor position / velocity / acceleration（2D，连续时间序列）
+  - 任务结构：center_out_reaching（center-out task），含 hold_period / reach_period / return_period
+  - 元数据：trial 标签（valid/invalid）、go_cue_time、target_id、result 等
+- **处理状态**：processed（brainsets 标准 HDF5，含 train/valid/test split）
+- **处理脚本**：`scripts/data/perich_miller_pipeline.py`（本地修改版 pipeline，限 10 sessions）
+- **用途**：
+  - Phase 0：POYO+ baseline 复现（task 0.2/0.3）
+  - Phase 1：自回归改造验证（causal mask / Poisson NLL / 预测窗口梯度测试）
+  - Phase 2：跨 session 泛化（按动物划分 train/test：C+J 训练，M held-out）
+  - Phase 3：data scaling law（需按需扩展至 70+ sessions）
+- **字段说明（HDF5 格式）**：
+  - `spikes`：spike 时间戳（IrregularTimeSeries），字段含 `timestamps`、`unit_index`
+  - `units`：神经元信息
+  - `cursor`：行为数据（pos/vel/acc），IrregularTimeSeries
+  - `trials`：trial 区间，含 `hold_period`、`reach_period`、`return_period`
+  - `movement_phases`：各阶段 Interval（hold/reach/return/random/invalid）
+  - train/valid/test domain 已划分（valid=0.1, test=0.2，random_state=42）
+- **备注**：
+  - 数据通过 `brainsets.runner` + `--use-active-env` 在 poyo conda 环境下运行处理
+  - 使用 `perich_miller_pipeline.py` 中的 `SELECTED_PATHS` 过滤指定 sessions
+  - 后续扩展：修改 `SELECTED_PATHS` 或直接用 `brainsets prepare perich_miller_population_2018` 下载全量
+
+---
+
 ## 待下载/处理数据
 
 *（随项目正式启动后持续补充）*

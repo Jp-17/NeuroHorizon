@@ -165,3 +165,6 @@ cc_todo/20260221-cc-1st/figures/
 checkpoint.pth
 
 uv.lock
+# 允许脚本目录下的 data 子目录
+\!scripts/data/
+\!scripts/data/**

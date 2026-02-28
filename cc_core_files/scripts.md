@@ -27,7 +27,35 @@
 
 ## 脚本列表
 
-*（随项目推进持续补充）*
+
+### perich_miller_pipeline.py
+
+- **路径**：`scripts/data/perich_miller_pipeline.py`
+- **功能用途**：下载并处理 Perich-Miller Population 2018 数据集的子集（10 sessions）
+  - 从 DANDI Archive（DANDI:000688/draft）下载指定 sessions 的 NWB 文件
+  - 提取 spike times、cursor 行为数据、trial 结构，转换为 brainsets 标准 HDF5 格式
+  - 划分 train/valid/test splits（valid=0.1, test=0.2）
+- **创建时间**：2026-02-28
+- **使用方式**：
+  ```bash
+  # 激活 poyo 环境后运行
+  conda activate poyo
+  python -m brainsets.runner scripts/data/perich_miller_pipeline.py \
+      --raw-dir=data/raw --processed-dir=data/processed -c4
+  ```
+- **输入**：DANDI Archive 在线下载（需网络）
+- **输出**：
+  - raw NWB：`data/raw/perich_miller_population_2018/sub-{C,J,M}/`
+  - processed HDF5：`data/processed/perich_miller_population_2018/*.h5`
+- **依赖**：poyo conda 环境（dandi>=0.61.2, scikit-learn, temporaldata, brainsets）
+- **备注**：
+  - 修改自 brainsets 官方 pipeline，通过 `SELECTED_PATHS` 限制为 10 sessions
+  - 如需下载更多 sessions，修改 `SELECTED_PATHS` 集合或直接用 `brainsets prepare`
+  - 运行需要 `brainsets` 配置（`~/.brainsets.yaml`）或通过 `--raw-dir/--processed-dir` 覆盖
+
+---
+
+
 
 ---
 
