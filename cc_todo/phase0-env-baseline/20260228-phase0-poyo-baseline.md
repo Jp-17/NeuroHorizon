@@ -38,9 +38,13 @@ conda run -n poyo --no-capture-output python examples/poyo_plus/train.py \
 
 #### 训练过程（持续更新）
 
-| 时间 | epoch | train_loss | val R² | 备注 |
-|------|-------|------------|--------|------|
-| 启动 | 0 | - | - | 开始训练 |
+| epoch | avg R² | 备注 |
+|-------|--------|------|
+| 9 | 0.321 | 初始验证 |
+| 89 | 0.784 | LR 加热完成 |
+| 229 | 0.803 | LR 衰减开始（epoch 250） |
+| **429** | **0.807** | **最佳 checkpoint** |
+| 499 | 0.805 | 训练完成 |
 
 ---
 
@@ -56,7 +60,7 @@ conda run -n poyo --no-capture-output python examples/poyo_plus/train.py \
 
 ### 0.3.3 基线性能报告
 
-（训练完成后整理）
+**已完成** — 结果记录于 cc_core_files/results.md，plan.md 已打勾
 
 ---
 
@@ -68,5 +72,5 @@ conda run -n poyo --no-capture-output python examples/poyo_plus/train.py \
 
 ## 还有什么没有做
 
-- [ ] 0.3.2 latent 分析（训练完成后执行）
-- [ ] 0.3.3 性能报告（训练完成后整理）
+- [x] 0.3.2 latent 分析
+- [x] 0.3.3 性能报告

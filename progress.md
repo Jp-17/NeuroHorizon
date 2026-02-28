@@ -252,3 +252,44 @@
 4. dandi 包未安装在 poyo 环境 → `pip install dandi==0.61.2 scikit-learn`
 
 **对应 plan.md 任务**：Phase 0.2（0.2.1、0.2.2、0.2.3）
+
+---
+
+## 2026-02-28-19h
+
+### 任务：Phase 0.3 POYO+ 基线复现（0.3.1 / 0.3.2 / 0.3.3）
+
+**完成时间**：2026-02-28-19h
+
+**完成内容**：
+
+**0.3.1 在 Perich-Miller 数据上运行 POYO+ 行为解码，验证 R² > 0.3**
+- 新建训练配置：`examples/poyo_plus/configs/train_baseline_10sessions.yaml`
+  - 模型：dim=128, depth=12（~8M params）；BF16；500 epochs；batch_size=64
+  - 数据集：已有的 10 sessions（`perich_miller_10sessions.yaml`）
+- 训练历时约 85 分钟（RTX 4090 D，GPU 利用率 57%，显存 4GB/24GB）
+- **最佳平均 R² = 0.8065**（epoch 429），最终 R² = 0.8046（epoch 499）
+- 各 session R²：C animal 0.85-0.91，J animal 0.57-0.76，M animal 0.86-0.92
+- **验收标准 R² > 0.3 大幅满足**
+
+**0.3.2 分析 POYO encoder latent representation 质量**
+- 编写 `scripts/analysis/analyze_latents.py`，hook `dec_atn` pre-hook 提取处理后 latent
+- 在 val set 的 1313 个窗口上运行分析：
+  - PCA：**PC1=53.8%**，PC2=7.4%（latent 空间结构高度有序）
+  - Linear probe（5-fold CV Ridge）：**R²=0.286 ± 0.032**
+- 产出：`results/figures/baseline/latent_pca.png`，`latent_linear_probe.json`
+
+**0.3.3 基线性能报告**
+- 所有结果记录至 `cc_core_files/results.md`（包含训练曲线、per-session R²、latent 分析）
+- plan.md 对应任务全部标记完成
+
+**执行结果**：
+- Phase 0 全部任务完成（0.1.1-0.3.3），Phase 1 可正式开始
+- 已 git commit + push
+
+**遇到的问题**：
+1. `torch.load` PyTorch 2.6 默认 `weights_only=True`，加载 Lightning checkpoint 报错 → 添加 `weights_only=False`
+2. latent 分析初始 hook 目标为 `model.perceiver`（不存在）→ 修正为 `model.dec_atn` pre-hook
+3. linear probe 维度不匹配：target_values 是 flat [B*T, 2] 而非 [B, T, 2] → repeat latent 匹配目标时序
+
+**对应 plan.md 任务**：Phase 0 → 0.3.1、0.3.2、0.3.3

@@ -59,7 +59,7 @@ def load_model_and_cfg(ckpt_path: str, config_dir: str, config_name: str):
     model.session_emb.initialize_vocab(val_dataset.get_session_ids())
 
     # Load checkpoint weights
-    checkpoint = torch.load(ckpt_path, map_location="cpu")
+    checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     state_dict = checkpoint.get("state_dict", checkpoint)
     # Lightning wraps model under 'model.' prefix
     new_sd = {}
@@ -98,6 +98,7 @@ def extract_latents(model, val_dataset, batch_size=32, max_batches=100):
     model = model.to(device)
 
     all_latents = []       # mean-pooled latent per window [dim]
+    all_latents_for_probe = []  # repeated latent matching target timesteps
     all_session_ids = []
     all_targets = []       # cursor velocity targets
 
@@ -116,34 +117,44 @@ def extract_latents(model, val_dataset, batch_size=32, max_batches=100):
 
         latents_captured = {}
 
-        def hook_fn(module, inp, out):
-            latents_captured["latents"] = out.detach().cpu()
+        def pre_hook_fn(module, args):
+            # dec_atn receives: (query, context, q_timestamp_emb, k_timestamp_emb, ...)
+            # args[1] is latents (context) - shape [B, n_latents, dim]
+            if len(args) > 1 and isinstance(args[1], torch.Tensor):
+                latents_captured["latents"] = args[1].detach().cpu()
 
-        # Register hook on the perceiver (encoder output)
-        hook = model.perceiver.register_forward_hook(hook_fn)
+        # Register pre-hook on dec_atn to capture final encoder latents
+        hook = model.dec_atn.register_forward_pre_hook(pre_hook_fn)
 
         _ = model(**inputs_dev, unpack_output=False)
         hook.remove()
 
         if "latents" in latents_captured:
-            lat = latents_captured["latents"]  # [B, num_latents*T_latent, dim]
+            lat = latents_captured["latents"]  # [B, n_latents, dim]
             # Mean pool over latent sequence
             pooled = lat.mean(dim=1)  # [B, dim]
             all_latents.append(pooled)
             all_session_ids.extend(batch.get("session_id", ["unknown"] * len(pooled)))
-            # Target cursor velocity (if available)
+            # Target cursor velocity: target_values is flat [total_targets, 2]
+            # Repeat each window latent for all its target timesteps
             if "cursor_velocity_2d" in batch.get("target_values", {}):
-                tgt = batch["target_values"]["cursor_velocity_2d"]
-                # Mean over time for this window
-                all_targets.append(tgt.mean(dim=1).cpu())
+                tgt = batch["target_values"]["cursor_velocity_2d"]  # [total, 2]
+                n_targets = tgt.shape[0]
+                B = pooled.shape[0]
+                T = n_targets // B  # timesteps per window
+                # Repeat latent for each timestep: [B*T, dim]
+                rep = pooled.unsqueeze(1).expand(-1, T, -1).reshape(-1, pooled.shape[-1])
+                all_latents_for_probe.append(rep)
+                all_targets.append(tgt.cpu())
 
     if not all_latents:
         logger.error("No latents captured - check hook target module name")
         return None, None, None
 
     latents = torch.cat(all_latents, dim=0).numpy()   # [N, dim]
-    targets = torch.cat(all_targets, dim=0).numpy() if all_targets else None  # [N, 2]
-    return latents, all_session_ids, targets
+    targets = torch.cat(all_targets, dim=0).numpy() if all_targets else None  # [N*T, 2]
+    latents_for_probe = torch.cat(all_latents_for_probe, dim=0).numpy() if all_latents_for_probe else latents
+    return latents, all_session_ids, targets, latents_for_probe
 
 
 def pca_and_plot(latents, session_ids, out_dir):
@@ -226,7 +237,7 @@ def main():
         args.ckpt, args.config_dir, args.config_name)
 
     logger.info("Extracting latents from validation set...")
-    latents, session_ids, targets = extract_latents(
+    latents, session_ids, targets, latents_for_probe = extract_latents(
         model, val_dataset, max_batches=args.max_batches)
 
     if latents is None:
@@ -240,7 +251,7 @@ def main():
     logger.info(f"PCA variance explained: PC1={var_ratio[0]*100:.1f}%, PC2={var_ratio[1]*100:.1f}%")
 
     logger.info("Running linear probe...")
-    probe_result = linear_probe(latents, targets, args.out_dir)
+    probe_result = linear_probe(latents_for_probe, targets, args.out_dir)
 
     # Summary
     summary = {

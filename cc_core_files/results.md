@@ -77,3 +77,71 @@ results/
 - **存储路径**：`results/figures/data_exploration/exploration_summary.json`
 - **产生方式**：`scripts/analysis/explore_brainsets.py`
 - **目的**：机器可读的统计汇总，供后续脚本直接加载使用
+
+---
+
+## Phase 0.3 POYO+ 基线训练结果
+
+### POYO+ 行为解码基线（Perich-Miller 10 sessions）
+
+- **存储路径**：`results/logs/phase0_baseline/`
+- **产生时间**：2026-02-28
+- **产生方式**：`examples/poyo_plus/train.py`，配置 `train_baseline_10sessions.yaml`
+- **实验目的**：验证 POYO+ 在 Perich-Miller 数据上的行为解码基线性能（Phase 0.3.1 验收）
+- **实验配置**：
+  - 模型：POYOPlus，dim=128，depth=12，cross_heads=2，self_heads=8（~8M params）
+  - 数据：10 sessions（C:4, J:3, M:3），center_out_reaching，BF16
+  - 训练：500 epochs，batch_size=64，OneCycleLR（max_lr=2e-3，LR 衰减从 epoch 250 开始）
+  - UnitDropout：min_units=30，mode_units=80
+- **主要结果**：
+  - **最佳平均 R²：0.8065**（epoch 429）
+  - **最终 epoch R²：0.8046**（epoch 499）
+  - 最佳 checkpoint：`results/logs/phase0_baseline/lightning_logs/version_0/checkpoints/epoch=429-step=42570.ckpt`
+
+  | Session | R²（epoch 429） |
+  |---------|----------------|
+  | c_20131003 | 0.871 |
+  | c_20131022 | 0.846 |
+  | c_20131101 | 0.907 |
+  | c_20131204 | 0.857 |
+  | j_20160405 | 0.569 |
+  | j_20160406 | 0.574 |
+  | j_20160407 | 0.756 |
+  | m_20150610 | 0.922 |
+  | m_20150612 | 0.864 |
+  | m_20150615 | 0.901 |
+  | **平均** | **0.807** |
+
+- **结果分析**：
+  - C 和 M animal 的 R² 均在 0.85-0.92，接近论文原始报告（POYO+ 在 Perich-Miller 上 ~0.8-0.9）
+  - J animal 较低（0.57-0.76），原因是训练集中 J 只有 3 sessions，样本量不足
+  - **0.3.1 验收标准 R² > 0.3 大幅满足**（实际达 0.807）
+  - 收敛曲线：epoch 9=0.321 → epoch 89=0.784 → epoch 229=0.803 → epoch 429=0.807（收敛稳定）
+
+### POYO+ Encoder Latent 质量分析
+
+- **存储路径**：`results/figures/baseline/`
+- **产生时间**：2026-02-28
+- **产生方式**：`scripts/analysis/analyze_latents.py`，最佳 checkpoint（epoch 429）
+- **实验目的**：分析 POYO encoder 输出的 latent representation 质量（Phase 0.3.2 验收）
+- **实验配置**：
+  - 输入：val set 全部 1313 个窗口（1s 滑动窗口，step=0.5s）
+  - Latent 提取：hook `dec_atn` pre-hook 捕获处理后的 latent（shape=[1313, n_latents, 128]）
+  - 分析：mean-pooled → PCA；repeated → 5-fold CV Ridge linear probe
+- **主要结果**：
+
+  | 分析 | 结果 |
+  |------|------|
+  | PCA PC1 方差占比 | **53.8%** |
+  | PCA PC2 方差占比 | 7.4% |
+  | Linear probe R²（cursor_velocity_2d） | **0.286 ± 0.032** |
+  | 图表 | `results/figures/baseline/latent_pca.png` |
+  | 数值文件 | `results/figures/baseline/latent_linear_probe.json` |
+  | 汇总文件 | `results/figures/baseline/latent_analysis_summary.json` |
+
+- **结果分析**：
+  - PC1 占 53.8% 方差，说�� latent 空间具有强主成分结构，并非随机——encoder 学到了系统性的神经活动特征
+  - Linear probe R²=0.286 是从**均值池化的窗口 latent**预测 cursor velocity 的结果，显著低于模型的 R²=0.807
+    - 原因：均值池化丢失了时序信息；decoder 使用的是每时间步的 per-latent 特征
+    - 意义：latent 空间编码的并非简单的运动方向信息，而是包含了复杂的时序模式
+  - 后续 Phase 2 中，IDEncoder 替换后可对比 latent 结构的变化（更好的分离性 = 更好的跨 session 泛化）
