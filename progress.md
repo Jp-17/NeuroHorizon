@@ -68,3 +68,57 @@
 **对应 plan.md 任务**：不直接对应 plan.md ��的代码任务，属于项目管理文档建设
 
 ---
+
+---
+
+## 2026-02-28-12h
+
+### 任务：优化 dataset.md 数据集规划文档
+
+**完成时间**：2026-02-28-12h
+
+**完成内容**：
+
+对 `cc_core_files/dataset.md` 进行了多轮系统性优化，主要改动如下：
+
+1. **修正 POYO/IBL 错误说明**（2.2节）
+   - 原文误称"POYO/POYO+ 论文本身在 IBL 上有过验证"，实为错误
+   - 已更正：POYO-1（NeurIPS 2023）在猕猴运动皮层数据上验证；POYO+（ICLR 2025）在 Allen Brain Observatory 钙成像数据上验证；**两者均未使用 IBL**
+   - NeuroHorizon 在 IBL 上需自行建立 baseline，可与 NDT3、NEDS 等对比
+
+2. **按执行阶段重组选型策略**（第3节，核心改动）
+   - 原来按数据集划分（Brainsets→IBL→Allen），改为按项目执行进度划分四个阶段：
+     - 阶段一：自回归改造验证 + 长时程生成验证（Brainsets 原生）
+     - 阶段二：跨 Session 测试（Brainsets 必做，IBL 可选扩展）
+     - 阶段三：Data Scaling + 下游任务泛化（Brainsets 必做，IBL 可选扩展）
+     - 阶段四：多模态引入（Allen Neuropixels）
+   - IBL 从"阶段二主力"改为"阶段二/三可选扩展"
+
+3. **IDEncoder 实现与验证从阶段一移至阶段二**
+   - 阶段一聚焦于自回归改造本身（causal mask、损失收敛、预测窗口梯度测试）
+   - 阶段二新增首项任务：IDEncoder 基础实现与验证（实现 id_encoder.py，替换 InfiniteVocabEmbedding）
+
+4. **新增预测窗口梯度扩展策略**（4.4节）
+   - 250ms → 500ms → 1s（视数据和结果灵活调整），每步说明数据支撑和决策逻辑
+
+5. **新增 Session 动态扩增策略**（4.5节）
+   - Brainsets：5→10→20→40→70+；IBL：10-20（调试）→30→50→100→200→459
+
+6. **优化第4节结构**
+   - 4.1 聚焦阶段一（任务转换、窗口设计），去除跨 session 划分内容
+   - 4.2 先介绍 Brainsets 跨 session 使用（必做基础），再介绍 IBL 可选扩展，明确启动时机
+
+7. **扩充参考对比模型列表**（第6节）
+   - 新增：POYO、POYO+、SPINT、Neuroformer、NDT1/NDT2（均附说明与 NeuroHorizon 的对比关系）
+   - 保留：NDT3、NEDS（IBL 上有公开结果，阶段二/三直接对比目标）
+
+**执行结果**：
+- dataset.md 共 510 行，所有改动已提交（3 次 git commit，均已 push）
+- 文档与当前四阶段执行计划完全对齐
+
+**遇到的问题**：
+- SSH heredoc 传递含方括号的字符串时 zsh 做了 glob 展开，导致 Python 字符串匹配失败；解决：将脚本写入本地文件再 scp 上传执行
+- heredoc 写文件时"载"字的 UTF-8 编码被截断为 3 个替换字符（U+FFFD）；解决：字节级定位并替换修复
+
+**对应 plan.md 任务**：属于"项目计划优化阶段"的文档修缮工作
+
