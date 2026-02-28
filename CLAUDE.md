@@ -6,6 +6,7 @@
 
 项目详细背景、研究动机、核心创新点和技术方案，请参阅：
 - **研究方案**：[cc_core_files/proposal.md](cc_core_files/proposal.md)
+- **执行参考**：[cc_core_files/proposal_review.md](cc_core_files/proposal_review.md)（各 Phase 代码改造方案、技术考量与风险评估）
 - **执行计划**：[cc_core_files/plan.md](cc_core_files/plan.md)
 - **代码库分析**：[cc_core_files/code_research.md](cc_core_files/code_research.md)
 - **数据集规划**：[cc_core_files/dataset.md](cc_core_files/dataset.md)
@@ -16,15 +17,9 @@
 
 ## 当前项目状态
 
-**项目计划优化阶段**
+**Phase 0 执行阶段**
 
-当前阶段正在进一步完善和修正以下核心规划文档：
-- 研究方案设计（cc_core_files/proposal.md）
-- POYO 代码库分析（cc_core_files/code_research.md）
-- 数据集选型与规划（cc_core_files/dataset.md）
-- 执行计划制定（cc_core_files/plan.md）
-
-**上述文档完全确定后，才会正式开始代码改造和项目执行。**
+核心规划文档已完成，项目正式进入执行阶段。按 `cc_core_files/plan.md` 的 Phase 0 开始执行。
 
 ---
 
@@ -33,6 +28,7 @@
 | 文档 | 路径 | 说明 |
 |------|------|------|
 | 研究方案 | cc_core_files/proposal.md | 完整研究提案（背景、创新点、实验设计） |
+| 执行参考 | cc_core_files/proposal_review.md | 各 Phase 代码改造方案、技术考量、风险与验收标准（**执行 plan 任务前必读**） |
 | 执行计划 | cc_core_files/plan.md | 分阶段任务执行计划，按此计划推进项目 |
 | 代码分析 | cc_core_files/code_research.md | POYO 代码架构及改造接口分析 |
 | 数据集 | cc_core_files/dataset.md | 数据集选型、下载和使用说明 |
@@ -41,9 +37,7 @@
 | 结果记录 | cc_core_files/results.md | 实验结果说明（产生方式、目的、分析） |
 | 工作进展 | progress.md | 每次任务的执行记录和问题沉淀 |
 
-> 待 proposal.md 和 plan.md 进一步修缮后，将在此处明确标记：
-> - 项目详细规划参考 `cc_core_files/proposal.md`
-> - 项目执行计划参考 `cc_core_files/plan.md`（按照 plan.md 规划执行，完成后在 plan.md 打勾）
+> 项目执行计划参考 `cc_core_files/plan.md`（按照 plan.md 规划执行，完成后在 plan.md 打勾）；执行前必读 `cc_core_files/proposal_review.md` 中对应 Phase 的执行参考。
 
 ---
 
@@ -80,36 +74,37 @@ NeuroHorizon/
 ### 任务开始前
 
 1. **阅读 progress.md**：了解历史任务进展，借鉴已有经验，避免重复踩坑
-2. **确认任务范围**：明确当前任务是否对应 plan.md 中的某个阶段/步骤
+2. **阅读 proposal_review.md 对应章节**：执行 plan.md 中某 Phase 的任务前，查阅 `cc_core_files/proposal_review.md` 中该 Phase 对应的执行参考节（如"第四节 Phase 1 执行参考"），了解代码改造方案、关键注意事项和验收标准
+3. **确认任务范围**：明确当前任务是否对应 plan.md 中的某个阶段/步骤
 
 ### 任务执行中
 
-3. **文件命名**：
+4. **文件命名**：
    - 新建的文件夹和文件名称使用**英文**
    - 产出的 Markdown 文档名称在**最前面包含日期**（格式：`YYYYMMDD-` 或 `YYYY-MM-DD-`）
 
-4. **脚本管理**：
+5. **脚本管理**：
    - 脚本文件放在 `scripts/` 下的合适位置
    - 脚本创建后，**必须**在 `cc_core_files/scripts.md` 中记录：功能用途、创建时间、使用方式、存储位置
 
-5. **数据管理**：
+6. **数据管理**：
    - 下载的数据集放在 `data/` 下，按类型区分（`raw/` `processed/` `generated/` 等）
    - **必须**在 `cc_core_files/data.md` 中记录：数据集名称、处理信息、存储位置、字段含义
 
-6. **结果管理**：
+7. **结果管理**：
    - 实验结果（可视化图表、分析输出等）放在 `results/` 下的合适位置
    - **必须**在 `cc_core_files/results.md` 中记录：产生方式、目的、结果分析
 
-7. **plan.md 对应任务**：
+8. **plan.md 对应任务**：
    - 如果当前任务对应 `cc_core_files/plan.md` 中的某个任务，在 plan.md 对应位置记录执行情况（完成状态、完成程度、后续工作）
 
 ### 任务完成后
 
-8. **更新 progress.md**：记录任务完成时间（日期-小时-分）、完成事项、执行结果、遇到的问题及解决方法
+9. **更新 progress.md**：记录任务完成时间（日期-小时-分）、完成事项、执行结果、遇到的问题及解决方法
 
-9. **检查 CLAUDE.md**：确认本文件内容是否过时，如有需要及时更新
+10. **检查 CLAUDE.md**：确认本文件内容是否过时，如有需要及时更新
 
-10. **Git 提交**：每完成一个任务或功能模块，立即执行：
+11. **Git 提交**：每完成一个任务或功能模块，立即执行：
     ```bash
     git add <相关文件>
     git commit -m "中文提交信息"
@@ -154,12 +149,13 @@ NeuroHorizon/
 
 当收到"执行 plan.md 中某阶段某任务"的指令时，按以下规范操作：
 
-### 执行前：建立记录文件
+### 执行前：阅读参考文档并建立记录文件
 
-1. 在 `cc_todo/` 下确认该阶段文件夹存在（按 plan.md 大阶段划分，如 `cc_todo/phase1-autoregressive/`）；若无则新建
-2. 在该文件夹内新建任务记录文件，命名格式：`{YYYYMMDD}-{大阶段名}-{小任务名}.md`
+1. **读取 `cc_core_files/proposal_review.md` 中对应 Phase 的执行参考**（如 Phase 1 任务对应"第四节 Phase 1 执行参考"），作为代码改造方案和技术决策的依据
+2. 在 `cc_todo/` 下确认该阶段文件夹存在（按 plan.md 大阶段划分，如 `cc_todo/phase1-autoregressive/`）；若无则新建
+3. 在该文件夹内新建任务记录文件，命名格式：`{YYYYMMDD}-{大阶段名}-{小任务名}.md`
    - 示例：`20260228-phase1-poisson-loss.md`
-3. 文件开头写入：日期、对应 plan.md 任务编号与名称、任务目标
+4. 文件开头写入：日期、对应 plan.md 任务编号与名称、任务目标
 
 ### 执行中：持续记录
 
