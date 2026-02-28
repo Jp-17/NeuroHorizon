@@ -164,3 +164,43 @@
 
 **对应 plan.md 任务**：属于"项目计划优化阶段"的文档重构工作，为正式执行 Phase 0 做准备
 
+
+---
+
+## 2026-02-28-16h
+
+### 任务：Phase 0.1 环境验证与代码理解 + 论文精读 + 代码改造建议
+
+**完成时间**：2026-02-28-16h
+
+**完成内容**：
+
+完成 plan.md 中 Phase 0 的 0.1 全部三个子任务：
+
+1. **0.1.1 POYO conda 环境验证**
+   - 确认 `poyo` conda 环境可用（PyTorch 2.10.0+cu128, RTX 4090 D, CUDA BF16 支持）
+   - 验证所有核心依赖：wandb/hydra/einops/h5py/scipy/sklearn/brainsets 全部就绪
+   - 梳理完整代码模块依赖关系图（spike tokenization → unit embedding → Perceiver encoder → processing layers → readout）
+   - 精读关键代码：rotary_attention.py（attention mask 机制）、infinite_vocab_embedding.py（tokenizer/vocab 管理）、poyo_plus.py（完整前向传播与 tokenize 接口）
+
+2. **0.1.2 SPINT + Neuroformer 论文精读**
+   - SPINT（IDEncoder）：网络结构为"1层cross-attn + 2×三层FC"，输入统计特征（firing rate + variance + spike counts），Dynamic Channel Dropout 是跨 session 鲁棒性的关键；若 33d MLP 方案效果不佳可借鉴其 cross-attn 结构
+   - Neuroformer：三阶段处理（对比对齐→跨模态融合→因果解码）��逐 spike 自回归（vs NeuroHorizon 的 bin-level 预测），需对比学习预训练（vs NeuroHorizon 直接用 DINOv2 更简洁）
+
+3. **0.1.3 后续阶段代码改造建议**（基于 0.1.1 + 0.1.2 产出）
+   - Phase 1 关键发现：`rotary_attn_pytorch_func` 和 `rotary_attn_xformers_func` 均只处理 1D kv-padding mask，causal mask（2D 上三角）需扩展 mask reshape 逻辑；两个后端（pytorch + xformers）需同时修改
+   - Phase 2 关键发现：`InfiniteVocabEmbedding` 含 tokenizer/detokenizer/vocab/state_dict hooks，不能直接删除，IDEncoder 需以 flag 方式作为替代路径而非直接替换
+   - 详细建议文档：`cc_todo/phase0-env-baseline/20260228-phase0-env-code-understanding.md`
+
+**附：本次还完成了**：
+- plan.md 修改：0.1.3 内容改为"基于0.1.1和0.1.2的执行结果给予对于后续阶段要修改代码的建议"
+- plan.md 乱码修复：3.2.2 行 "记录迁移增益" 中"益"字的 UTF-8 损坏（3个U+FFFD替换字符）已修复
+
+**执行结果**：
+- 三个 0.1 任务均已在 plan.md 中标记 [x]
+- 任务记录文件写入 `cc_todo/phase0-env-baseline/20260228-phase0-env-code-understanding.md`
+
+**遇到的问题**：
+- SSH heredoc 传递含反引号的字符串时 bash 做了命令替换，导致 Python 字符串匹配失败；解决：将脚本写入本地文件再 scp 上传执行（与前次 dataset.md 修改问题相同，已成为标准操作流程）
+
+**对应 plan.md 任务**：Phase 0 → 0.1.1、0.1.2、0.1.3

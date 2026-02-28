@@ -39,14 +39,14 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 ### 0.1 环境验证与代码理解
 
-- [ ] **0.1.1** 确认并验证 POYO conda 环境可用性
+- [x] **0.1.1** 确认并验证 POYO conda 环境可用性 <!-- 记录：cc_todo/phase0-env-baseline/20260228-phase0-env-code-understanding.md -->
   - 服务器上已有 POYO 相关 conda 环境，先 `conda env list` 查看现有环境，尝试直接激活使用
   - 验证核心依赖完整性：PyTorch, wandb, hydra, brainsets；缺失项按需补装而非重建环境
   - 梳理代码模块依赖关系图：spike tokenization → unit embedding → Perceiver encoder → readout → 训练循环
 
-- [ ] **0.1.2** 精读 SPINT（IDEncoder 机制）和 Neuroformer（自回归生成 + 多模态）两篇关键论文
+- [x] **0.1.2** 精读 SPINT（IDEncoder 机制）和 Neuroformer（自回归生成 + 多模态）两篇关键论文 <!-- 记录：cc_todo/phase0-env-baseline/20260228-phase0-env-code-understanding.md -->
 
-- [ ] **0.1.3** 标注后续需要修改的代码模块（参见 `cc_core_files/proposal_review.md` 第八节关键文件清单）
+- [x] **0.1.3** 基于0.1.1和0.1.2的执行结果给予对于后续阶段要修改代码的建议 <!-- 记录：cc_todo/phase0-env-baseline/20260228-phase0-env-code-understanding.md -->
 
 ### 0.2 数据准备与探索
 
@@ -275,7 +275,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 ### 3.2 下游任务泛化（必做）
 
 - [ ] **3.2.1** 用自回归预训练的 NeuroHorizon encoder 初始化（冻结 encoder），微调行为解码 head
-- [ ] **3.2.2** 与 POYO 从头训练的行为解码对比（R²），记录迁移增���
+- [ ] **3.2.2** 与 POYO 从头训练的行为解码对比（R²），记录迁移增益
 - [ ] **3.2.3** 验证自回归预训练是否改善下游解码质量
 
 ### 3.3 IBL 大规模 Scaling（可选）
