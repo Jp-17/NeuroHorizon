@@ -122,3 +122,45 @@
 
 **对应 plan.md 任务**：属于"项目计划优化阶段"的文档修缮工作
 
+
+---
+
+## 2026-02-28-18h
+
+### 任务：重构项目文档体系，建立可执行计划规范
+
+**完成时间**：2026-02-28-18h
+
+**完成内容**：
+
+对项目核心文档进行了全面重构，建立了清晰的文档分工体系：
+
+**1. 新建并重写 `cc_core_files/proposal_review.md`（735 行）**
+- 定位：proposal.md 的技术补充，面向 plan.md 各阶段执行，提供代码级改造指南
+- 整合来源：原 plan.md 第1-4节（项目目标/POYO差异/合理性/架构）+ 原 plan.md 附录A/B（文件清单/风险）+ code_research.md + 三份审查报告（code-research-review / plan-review / proposal-review）
+- 按十大章节组织：架构速览 → POYO接口参考 → Phase 0~4 各节执行参考（含代码级方案、设计隐患、验收标准）→ 关键文件清单 → 风险汇总 → 合理性评估
+- 关键技术内容：POYO-MP heads 勘误（cross=2/self=8）、GEGLU激活说明、causal mask修改方案、解码器信息瓶颈分析（4种方案对比）、IDEncoder vs InfiniteVocabEmbedding替换注意事项、优化器分组策略（SparseLamb vs AdamW）、DINOv2 灰度图处理方案
+
+**2. 重写 `cc_core_files/plan.md`（367 行）**
+- 以阶段化可执行计划为主体，Phase 0～5 结构化任务列表
+- 每个 Phase 标题增加"执行参考"指针，指向 proposal_review.md 对应节
+- 移除附录A/B（已迁移至 proposal_review.md）
+- 0.3.1 验收标准从"R² > 0"提升为"R² > 0.3"
+- 1.1.5 NeuroHorizon 模型实现拆分为 2.5a/b/c 三步（骨架→Decoder→tokenize）
+- Plan 0.2 新增：data目录已有数据核查 + Brainsets 数据深度探索分析任务（0.2.3，含脚本/结果管理规范）
+
+**3. 更新 `CLAUDE.md`（182 行）**
+- 新增 proposal_review.md 到项目简介和文档导航表
+- 当前状态从"项目计划优化阶段"更新为"Phase 0 执行阶段"
+- 任务执行规范"任务开始前"新增第2步：读取 proposal_review.md 对应章节
+- Plan 任务执行规范"执行前"新增第一步：读取 proposal_review.md 对应 Phase 执行参考
+
+**执行结果**：
+- 所有文件已提交并推送到 GitHub（3 次 commit）
+- 文档体系分工明确：proposal.md（What/Why）+ proposal_review.md（How）+ plan.md（When/状态）+ dataset.md（数据）
+
+**遇到的问题**：
+- 大文件远程写入：使用"本地写 /tmp → scp → SSH 移动"三步法避免 heredoc 的 shell 元字符问题
+
+**对应 plan.md 任务**：属于"项目计划优化阶段"的文档重构工作，为正式执行 Phase 0 做准备
+
