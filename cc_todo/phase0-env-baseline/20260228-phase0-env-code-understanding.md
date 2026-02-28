@@ -225,20 +225,88 @@ Y = MLP_out(Z_out)                                         # 输出投影 → �
 - **端到端训练**：IDEncoder + cross-attention decoder 用 MSE 目标联合训练
 - **轻量级设计**：仅 1 层 cross-attn + 2 个 3层FC，面向实时 iBCI 部署
 
-**与 NeuroHorizon 方案的对比**：
+**与 NeuroHorizon IDEncoder 方案的对比**：
 
-| 方面 | SPINT | NeuroHorizon（计划） |
+| 方面 | SPINT | NeuroHorizon（设计） |
 |------|-------|---------------------|
-| **Identity 输入** | 原始 binned spike counts（T 维，从 calibration trials 插值） | ~33d 手工统计特征（ISI histogram + autocorr + Fano factor） |
-| **特征提取方式** | 端到端学习（MLP₁ 从原始数据中自动提取特征） | 手工设计特征 + MLP 映射 |
-| **网络结构** | MLP₁(T→H) → mean pool → MLP₂(H→W)（2个3层FC） | 3层 MLP(33→128→256→dim) |
-| **输入维度** | 高维（T=100~1024，取决于 trial 长度和 bin size） | 低维（~33d） |
+| **Identity 输入** | 原始 binned spike counts（T 维，从 calibration trials 插值） | 原始神经活动（两种 tokenization 方案待选，见下方讨论） |
+| **特征提取方式** | 端到端学习（MLP₁ 从 binned counts 自动提取特征） | 端到端学习（参考 SPINT 架构） |
+| **网络结构** | MLP₁(T→H) → mean pool → MLP₂(H→W)（2个3层FC） | 参考 SPINT 实现，先用相同的 feedforward 架构 |
+| **输出维度** | W（= activity window size，如 100/700） | d_model（= 模型隐层维度，如 512） |
+| **Identity 注入方式** | **加法注入**：Z = X + E（作为位置编码加到 activity window 上） | **替换 unit_emb**：E_i 直接作为神经元 embedding（对应 POYO 的 `InfiniteVocabEmbedding`） |
 | **是否 gradient-free（推理时）** | 是 | 是 |
-| **Identity 注入方式** | 加法（Z = X + E） | 替换 unit_emb（作为 encoder 输入的一部分） |
+| **下游使用方式** | E 加到 X 后送入 cross-attention 解码器 | E 作为 spike event 的 unit embedding 送入 Perceiver encoder |
 
-> **对比分析**：两种方案代表了不同的设计哲学。SPINT 直接从原始 spike count 序列中学习 identity，特征提取能力更强但输入维度更高（T=100~1024），需要更多 calibration 数据；NeuroHorizon 使用手工统计特征（~33d），输入紧凑，不依赖 trial 结构（可从任意参考窗口提取），但特征设计的质量直接决定上限。
->
-> **启发**：若 NeuroHorizon 的 33d 手工特征 + MLP 方案效果不理想，可考虑：(1) 借鉴 SPINT 的思路，直接用参考窗口的 raw spike counts（插值到固定长度）作为 IDEncoder 输入；(2) 或采用混合方案：手工统计特征 + 短窗口 raw counts 拼接。
+#### SPINT vs NeuroHorizon：Identity 注入方式的关键差异
+
+两者在 IDEncoder 输出的**使用方式**上存在本质区别：
+
+**SPINT 的加法注入**：
+```
+E_i ∈ ℝ^W           （W = activity window size）
+Z_i = X_i + E_i     （直接加到当前 activity window 上）
+```
+SPINT 中 E_i 的维度等于 activity window 的长度 W，本质上是一种**上下文相关的位置编码**——它告诉模型"这条活动序列来自哪个神经元"。加法注入后，Z 同时包含 identity 信息和活动信息，再由 cross-attention 聚合所有 unit 进行行为解码。
+
+**NeuroHorizon 的 unit embedding 替换**：
+```
+E_i ∈ ℝ^d_model      （d_model = 模型隐层维度，如 512）
+# 替换原 POYO 中的：
+#   inputs = self.unit_emb(input_unit_index) + self.token_type_emb(...)
+# 变为：
+#   inputs = id_encoder_emb[unit_i] + self.token_type_emb(...)
+```
+NeuroHorizon 中 E_i 的维度等于模型隐层维度 d_model，直接替换 POYO 的 `InfiniteVocabEmbedding` 输出。在 POYO 架构中，unit_emb 是每个 spike event token 的"身份标签"，与 token_type_emb 相加后送入 Perceiver encoder。IDEncoder 生成的 E_i 承担完全相同的角色，只是从"查表"变为"从神经活动推断"。
+
+**设计动机对比**：
+- SPINT 的加法注入适合其架构——SPINT 直接对 activity window 做 cross-attention 解码，E 需要与 X 在同一维度空间
+- NeuroHorizon 的 unit_emb 替换适合 Perceiver 架构——POYO 中每个 spike event 需要独立的 unit embedding，IDEncoder 的输出自然地填充这个角色
+- 两种方式殊途同归：都是将"神经元身份"信息注入模型，只是注入的位置和形式不同
+
+**为什么不用 SPINT 的加法注入？**
+- SPINT 的架构是直接对 activity window 做 cross-attention 解码，E 需要和 X 在同一空间（维度 = W）
+- NeuroHorizon 基于 POYO Perceiver 架构，输入是 spike event 序列（每个 event 一个 token），unit_emb 是 per-token 属性
+- 若在 NeuroHorizon 中用加法注入，需要将 E 重复加到每个属于该 unit 的 spike event token 上——这在语义上等价于替换 unit_emb，但替换方式更直接
+
+#### IDEncoder 输入的两种 Tokenization 方案讨论
+
+NeuroHorizon 的 IDEncoder 同样以原始神经活动（非手工统计特征）作为输入，但具体的 tokenization 方式有两种候选方案：
+
+**方案 A：Binned Timesteps（SPINT 风格）**
+
+```
+参考窗口内每个 unit 的 spike events → binning（20ms bin）→ spike count 序列 ∈ ℝ^T
+→ 插值到固定长度 T_ref → MLP₁(T_ref → H) → pool → MLP₂(H → d_model)
+```
+
+| 优势 | 劣势 |
+|------|------|
+| 与 SPINT 验证过的方案一致，可直接复用其架构 | 固定 bin size 丢失精确 spike timing |
+| 输入为固定长度向量，网络设计简单（纯 MLP） | 需要插值到固定长度，引入信息损失 |
+| 计算效率高（MLP forward pass） | Bin 选择（20ms vs 50ms）可能影响效果 |
+| 不依赖 trial 结构（从任意参考窗口提取） | |
+
+**方案 B：Spike Event Tokenization（POYO 风格）**
+
+```
+参考窗口内每个 unit 的 spike events
+→ 每个 spike event 注入时间位置编码（rotary time embedding）
+→ 通过 attention pooling / mean pooling 聚合为固定维度向量 ∈ ℝ^H
+→ MLP(H → d_model)
+```
+
+| 优势 | 劣势 |
+|------|------|
+| 保留精确 spike timing（与 POYO 输入表示一致） | 变长输入需要聚合机制（attention pooling 或 mean pooling） |
+| 不需要 binning 和插值，无信息损失 | 网络设计更复杂（需要 attention 层） |
+| 与 NeuroHorizon 主模型的 spike event 输入风格统一 | 计算开销更大（尤其对高发放率 unit） |
+| | 低发放率 unit spike 数过少可能导致 pooling 不稳定 |
+
+**推荐**：先实现**方案 A**（Binned Timesteps），原因：
+1. 与 SPINT 已验证的方案一致，可直接参考其架构和超参，降低实现风险
+2. 纯 MLP 架构简单，调试容易，作为 IDEncoder v1 快速验证可行性
+3. 方案 B 可作为后续 IDEncoder v2 的改进方向（若 v1 效果不理想或需要更精细的 timing 信息）
+
 
 ### Neuroformer（Antoniades et al., ICLR 2024）— 自回归生成 + 多模态
 
@@ -390,52 +458,108 @@ T=3, N=2 时：每个时间步包含 N 个 neuron token，因此 causal mask 以
 
 ### Phase 2 改造建议（IDEncoder）
 
-#### 1. 新建 `scripts/extract_reference_features.py`
+> **设计更新（2026-02-28）**：NeuroHorizon 的 IDEncoder 输入确定为**原始神经活动**（非手工统计特征），参考 SPINT 的 feedforward 架构实现。与 SPINT 的关键差异在于 identity 注入方式：NeuroHorizon 将 IDEncoder 输出作为 unit embedding（替换 `InfiniteVocabEmbedding`），而非像 SPINT 那样加到 activity window 上。
 
-**输入特征计算（~33d）**：
+#### 1. IDEncoder 架构设计（参考 SPINT）
 
-| 特征 | 维度 | 计算方法 | 注意事项 |
-|------|------|----------|----------|
-| 平均发放率 | 1d | total_spikes / total_time | 低发放率（<1 Hz）需特殊处理 |
-| ISI 变异系数 | 1d | std(ISI) / mean(ISI) | ISI < 2ms 的 ISI 需过滤（refractory period） |
-| ISI log-histogram | 20d | np.histogram(log(ISI), bins=20) | 低发放率时用 KDE 代替直方图（spike 数 < 50） |
-| 自相关特征 | 10d | ACF at lags [5,10,...,50ms] | 用 20ms bin 计算 |
-| Fano factor | 1d | var(spike_counts) / mean(spike_counts) | 用 100ms bin 计算 |
+**架构**：采用 SPINT 的 MLP1 -> mean pool -> MLP2 feedforward 结构，先验证此架构在 NeuroHorizon 框架下的可行性，后续视效果决定是否调整。
 
-**SPINT 启示**：SPINT 直接将原始 binned spike counts（插值到固定长度 T=100~1024）输入 MLP₁+MLP₂ 端到端学习 identity，不使用手工统计特征。NeuroHorizon 则走手工特征路线（~33d）+ 简单 MLP。两种方案各有利弊：SPINT 的端到端学习特征提取能力更强但需要 trial 结构的 calibration 数据；NeuroHorizon 的手工特征更紧凑且不依赖 trial 结构。若 33d MLP 方案效果不理想，可考虑：(1) 借鉴 SPINT，直接用参考窗口 raw spike counts 作为输入；(2) 混合方案（手工特征 + raw counts 拼接）。
-
-#### 2. 新建 `torch_brain/nn/id_encoder.py`
-
-**网络设计**：
 ```python
-# 输入：~33d 神经统计特征
-# 输出：d_model（unit embedding）
 class IDEncoder(nn.Module):
-    def __init__(self, input_dim=33, output_dim=512):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, 128),
-            nn.GELU(),         # 标准 GELU，非 GEGLU（输入维度低，门控机制无必要）
-            nn.LayerNorm(128),
-            nn.Linear(128, 256),
-            nn.GELU(),
-            nn.LayerNorm(256),
-            nn.Linear(256, output_dim),
-        )
+    # 从参考窗口的原始神经活动推断 unit embedding
+    # 架构参考 SPINT (Le et al., NeurIPS 2025)，但输出用途不同：
+    #   SPINT: E_i 加到 activity window 作为位置编码
+    #   NeuroHorizon: E_i 替换 InfiniteVocabEmbedding 作为 unit embedding
+
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        # input_dim: 参考窗口 tokenization 后的维度（方案 A: T_ref; 方案 B: pooled dim）
+        # hidden_dim: 隐层维度 H（SPINT 用 512~1024）
+        # output_dim: d_model（模型隐层维度，如 512）
+        self.mlp1 = ThreeLayerFC(input_dim, hidden_dim)   # per-trial/per-window 映射
+        self.mlp2 = ThreeLayerFC(hidden_dim, output_dim)   # 映射到 unit embedding 空间
+
+    def forward(self, ref_data):
+        # ref_data: [N_units, M_windows, input_dim]（每个 unit 的 M 个参考窗口）
+        h = self.mlp1(ref_data)           # [N_units, M_windows, hidden_dim]
+        h = h.mean(dim=1)                 # [N_units, hidden_dim]  mean pooling
+        unit_embs = self.mlp2(h)          # [N_units, output_dim]
+        return unit_embs
 ```
 
-**关于 SPINT 的结构**：SPINT 的 IDEncoder 实际上是 `MLP₁(per-trial raw counts → H) → mean pool → MLP₂(H → W)` 两阶段 MLP，cross-attention 在 IDEncoder 之后用于解码（不是 IDEncoder 内部）。
-NeuroHorizon 方案是先预计算 33d 统计特征再用 MLP，不依赖 trial 结构。若需要更强的特征提取能力，
-可考虑借鉴 SPINT 直接从 raw spike counts 学习（需要参考窗口的 binned counts 输入）——可作为 IDEncoder v2 的改进方向。
+**关于输入 tokenization（方案 A vs B）**：
+
+如 0.1.2 中讨论，推荐先实现**方案 A（Binned Timesteps）**：
+- 参考窗口内的 spike events -> 20ms bin -> spike count 序列 -> 插值到固定长度 T_ref
+- `input_dim = T_ref`（如 T_ref=100，参考 SPINT M2 设置）
+- 方案 B（Spike Event + attention pooling）作为 v2 备选
+
+**超参建议**（初始值参考 SPINT）：
+- `input_dim`：100（对应约 2s 参考窗口，20ms bin）
+- `hidden_dim`：512（SPINT M2 设置）或 1024（SPINT M1 设置）
+- `output_dim`：d_model（与模型隐层维度一致，如 512）
+
+#### 2. Identity 注入方式：替换 unit_emb
+
+**核心改造点**：IDEncoder 输出 `E_i` (d_model 维) 直接替换 POYO 中 `InfiniteVocabEmbedding` 的 unit_emb 输出。
+
+在 POYO/POYOPlus 的 forward() 中：
+```python
+# 原代码（POYO）：
+inputs = self.unit_emb(input_unit_index) + self.token_type_emb(input_token_type)
+
+# NeuroHorizon（IDEncoder 启用时）：
+unit_embs = self.id_encoder(ref_data)        # [N_units, d_model]
+inputs = unit_embs[input_unit_index] + self.token_type_emb(input_token_type)
+```
+
+**与 SPINT 的对比**：
+- SPINT：`Z = X + E`（E 加到 activity window 上，维度 = window size W）
+- NeuroHorizon：`inputs = E[unit_idx] + token_type_emb`（E 替代 unit_emb，维度 = d_model）
+- SPINT 的 E 编码的是"这条活动序列属于哪个神经元"（window-level 位置编码）
+- NeuroHorizon 的 E 编码的是"这个 spike event 来自哪个神经元"（token-level 身份标签）
+- NeuroHorizon 的方式更符合 Perceiver 架构的 token-level 设计——每个 spike event 独立携带 unit identity
 
 #### 3. 集成到 NeuroHorizon 模型
 
-**关键约束**：
-- `InfiniteVocabEmbedding` 的 `tokenizer()` / `detokenizer()` 接口被 `tokenize()` 和 collate pipeline 大量使用，不能直接删除
-- 建议：IDEncoder 作为额外路径，通过 flag `use_id_encoder` 切换，保留原 `InfiniteVocabEmbedding` 路径
-- 优化器：IDEncoder 用 AdamW；session_emb（InfiniteVocabEmbedding）保留 SparseLamb
+**新建文件**：`torch_brain/nn/id_encoder.py`
 
----
+**集成方式**：
+```python
+class NeuroHorizon(nn.Module):
+    def __init__(self, ..., use_id_encoder=False, id_encoder_cfg=None):
+        # 保留原 InfiniteVocabEmbedding（用于 tokenizer/detokenizer/vocab 管理）
+        self.unit_emb = InfiniteVocabEmbedding(dim, ...)
+
+        # IDEncoder 作为可选路径
+        self.use_id_encoder = use_id_encoder
+        if use_id_encoder:
+            self.id_encoder = IDEncoder(**id_encoder_cfg)
+
+    def forward(self, ..., ref_data=None):
+        if self.use_id_encoder and ref_data is not None:
+            # IDEncoder 路径：从参考窗口推断 unit embedding
+            unit_embs = self.id_encoder(ref_data)   # [N_units, d_model]
+            inputs = unit_embs[input_unit_index] + self.token_type_emb(input_token_type)
+        else:
+            # 原 InfiniteVocabEmbedding 路径
+            inputs = self.unit_emb(input_unit_index) + self.token_type_emb(input_token_type)
+```
+
+**关键约束**：
+- `InfiniteVocabEmbedding` 的 `tokenizer()` / `detokenizer()` / vocab 管理被 `tokenize()` 和 collate pipeline 大量使用，**必须保留**
+- `use_id_encoder` flag 控制切换：Phase 1 用原 unit_emb，Phase 2 启用 IDEncoder
+- IDEncoder 输出的 unit_embs 通过 `input_unit_index` 索引（与原 unit_emb 的使用方式一致）
+- 优化器分组：IDEncoder 用 AdamW；session_emb 保留 SparseLamb
+
+**tokenize() 改造**：
+- 增加参考窗口数据的准备逻辑（从 session 的 calibration/reference 时段提取 spike events）
+- 方案 A：binning + 插值到 T_ref -> 作为 `ref_data` 传入
+- 方案 B（备选）：raw spike events + timestamps -> attention pooling
+
+**训练流程**：
+- IDEncoder 与模型其余部分端到端联合训练（与 SPINT 一致）
+- 推理时（新 session）：只需新 session 的参考窗口前向传播一次 IDEncoder，得到 unit_embs 后缓存，无需梯度更新（gradient-free）
+
 
 ### Phase 3 / 4 建议（简要）
 
