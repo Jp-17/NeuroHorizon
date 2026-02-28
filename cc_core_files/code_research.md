@@ -296,7 +296,7 @@ class ModalitySpec:
 以下是 NeuroHorizon 需要修改/替换的关键接口点：
 
 ### 8.1 需要替换的组件
-- `InfiniteVocabEmbedding` → **IDEncoder** (从参考窗口特征生成 unit embedding)
+- `InfiniteVocabEmbedding` → **IDEncoder** (从参考窗口原始神经活动生成 unit embedding（参考 SPINT 架构）)
 - `MultitaskReadout` → **Shared per-neuron MLP** (适应可变输出维度)
 - `MSELoss/CrossEntropyLoss` → **PoissonNLLLoss** (spike count 预测)
 

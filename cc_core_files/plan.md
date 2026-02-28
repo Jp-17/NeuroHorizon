@@ -204,18 +204,26 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 ### 2.1 IDEncoder 实现
 
-- [ ] **2.1.1** 实现参考窗口特征提取
-  - 新建 `scripts/extract_reference_features.py`
-  - 计算每个 neuron 的统计特征（~33d）：平均发放率(1d)、ISI 变异系数(1d)、ISI log-histogram(20d)、自相关特征(10d)、Fano factor(1d)
-  - 注意低发放率神经元（<1 Hz）的 ISI 直方图稳定性（考虑用 KDE 代替直方图）
+- [ ] **2.1.1** 实现参考窗口数据准备（方案 A: Binned Timesteps）
+  - 新建 `scripts/extract_reference_data.py`
+  - 从每个 session 的参考时段提取各 unit 的 spike events，binning (20ms) 后插值到固定长度 T_ref
+  - 参数：T_ref=100（约 2s 参考窗口），M 个参考窗口（从不同 trial 或时段采样）
+  - 输出格式：`ref_data[unit_i] = Tensor[M, T_ref]`（每个 unit 的 M 个参考窗口 binned spike counts）
 
-- [ ] **2.1.2** 实现 IDEncoder MLP 网络
+- [ ] **2.1.2** 实现 IDEncoder 网络（方案 A，参考 SPINT 架构）
   - 新建 `torch_brain/nn/id_encoder.py`
-  - 网络结构：3 层 MLP（Linear → GELU → LayerNorm），输入 ~33d，输出 d_model
-  - 注意：使用标准 GELU（非 GEGLU），输入维度低，门控机制不必要
+  - 网络结构：MLP1(T_ref -> H) -> mean pool -> MLP2(H -> d_model)，每个 MLP 为 3 层 FC
+  - 参数参考 SPINT：hidden_dim=512~1024，output_dim=d_model
+  - 输入为原始 binned spike counts（非手工统计特征），端到端学习
+
+- [ ] **2.1.2b**（Phase 2 后期）实现方案 B: Spike Event Tokenization IDEncoder
+  - 输入：参考窗口 raw spike event timestamps，注入 rotary time embedding
+  - 聚合：attention pooling / mean pooling -> MLP -> d_model
+  - 与方案 A 对比实验，验证保留精确 spike timing 对 identity 推断的贡献
+  - **作为 NeuroHorizon 的创新点之一**：Spike Event Tokenization for IDEncoder
 
 - [ ] **2.1.3** 集成到 NeuroHorizon
-  - 替换 `InfiniteVocabEmbedding`，**注意保留其 tokenizer/detokenizer 逻辑**（参见 `proposal_review.md` 第五节）
+  - IDEncoder 输出替换 `InfiniteVocabEmbedding` 的 unit_emb（非加法注入），**注意保留其 tokenizer/detokenizer 逻辑**（参见 `proposal_review.md` 第五节）
   - 更新 `torch_brain/nn/__init__.py`；优化器参数组：IDEncoder 用 AdamW，session_emb 保留 SparseLamb
   - 验证前向传播维度匹配，end-to-end pipeline 正常运行
 

@@ -342,7 +342,7 @@
 
 **Session 划分**：Perich-Miller 2018 按动物/日期划分 train/val/test session，不应按 trial 划分
 - 建议划分：以动物为粒度（例如 C/J 训练，M 测试），或在同一动物内按日期划分，确保 test session 的神经元在训练中未曾出现
-- IDEncoder 验证目标：test session 仅用参考窗口统计特征生成 unit embedding，不参与任何梯度更新
+- IDEncoder 验证目标：test session 仅用参考窗口原始神经活动数据生成 unit embedding，不参与任何梯度更新
 
 **Session 数量扩增**：从小规模验证开始，视跨 session 效果逐步扩增
 
@@ -496,7 +496,7 @@
 #### 同类基础模型（主要对比基线）
 - **POYO**（Azabou et al., NeurIPS 2023）：spike-level tokenization + Perceiver 编码器，猕猴运动皮层行为解码；NeuroHorizon 的直接代码基础，行为解码 baseline 可直接对比。GitHub: https://github.com/neuro-galaxy/torch_brain
 - **POYO+**（Azabou et al., ICLR 2025 Spotlight）：多 session、多任务扩展，在 Allen Brain Observatory 钙成像数据上验证；任务侧重不同（解码 vs 编码），但跨 session 机制有参考价值
-- **SPINT**（Liu et al., 2023）：提出通过参考窗口统计特征生成 unit embedding 的 IDEncoder 思路，实现梯度无关跨 session 泛化；NeuroHorizon IDEncoder 模块的直接灵感来源，跨 session 泛化设计应与其对比
+- **SPINT**（Liu et al., 2023）：提出通过参考窗口原始神经活动（binned spike counts）生成 unit embedding 的 IDEncoder 思路，实现梯度无关跨 session 泛化；NeuroHorizon IDEncoder 模块的直接灵感来源，跨 session 泛化设计应与其对比
 - **Neuroformer**（Antoniades et al., 2023）：首个自回归 spike-level 预测框架，支持多模态条件输入（图像、行为）；与 NeuroHorizon 任务最接近（自回归 spike 编码），是阶段一/二的主要对比对象
 - **NDT1 / NDT2**（Ye & Pandarinath, 2021；Ye et al., 2023）：masked spike prediction（类 BERT 范式），binned spike counts 输入；可在 Brainsets 数据上对比 PSTH 预测质量和行为解码 R²
 - **NDT3**（Wang et al., 2023）：大规模跨 session 预训练，在 IBL Repeated Site 上有公开结果，是阶段二/三 IBL 扩展后的主要跨 session 泛化对比基线

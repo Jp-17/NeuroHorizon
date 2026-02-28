@@ -22,7 +22,7 @@
 | 任务类型 | 连续值解码（行为） | 自回归 spike count 预测 |
 | 输出模态 | 连续行为量 | 离散 spike counts（泊松） |
 | 时间分辨率 | 1ms bin | 10ms bin（可调） |
-| 跨 Session | InfiniteVocabEmbedding（查表） | IDEncoder（波形特征 → 嵌入） |
+| 跨 Session | InfiniteVocabEmbedding（查表） | IDEncoder（参考窗口神经活动 → unit embedding） |
 | 跨数据集 | 单数据集微调 | Brainsets + IBL + Allen 联合训练 |
 | 多模态 | 无 | DINOv2 视觉特征（Phase 4） |
 | 损失函数 | MSE / NLL | Poisson NLL |
@@ -154,7 +154,7 @@ python -c "import poyo; from poyo.model.perceiver_io import PerceiverIO; print('
 | 下载 | IBL | ONE API（`one.load_dataset`） | 需自写 Dataset 子类 |
 | 下载 | Allen | `allensdk` CLI | NWB 格式 |
 | 预处理 | 全部 | bin spikes @ 10ms，对齐 trial | `spike_counts` 张量 |
-| 特征提取 | 全部 | 计算 IDEncoder 33d 特征（见 5.1） | 每 unit 特征向量 |
+| 特征提取 | 全部 | 提取 IDEncoder 参考窗口数据（见 5.1） | 每 unit 特征向量 |
 | 验证 | 全部 | 统计 unit 数、trial 数、脑区覆盖 | 数据统计报告 |
 
 **IBL 适配注意事项**（计划中低估的工作量）：
@@ -441,74 +441,110 @@ class NeuroHorizon(nn.Module):
 
 ## 五、Phase 2 执行参考：IDEncoder 与跨 Session
 
-### 5.1 IDEncoder 输入特征设计
+### 5.1 IDEncoder 输入设计
 
-IDEncoder 使用约 33 维的神经元统计特征，将单个神经元的放电模式编码为低维嵌入：
+> **设计更新**：IDEncoder 的输入为**原始神经活动数据**（binned spike counts 或 spike events），而非手工统计特征（如 firing rate、ISI histogram 等）。参考 SPINT (Le et al., NeurIPS 2025) 的方案，先实现 Binned Timesteps 方案（方案 A），再实现 Spike Event Tokenization 方案（方案 B）。
 
-| 特征组 | 维度 | 计算说明 |
-|--------|------|----------|
-| 平均放电率 | 1d | trials × bins 的均值 |
-| ISI 变异系数 (CV) | 1d | std(ISI) / mean(ISI) |
-| ISI log-histogram | 20d | log 刻度 bins，[0.001s, 10s] 均匀分布 |
-| 自相关函数 | 10d | 1ms 步长，延迟 0~10ms |
-| Fano 因子 | 1d | var(spike_count) / mean(spike_count) |
+**两种 Tokenization 方案**：
 
-**低放电率神经元的 ISI 直方图噪声问题**：
+**方案 A：Binned Timesteps（SPINT 风格）—— 基础实现**
 
-对于放电率 < 1 Hz 的神经元，ISI 样本量不足，直方图方差极大。处理方案：
+参考窗口内每个 unit 的 spike events -> binning (20ms bin) -> spike count 序列 -> 插值到固定长度 T_ref，输入 IDEncoder 的 MLP1。
 
-```python
-def compute_isi_histogram(spike_times, n_bins=20, min_spikes=20):
-    isis = np.diff(spike_times)
-    if len(isis) < min_spikes:
-        # 使用 KDE 代替直方图，或返回零向量（训练时掩码该 unit）
-        return np.zeros(n_bins)
-    log_isis = np.log10(isis.clip(1e-3, 10))
-    hist, _ = np.histogram(log_isis, bins=n_bins, range=(-3, 1), density=True)
-    return hist.astype(np.float32)
+```
+X_i^ref ∈ ℝ^(M x T_ref)    （unit i 的 M 个参考窗口，每个长度 T_ref）
+E_i = MLP2( mean_pool_M( MLP1(X_i^ref) ) )
 ```
 
-### 5.2 IDEncoder 网络实现
+- `T_ref`：参考 SPINT 设置（M2: T=100, M1: T=1024），初始建议 T_ref=100
+- Bin size：20ms（与 SPINT 一致，与 NeuroHorizon 预测 bin size 匹配）
+- 作为基础实现，验证 IDEncoder 在 NeuroHorizon 框架下的可行性
+
+**方案 B：Spike Event Tokenization（POYO 风格）—— NeuroHorizon 创新方案**
+
+> **这是 NeuroHorizon 提出的创新点之一**：将 POYO 的 spike event tokenization 思想引入 IDEncoder 输入表示，与方案 A 进行对比实验，验证保留精确 spike timing 信息对 identity 推断的贡献。
+
+参考窗口内每个 unit 的 spike events，每个 spike event 仅需注入时间位置编码（rotary time embedding），通过 attention pooling 聚合为固定维度向量。
+
+```
+参考窗口 spike events: {(t_1), (t_2), ..., (t_K)}   （unit i 的 K 个 spike）
+→ 每个 spike 注入 rotary time embedding: emb_k = rotary_emb(t_k)
+→ attention pooling / mean pooling: h_i = pool({emb_1, ..., emb_K})  ∈ ℝ^H
+→ MLP(h_i) → E_i ∈ ℝ^d_model
+```
+
+| 对比维度 | 方案 A (Binned, base) | 方案 B (Spike Event, 创新) |
+|---------|----------------------|--------------------------|
+| 输入表示 | binned spike counts (固定长度 T_ref) | raw spike event timestamps (变长) |
+| 时间分辨率 | 20ms bin (离散化) | spike-level (连续, ~0.1ms) |
+| 网络结构 | 纯 MLP (SPINT 风格) | Rotary time emb + attention pooling + MLP |
+| 与主模型一致性 | 不一致 (主模型用 spike events) | **一致** (主模型也用 spike events + rotary emb) |
+| 信息损失 | binning + 插值丢失精确 timing | 无信息损失 |
+| 实现复杂度 | 低 (直接参考 SPINT) | 中 (需 attention pooling 层) |
+| 论文创新性 | 低 (复现 SPINT) | **高** (NeuroHorizon 原创) |
+
+**实验计划**：先实现方案 A 验证 IDEncoder 基本功能和跨 session 泛化能力，再实现方案 B 进行对比实验。方案 A vs B 的对比结果将作为论文的消融实验之一。
+
+### 5.2 IDEncoder 网络架构（参考 SPINT）
+
+架构参考 SPINT 的 feedforward 设计：MLP1 -> mean pooling -> MLP2。后续视效果决定是否调整。
+
+**方案 A 对应的网络**：
 
 ```python
-# neurohorizon/model/id_encoder.py
 class IDEncoder(nn.Module):
-    """
-    神经元统计特征 → 单元嵌入
-    替代 InfiniteVocabEmbedding 的跨 Session 嵌入生成方式
-    """
-    def __init__(self, input_dim=33, hidden_dim=128, output_dim=256):
-        super().__init__()
-        # output_dim 应为 model_dim // 2（配合 CaPOYO 拼接模式）
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, output_dim),
-        )
-        # 特征归一化（训练集统计量，推理时固定）
-        self.register_buffer('feat_mean', torch.zeros(input_dim))
-        self.register_buffer('feat_std', torch.ones(input_dim))
+    # 从参考窗口的原始神经活动推断 unit embedding
+    # 输出用于替换 POYO 的 InfiniteVocabEmbedding（见 5.3）
 
-    def forward(self, unit_features: torch.Tensor) -> torch.Tensor:
-        # unit_features: [B, N, 33] 或 [N, 33]
-        x = (unit_features - self.feat_mean) / (self.feat_std + 1e-8)
-        return self.net(x)  # → [B, N, output_dim]
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        # input_dim: T_ref (方案 A) 或 pooled_dim (方案 B)
+        # hidden_dim: SPINT 用 512~1024
+        # output_dim: d_model（模型隐层维度）
+        self.mlp1 = ThreeLayerFC(input_dim, hidden_dim)   # per-window
+        self.mlp2 = ThreeLayerFC(hidden_dim, output_dim)   # -> unit embedding
 
-    def fit_normalizer(self, all_features: np.ndarray):
-        """离线计算全训练集特征的均值和标准差"""
-        self.feat_mean.copy_(torch.tensor(all_features.mean(0)))
-        self.feat_std.copy_(torch.tensor(all_features.std(0).clip(1e-8)))
+    def forward(self, ref_data):
+        # ref_data: [N_units, M_windows, input_dim]
+        h = self.mlp1(ref_data)           # [N_units, M_windows, hidden_dim]
+        h = h.mean(dim=1)                 # [N_units, hidden_dim]  (mean pool)
+        return self.mlp2(h)               # [N_units, output_dim]
 ```
 
-**IDEncoder 与 SPINT 的区别**（常见混淆点）：
-- **SPINT**：从原始 spike activity 生成神经元身份表示（直接用活动模式）
-- **IDEncoder**：从统计特征（放电率、ISI 等）生成嵌入，不依赖当前 session 的实时 activity，因此可泛化到零样本新 session
+**超参建议**（初始值参考 SPINT）：
+- `input_dim`：100 (T_ref, 约 2s 参考窗口 @ 20ms bin)
+- `hidden_dim`：512 (SPINT M2) 或 1024 (SPINT M1)
+- `output_dim`：d_model (与模型隐层维度一致)
 
-### 5.3 InfiniteVocabEmbedding 替换注意事项
+### 5.3 Identity 注入方式：替换 unit_emb（非加法注入）
+
+> **与 SPINT 的关键差异**：SPINT 将 IDEncoder 输出 E_i 以加法方式注入 activity window（`Z = X + E`，作为位置编码）。NeuroHorizon 则将 E_i 直接作为 unit embedding，替换 POYO 中的 `InfiniteVocabEmbedding` 输出。
+
+**在 POYO forward() 中的改造**：
+
+```python
+# POYO 原代码：
+inputs = self.unit_emb(input_unit_index) + self.token_type_emb(input_token_type)
+
+# NeuroHorizon（IDEncoder 启用时）：
+unit_embs = self.id_encoder(ref_data)        # [N_units, d_model]
+inputs = unit_embs[input_unit_index] + self.token_type_emb(input_token_type)
+```
+
+**设计动机**：
+- POYO 的 Perceiver 架构中，unit_emb 是每个 spike event token 的"身份标签"
+- IDEncoder 的输出自然地填充 unit_emb 的角色：从"按 ID 查表"变为"从神经活动推断"
+- 维度匹配：IDEncoder output_dim = d_model，与原 InfiniteVocabEmbedding(dim) 一致
+
+**SPINT 加法注入 vs NeuroHorizon unit_emb 替换**：
+
+| 方面 | SPINT | NeuroHorizon |
+|------|-------|-------------|
+| 注入方式 | Z = X + E (加到 activity window) | inputs = E[idx] + token_type_emb |
+| E 维度 | W (activity window size) | d_model (模型隐层维度) |
+| 语义 | window-level 位置编码 | token-level 身份标签 |
+| 适配架构 | SPINT 的 cross-attn 直接解码 | POYO 的 Perceiver encoder |
+
+### 5.4 InfiniteVocabEmbedding 替换注意事项
 
 `InfiniteVocabEmbedding` 不仅是 `nn.Embedding`，还包含：
 - `tokenizer`：将 unit UUID/ID 映射到 vocab index
@@ -516,16 +552,15 @@ class IDEncoder(nn.Module):
 - `expand_vocab()`：动态扩展词表
 - 权重初始化策略
 
-**替换时需要同时处理**：
-1. 数据 pipeline 中生成 unit 特征的逻辑（替代原来生成 unit ID 的逻辑）
-2. collate 函数中的 padding 策略（神经元数量 N 在 batch 内变化）
-3. 训练时的 optimizer 参数分组（见下文 SparseLamb 说明）
+**替换时的约束**：
+1. **必须保留** `tokenizer()`/`detokenizer()` 接口（data pipeline 依赖）
+2. 通过 `use_id_encoder` flag 切换两种路径，保留原 InfiniteVocabEmbedding 供 Phase 1 使用
+3. collate 函数中的 padding 策略不变（通过 `input_unit_index` 索引 IDEncoder 输出）
 
 **优化器参数分组**：
 
 ```python
 # IDEncoder 参数用 AdamW
-# session_emb（如保留）用 SparseLamb（稀疏更新）
 optimizer = torch.optim.AdamW([
     {'params': model.encoder.parameters(), 'lr': 1e-4},
     {'params': model.id_encoder.parameters(), 'lr': 3e-4},
@@ -534,27 +569,28 @@ optimizer = torch.optim.AdamW([
 # 若保留 session_emb，单独使用 SparseLamb
 ```
 
-### 5.4 跨 Session 实验设计
+### 5.5 跨 Session 实验设计
 
 **实验矩阵**：
 
 | 实验 | 训练集 | 测试集 | 指标 |
 |------|--------|--------|------|
-| 同 Session 基线 | Session A（90%） | Session A（10%） | R²、Poisson NLL |
-| 跨 Session（同动物） | Sessions A,B,C | Session D（同动物） | R² 下降幅度 |
-| 跨 Session（不同动物） | 所有动物训练集 | 新动物 held-out | R² 泛化能力 |
-| IDEncoder vs 查表 | 同上 | 同上 | 两者 R² 对比 |
+| 同 Session 基线 | Session A (90%) | Session A (10%) | R^2, Poisson NLL |
+| 跨 Session (同动物) | Sessions A,B,C | Session D (同动物) | R^2 下降幅度 |
+| 跨 Session (不同动物) | 所有动物训练集 | 新动物 held-out | R^2 泛化能力 |
+| IDEncoder vs 查表 | 同上 | 同上 | 两者 R^2 对比 |
+| 方案 A vs 方案 B | 同上 | 同上 | Tokenization 方案对比 |
 
-### 5.5 验收标准
+### 5.6 验收标准
 
 | 测试项 | 验收条件 |
 |--------|----------|
-| IDEncoder 特征可分性 | 不同脑区 unit 特征在 t-SNE 上可区分 |
-| 零样本新 Session | R² > 0.2（vs. InfiniteVocabEmbedding 零样本 ≈ 0） |
-| 跨动物泛化 | R² 下降 < 30%（vs. 同动物内训练） |
+| IDEncoder embedding 质量 | 不同 session 的功能相似 unit 在 t-SNE 上可聚类 |
+| 零样本新 Session | R^2 > 0.2 (vs. InfiniteVocabEmbedding 零样本约 0) |
+| 跨动物泛化 | R^2 下降 < 30% (vs. 同动物内训练) |
 | 收敛稳定性 | 3 个随机种子结果方差 < 0.05 |
+| 方案 A vs B | 方案 B 不低于方案 A (验证 spike event tokenization 可行性) |
 
----
 
 ## 六、Phase 3 执行参考：Data Scaling
 
@@ -566,7 +602,7 @@ optimizer = torch.optim.AdamW([
 # 所有数据集统一到以下格式
 {
     'spike_counts': Tensor[T, N],      # T=500(5s@10ms), N 可变
-    'unit_features': Tensor[N, 33],    # IDEncoder 输入
+    'ref_spike_data': Tensor[N, M, T_ref],  # IDEncoder 输入（M 个参考窗口，每个 T_ref bins）
     'trial_start': float,              # 对齐基准
     'dataset_id': str,                 # 来源标识（用于分层采样）
     'brain_region': List[str],         # 每个 unit 的脑区标签
@@ -653,14 +689,14 @@ input_tokens = torch.cat([spike_tokens, visual_token, context_tokens], dim=1)
 | `poyo/model/rotary_attention.py` | 修改 | `RotarySelfAttention.forward()` 添加 `causal` 参数 |
 | `poyo/data/collate.py` | 修改 | 添加变长 N（神经元数）的 padding 函数 |
 | `neurohorizon/model/neurohorizon.py` | 新建 | 主模型类，组装 encoder + decoder + head |
-| `neurohorizon/model/id_encoder.py` | 新建 | IDEncoder：特征 → 单元嵌入 |
+| `neurohorizon/model/id_encoder.py` | 新建 | IDEncoder：参考窗口神经活动 → unit embedding（参考 SPINT 架构） |
 | `neurohorizon/model/ar_decoder.py` | 新建 | AutoregressiveDecoder（含 causal self-attn） |
 | `neurohorizon/model/heads.py` | 新建 | PerNeuronMLPHead |
 | `neurohorizon/losses.py` | 新建 | PoissonNLLLoss |
 | `neurohorizon/data/registry.py` | 新建 | spike_counts 模态注册 |
 | `neurohorizon/data/ibl_dataset.py` | 新建 | IBL 数据集适配器 |
 | `neurohorizon/data/allen_dataset.py` | 新建 | Allen Natural Movies 适配器 |
-| `neurohorizon/data/feature_extractor.py` | 新建 | 离线 IDEncoder 特征提取（33d） |
+| `neurohorizon/data/feature_extractor.py` | 新建 | IDEncoder 参考窗口数据准备（binning + 插值） |
 | `scripts/extract_dino_features.py` | 新建 | DINOv2 特征离线预计算 |
 | `configs/model/small.yaml` | 新建 | Small 配置（dim=256, enc=4, dec=2, heads=4） |
 | `configs/model/base.yaml` | 新建 | Base 配置（dim=512, enc=8, dec=4, heads=8） |
@@ -676,7 +712,7 @@ input_tokens = torch.cat([spike_tokens, visual_token, context_tokens], dim=1)
 | causal mask 维度错误 | Phase 1 | 中 | 高 | 单元测试：修改 t+1 输入，验证 t 输出不变 |
 | Poisson NLL 数值不稳定 | Phase 1 | 中 | 中 | log_rate clamp(-10, 10)；监控梯度范数 |
 | IBL 数据适配工作量低估 | Phase 0 | 高 | 中 | 预留额外 1 周；优先 Brainsets 验证 pipeline |
-| IDEncoder 33d 特征不足 | Phase 2 | 中 | 中 | 消融实验验证；备选：增加波形形态特征 |
+| IDEncoder 输入表示能力不足 | Phase 2 | 中 | 中 | 方案 A/B 对比实验；备选：增加参考窗口长度或混合方案 |
 | 跨数据集格式不统一 | Phase 3 | 高 | 高 | 统一数据格式规范（见 6 节）；早期集成测试 |
 | 4090 显存不足（T×N×dim） | Phase 1-4 | 中 | 高 | gradient checkpointing；BF16；Small 配置先行 |
 | DINOv2 在线推理 OOM | Phase 4 | 高 | 高 | 强制离线预计算，不允许在训练循环中调用 DINOv2 |
