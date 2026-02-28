@@ -36,16 +36,70 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 ### 0.1 环境验证与代码理解
 
-- [ ] **0.1.1** 验证 POYO 核心依赖（PyTorch, wandb, hydra, brainsets）完整安装，梳理代码模块依赖关系图
-  - 重点理解：spike tokenization → unit embedding → Perceiver encoder → readout → 训练循环
+- [ ] **0.1.1** 确认并验证 POYO conda 环境可用性
+  - 服务器上已有 POYO 相关 conda 环境，先 `conda env list` 查看现有环境，尝试直接激活使用
+  - 验证核心依赖完整性：PyTorch, wandb, hydra, brainsets；缺失项按需补装而非重建环境
+  - 梳理代码模块依赖关系图：spike tokenization → unit embedding → Perceiver encoder → readout → 训练循环
+
 - [ ] **0.1.2** 精读 SPINT（IDEncoder 机制）和 Neuroformer（自回归生成 + 多模态）两篇关键论文
+
 - [ ] **0.1.3** 标注后续需要修改的代码模块（参见本文档附录"关键文件清单"）
 
-### 0.2 数据准备
+### 0.2 数据准备与探索
 
-- [ ] **0.2.1** 通过 brainsets API 获取 `perich_miller_population_2018`（先 5-10 sessions）
-- [ ] **0.2.2** 数据加载验证：通过 POYO 数据 pipeline 的 sanity check，确认数据格式正确
-- [ ] **0.2.3** （可选）下载 NLB MC_Maze 数据（brainsets 内）作为改造后的 sanity check 基准
+- [ ] **0.2.1** 检查 `NeuroHorizon/data/` 中已有的 Brainsets 数据
+  - 列出 `data/raw/` 和 `data/processed/` 下的内容，判断是否已下载 Perich-Miller 或其他 Brainsets 数据集
+  - 若已有数据：确认格式是否符合 brainsets pipeline 要求，可直接复用
+  - 若无或不完整：通过 brainsets API 补充下载 `perich_miller_population_2018`（先 5-10 sessions）
+  - 记录数据存放位置到 `cc_core_files/data.md`
+
+- [ ] **0.2.2** 数据加载验证
+  - 通过 POYO 数据 pipeline 的 sanity check，确认数据可正常流入训练框架
+
+- [ ] **0.2.3** 数据深度探索与可视化分析
+
+  > 目标：建立对 Perich-Miller 数据集的完整数据直觉，为后续输入/输出窗口设计、自回归可行性评估提供依据。
+  >
+  > **脚本**：新建 `scripts/analysis/explore_brainsets.py`（记录到 `cc_core_files/scripts.md`）
+  > **结果**：图表输出至 `results/figures/data_exploration/`（记录到 `cc_core_files/results.md`）
+
+  - **数据格式与结构**
+    - brainsets 数据文件格式（HDF5 / .npy / 其他），字段列表，加载接口
+
+  - **数据集概览统计**
+    - 总 sessions 数；各动物（C / J / M）的 session 数分布
+    - 每个 session 的 trial 数量、总记录时长
+    - 每个 session 的 neuron 数量（最小 / 最大 / 中位数，画分布直方图）
+
+  - **任务结构分析**
+    - 任务类型确认（Center-out reaching / Random target reaching 等）
+    - Trial 阶段划分及各阶段时长分布（hold period / movement period / rest period）；画直方图
+    - Trial 总时长分布；inter-trial interval（ITI）是否存在及其时长
+    - 确认"输入窗口 = hold period，预测窗口 = reach period"的自然划分是否成立
+    - 各阶段时长是否满足 250ms / 500ms / 1s 的窗口需求（列表汇总）
+
+  - **可用模态梳理**
+    - 神经数据：spike times 格式、时间分辨率
+    - 行为数据：cursor velocity / position、hand position 等字段是否存在，采样率
+    - 辅助信���：trial 标签、目标方向、成功/失败标注等
+
+  - **神经元统计特征**
+    - 各 session 平均 firing rate 分布（直方图，多 session 叠加）
+    - PSTH 示例图（对齐 trial onset，展示 2-3 个典型 session 的群体平均活动，分 hold / reach 阶段）
+    - 单神经元 raster plot 示例（2-3 个神经元，展示 spike 模式的代表性与多样性）
+    - Spike count 在不同 bin 宽度（20ms / 50ms / 100ms）下的分布（均值、方差、稀疏度）
+
+  - **自回归可行性评估**
+    - spike 稀疏性评估：每 20ms bin 内平均 spike count，判断 Poisson NLL 是否合适
+    - Session 间神经元重叠度（brainsets 是否有跨 session 的 neuron 对应关系）
+    - 滑动窗口方案（方案 B）的可行性：trial 边界是否会引起异常活动
+
+  - **小结与决策建议**（以文字段落总结）
+    - 推荐 Phase 1 初期开发使用的数据子集（哪几个 session）
+    - 推荐的 input window / prediction window 长度
+    - 潜在问题记录（trial 过短、某些 session 神经元数量不足等）
+
+- [ ] **0.2.4** （可选）下载 NLB MC_Maze 数据（brainsets 内）作为改造后的 sanity check 基准
 
 ### 0.3 POYO 基线复现
 
@@ -334,6 +388,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 | `torch_brain/models/neurohorizon.py` | NeuroHorizon 完整模型 | Phase 1 |
 | `torch_brain/utils/neurohorizon_metrics.py` | 评估指标（PSTH 相关性、R² 等）| Phase 1 |
 | `torch_brain/nn/id_encoder.py` | IDEncoder 模块 | Phase 2 |
+| `scripts/analysis/explore_brainsets.py` | Brainsets 数据深度探索脚本 | Phase 0 |
 | `scripts/extract_reference_features.py` | 参考窗口特征提取 | Phase 2 |
 | `scripts/extract_dino_embeddings.py` | DINOv2 特征离线预提取 | Phase 4 |
 | `scripts/data/validate_data.py` | 数据验证 | Phase 0 |
@@ -363,4 +418,4 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 ---
 
-*计划创建：2026-02-28；基于 dataset.md 四阶段框架 + proposal.md 执行计划整合*
+*计划创建：2026-02-28；2026-02-28 更新：补充 Phase 0 环境/数据细节*
