@@ -78,33 +78,167 @@ Spike 输入
 - `nn/rotary_attention.py:rotary_attn_xformers_func()` — mask 被 broadcast 为 `(b, h, n, m)`
 - `nn/infinite_vocab_embedding.py` — 包含 tokenizer/detokenizer/vocab/state_dict hooks，不能简单替换为 `nn.Embedding`
 
+
+
+### 三大模型对比分析：POYO vs POYOPlus vs CaPOYO
+
+#### 架构总览
+
+| 特性 | POYO (`poyo.py`) | POYOPlus (`poyo_plus.py`) | CaPOYO (`capoyo.py`) |
+|------|-----------------|--------------------------|---------------------|
+| **论文** | NeurIPS 2023 | ICLR 2025 | ICLR 2025（同 POYO+） |
+| **输入数据类型** | Spike events（点过程） | Spike events（点过程） | Calcium traces（连续信号） |
+| **输入 embedding** | `unit_emb(dim)` + `token_type_emb` | 同 POYO | `value_map(1->dim/2)` concat `unit_emb(dim/2)` |
+| **Start/End tokens** | 有（每个 unit 2 个） | 有 | **无**（钙信号是连续的） |
+| **Task embedding** | **无** | 有 `task_emb` | 有 `task_emb` |
+| **Readout** | 单 `nn.Linear(dim, out_dim)` | `MultitaskReadout`（多任务头） | `MultitaskReadout` |
+| **Decoder query** | `session_emb` | `session_emb + task_emb` | `session_emb + task_emb` |
+| **tokenize() 辅助** | `prepare_for_readout` | `prepare_for_multitask_readout` | `prepare_for_multitask_readout` |
+| **预训练加载** | 有 `load_pretrained()` | 无 | 无 |
+| **工厂函数** | `poyo_mp()` | 无 | 无 |
+
+#### 核心差异详解
+
+**1. 输入表示差异**
+
+POYO / POYOPlus 处理的是**离散 spike events**：每个 spike 是一个 token，embedding 为 `unit_emb(unit_id) + token_type_emb(type)`，外加每个 unit 的 start/end boundary tokens。输入序列长度取决于 spike 数量，高发放率时序列很长。
+
+CaPOYO 处理的是**连续钙信号**（df/f）：输入是 `(T, N)` 矩阵（T 个时间步 x N 个神经元），展平为 `(T*N)` 序列。每个 token 的 embedding 是 `value_map(df_f_value)` concat `unit_emb(unit_id)`，其中 `value_map` 是 `nn.Linear(1, dim//2)`，将标量钙信号值映射到 `dim//2` 维空间，再与 `unit_emb(dim//2)` 拼接得到 `dim` 维输入。
+
+**关键设计差异**：CaPOYO 的 `unit_emb` 维度是 `dim//2`（不是 `dim`），因为另一半由 `value_map` 提供。这意味着 CaPOYO 的 unit identity 信息和 signal amplitude 信息各占一半容量。
+
+**2. Readout 机制差异**
+
+POYO（单任务）：`forward()` 直接输出 `self.readout(output_latents)`，一个 `nn.Linear` 映射到目标维度。
+
+POYOPlus / CaPOYO（多任务）：`forward()` 通过 `MultitaskReadout` 分派——根据 `output_decoder_index` 将不同 token 路由到对应任务的 linear head。每个任务有独立的 `nn.Linear(dim, task_dim)`。`tokenize()` 中通过 `prepare_for_multitask_readout()` 根据 `data.config["multitask_readout"]` 构建多任务输出序列。
+
+**3. tokenize() 流程差异**
+
+POYO / POYOPlus 的 `tokenize()`：
+```
+spike events -> create_start_end_unit_tokens -> 拼接 -> unit_emb.tokenizer(unit_ids) 映射全局 index
+-> create_linspace_latent_tokens -> prepare_for_(multitask_)readout -> pad8/track_mask8
+```
+
+CaPOYO 的 `tokenize()`：
+```
+calcium_traces.df_over_f (TxN) -> rearrange 为 (T*N, 1) -> repeat unit_index (T*N)
+-> 无 start/end tokens -> 相同 latent/output 准备流程
+```
+
+**4. Encoder-Processor-Decoder 骨架完全相同**
+
+三个模型共享**完全相同**的 encoder-processor-decoder 骨架：
+- **Encoder**：1 层 `RotaryCrossAttention`（latents attend to inputs）+ FFN
+- **Processor**：`depth` 层 `RotarySelfAttention`（latents self-attend）+ FFN
+- **Decoder**：1 层 `RotaryCrossAttention`（outputs attend to latents）+ FFN
+
+参数配置（`dim`, `depth`, `dim_head`, `cross_heads`, `self_heads`, `rotate_value`）三者一致。差异只在输入端（input embedding 方式）和输出端（readout 方式）。
+
+#### NeuroHorizon 的基底选择建议
+
+**结论：基于 POYOPlus 改造，而非 CaPOYO，也不从头写**
+
+| 候选方案 | 评估 |
+|---------|------|
+| **基于 POYO** | 缺少多任务支持。NeuroHorizon 需要同时处理 spike_counts 预测和行为解码（Phase 3），单任务 readout 不够用 |
+| **基于 CaPOYO** | 输入类型不匹配。CaPOYO 处理连续钙信号（dim//2 value_map），NeuroHorizon 处理离散 spike events |
+| **基于 POYOPlus** | **推荐**。输入类型匹配（spike events）+ 多任务支持 + task_emb 可区分不同预测任务 |
+| **从头写** | 不必要。encoder + processor 骨架与 POYOPlus 完全一致，无需重复实现 |
+
+**具体改造策略**：
+
+1. **复用部分**（直接继承 POYOPlus 的设计）：
+   - `unit_emb` / `session_emb` / `token_type_emb` / `task_emb` / `latent_emb` / `rotary_emb` 全套 embedding
+   - `enc_atn` + `enc_ffn`（encoder layer）
+   - `proc_layers`（processing layers）
+   - `InfiniteVocabEmbedding` 的 tokenizer/detokenizer/vocab 管理机制
+
+2. **替换部分**（NeuroHorizon 需要全新实现）：
+   - **Decoder**：POYOPlus 用简单 cross-attn -> linear readout；NeuroHorizon 需要**自回归 decoder**（cross-attn + causal self-attn blocks + per-neuron MLP head），架构完全不同
+   - **Readout**：POYOPlus 的 `MultitaskReadout` 是 per-task linear layer；NeuroHorizon 需要 per-neuron MLP head（`concat(bin_repr, unit_emb) -> log_rate`）
+   - **Loss**：MSE -> PoissonNLL
+
+3. **重写部分**（接口相似但逻辑不同）：
+   - **`tokenize()`**：需要新增 spike binning 逻辑（将 spike events -> 固定时间 bin 的 spike counts），构建自回归 targets（输入窗口 + 预测窗口），处理 causal mask 标记
+   - **`forward()`**：前半段（encode + process）与 POYOPlus 相同，后半段（decode）完全不同
+
+4. **Phase 2 额外改造**：
+   - `unit_emb`（InfiniteVocabEmbedding）-> IDEncoder（MLP），通过 flag 切换
+   - 需保留原 `tokenizer()`/`detokenizer()` 接口供 data pipeline 使用
+
+**实现路径**：新建 `torch_brain/models/neurohorizon.py`，**不继承** POYOPlus 类（因为 forward/tokenize 签名差异太大），但**复制** encoder + processor 的构建代码，写全新的 decoder + tokenize。保持相同的 `nn/` 基础组件依赖。
+
 ---
 
 ## 0.1.2 SPINT 与 Neuroformer 论文精读
 
-### SPINT（Wei et al., 2024）— IDEncoder 跨 Session 泛化
+### SPINT（Le et al., NeurIPS 2025）— IDEncoder 跨 Session 泛化
+
+> 参考：[arXiv:2507.08402](https://arxiv.org/abs/2507.08402)
 
 **核心机制**：
-- 不为每个神经元学习固定 ID，而是从神经元的 firing statistics 动态推断身份
-- 输入：每个神经元在短暂校准数据（calibration trials）上的统计特征���spike counts、mean firing rate、variance/std）
-- 网络结构：**1 层 cross-attention + 2 个三层全连接网络**（比 proposal 中描述的简单 MLP 更复杂）
-- 推理时：只需将新 session 的校准数据前向传播一次，无需梯度更新
+- 不为每个神经元学习固定 ID embedding，而是从**原始神经活动数据**（calibration trials 的 binned spike counts）动态推断身份
+- 输入：每个 unit 的 M 条 calibration trials 的 binned spike counts（20ms bin），每条 trial 插值到固定长度 T（M1/H1: T=1024, M2: T=100）
+- **不使用手工统计特征**（不需要 firing rate、ISI、Fano factor 等），直接从原始 spike count 序列中学习 identity 表示
+- 推理时：只需将新 session 的 calibration data 前向传播一次（gradient-free），无需微调
+
+**IDEncoder 架构**：
+
+```
+输入：X_i^C ∈ ℝ^(M×T)  （unit i 的 M 条 calibration trials，每条长度 T）
+
+E_i = MLP₂( 1/M × Σ_{j=1}^M MLP₁(X_i^{C_j}) )
+
+Step 1: MLP₁(X_i^{C_j}): ℝ^T → ℝ^H     每条 trial 独立映射到隐层空间（3层FC）
+Step 2: Mean pooling across M trials       对 M 条 trial 取均值（置换不变）
+Step 3: MLP₂: ℝ^H → ℝ^W                  映射到 identity embedding 维度（3层FC）
+
+输出：E_i ∈ ℝ^W  （unit i 的 identity embedding，W = window size）
+```
+
+参数规模（Table A3）：Hidden dim H = 1024 (M1/H1) / 512 (M2)；Output dim W = 100 (M1) / 50 (M2) / 700 (H1)
+
+**Identity 注入方式**：
+```
+Z_i = X_i + E_i   （直接加法）
+```
+当前 activity window X_i 加上 identity embedding E_i，形成 identity-aware 表示 Z_i，送入后续 cross-attention 解码。
+
+**解码架构**（单层 cross-attention）：
+```
+Z_in = MLP_in(Z)                                           # 输入投影
+Z̃ = Z_in + CrossAttn(Q, LayerNorm(Z_in), LayerNorm(Z_in))  # Q 是可学习 query（B×W）
+Z_out = Z̃ + MLP_attn(LayerNorm(Z̃))                         # FFN
+Y = MLP_out(Z_out)                                         # 输出投影 → 行为预测
+```
+其中 Q ∈ ℝ^(B×W) 是 learnable query matrix，B = 行为维度；cross-attention 聚合所有 N_s 个 unit 的信息。
 
 **关键创新 — Dynamic Channel Dropout**：
-- 训练时随机 sample dropout rate，模拟不同 session 神经元数量和组成的变化
-- 使模型对 population composition 变化具备鲁棒性
-- 是实现跨 session 泛化的重要正则化手段
+- 与经典 dropout（固定比例）不同，每个 training iteration 随机采样 dropout rate（0~1 之间均匀采样）
+- 以该 rate 随机移除 neural units（整个 channel 置零）
+- 模拟不同 session 间 population 组成的变化，是实现跨 session 鲁棒性的关键正则化手段
+
+**关键设计特点**：
+- **置换不变性（Permutation Invariance）**：IDEncoder 中的 mean pooling + cross-attention 的 query-independent 结构保证了对 unit 顺序的不变性
+- **端到端训练**：IDEncoder + cross-attention decoder 用 MSE 目标联合训练
+- **轻量级设计**：仅 1 层 cross-attn + 2 个 3层FC，面向实时 iBCI 部署
 
 **与 NeuroHorizon 方案的对比**：
 
 | 方面 | SPINT | NeuroHorizon（计划） |
 |------|-------|---------------------|
-| 输入特征 | spike counts + firing rate + variance | ~33d（ISI histogram + autocorr + Fano factor） |
-| 网络结构 | cross-attn + 2×三层FC | 简单 3层MLP |
-| 是否 gradient-free | 是 | 是 |
-| 激活函数 | 未指定（标准GELU） | 标准GELU（非GEGLU，因输入维度低）|
+| **Identity 输入** | 原始 binned spike counts（T 维，从 calibration trials 插值） | ~33d 手工统计特征（ISI histogram + autocorr + Fano factor） |
+| **特征提取方式** | 端到端学习（MLP₁ 从原始数据中自动提取特征） | 手工设计特征 + MLP 映射 |
+| **网络结构** | MLP₁(T→H) → mean pool → MLP₂(H→W)（2个3层FC） | 3层 MLP(33→128→256→dim) |
+| **输入维度** | 高维（T=100~1024，取决于 trial 长度和 bin size） | 低维（~33d） |
+| **是否 gradient-free（推理时）** | 是 | 是 |
+| **Identity 注入方式** | 加法（Z = X + E） | 替换 unit_emb（作为 encoder 输入的一部分） |
 
-> 注：NeuroHorizon 使用更丰富的 33d 统计特征（ISI histogram 等），理论上比 SPINT 的简单 firing stats 更具判别力。若效果不理想，可考虑借鉴 SPINT 的 cross-attention 结构替代简单 MLP。
+> **对比分析**：两种方案代表了不同的设计哲学。SPINT 直接从原始 spike count 序列中学习 identity，特征提取能力更强但输入维度更高（T=100~1024），需要更多 calibration 数据；NeuroHorizon 使用手工统计特征（~33d），输入紧凑，不依赖 trial 结构（可从任意参考窗口提取），但特征设计的质量直接决定上限。
+>
+> **启发**：若 NeuroHorizon 的 33d 手工特征 + MLP 方案效果不理想，可考虑：(1) 借鉴 SPINT 的思路，直接用参考窗口的 raw spike counts（插值到固定长度）作为 IDEncoder 输入；(2) 或采用混合方案：手工统计特征 + 短窗口 raw counts 拼接。
 
 ### Neuroformer（Antoniades et al., ICLR 2024）— 自回归生成 + 多模态
 
@@ -268,7 +402,7 @@ T=3, N=2 时：每个时间步包含 N 个 neuron token，因此 causal mask 以
 | 自相关特征 | 10d | ACF at lags [5,10,...,50ms] | 用 20ms bin 计算 |
 | Fano factor | 1d | var(spike_counts) / mean(spike_counts) | 用 100ms bin 计算 |
 
-**SPINT 启示**：SPINT 的输入更简单（仅 spike counts + mean rate + variance），但加了 cross-attention 结构。NeuroHorizon 用更丰富的特征（33d）配合简单 MLP，设计理念不同——更丰富的手工特征 vs 更强的网络结构。若 33d MLP 方案效果不理想，可借鉴 SPINT 加入 cross-attention。
+**SPINT 启示**：SPINT 直接将原始 binned spike counts（插值到固定长度 T=100~1024）输入 MLP₁+MLP₂ 端到端学习 identity，不使用手工统计特征。NeuroHorizon 则走手工特征路线（~33d）+ 简单 MLP。两种方案各有利弊：SPINT 的端到端学习特征提取能力更强但需要 trial 结构的 calibration 数据；NeuroHorizon 的手工特征更紧凑且不依赖 trial 结构。若 33d MLP 方案效果不理想，可考虑：(1) 借鉴 SPINT，直接用参考窗口 raw spike counts 作为输入；(2) 混合方案（手工特征 + raw counts 拼接）。
 
 #### 2. 新建 `torch_brain/nn/id_encoder.py`
 
@@ -290,10 +424,9 @@ class IDEncoder(nn.Module):
         )
 ```
 
-**关于 SPINT 的 cross-attention 结构**：SPINT 用的是 "1层cross-attn + 2×三层FC"，
-这里 cross-attn 的 query 是 unit embedding、key/value 是 calibration spikes（序列形式输入）。
-NeuroHorizon 方案是先预计算 33d 统计特征，再用 MLP。如果直接输入 spike 序列（不预计算统计特征），
-则需要类似 SPINT 的 cross-attention 结构——可作为 IDEncoder v2 的改进方向。
+**关于 SPINT 的结构**：SPINT 的 IDEncoder 实际上是 `MLP₁(per-trial raw counts → H) → mean pool → MLP₂(H → W)` 两阶段 MLP，cross-attention 在 IDEncoder 之后用于解码（不是 IDEncoder 内部）。
+NeuroHorizon 方案是先预计算 33d 统计特征再用 MLP，不依赖 trial 结构。若需要更强的特征提取能力，
+可考虑借鉴 SPINT 直接从 raw spike counts 学习（需要参考窗口的 binned counts 输入）——可作为 IDEncoder v2 的改进方向。
 
 #### 3. 集成到 NeuroHorizon 模型
 
