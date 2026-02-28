@@ -293,3 +293,51 @@
 3. linear probe 维度不匹配：target_values 是 flat [B*T, 2] 而非 [B, T, 2] → repeat latent 匹配目标时序
 
 **对应 plan.md 任务**：Phase 0 → 0.3.1、0.3.2、0.3.3
+
+
+---
+
+## 2026-02-28-22h
+
+### 任务：补充代码理解文档（模型对比、SPINT 修正）+ 全面更新 IDEncoder 设计方案
+
+**完成时间**：2026-02-28-22h
+
+**完成内容**：
+
+**1. 补充 0.1.1 三大模型对比分析**
+
+在 `cc_todo/phase0-env-baseline/20260228-phase0-env-code-understanding.md` 中新增 POYO / POYOPlus / CaPOYO 三模型的详细对比，涵盖输入表示、readout 机制、tokenize 流程、encoder-processor-decoder 骨架等维度，并给出 NeuroHorizon 基底选择建议：基于 POYOPlus 改造（复用 encoder+processor，重写 decoder+tokenize）。
+
+**2. 修正 0.1.2 SPINT IDEncoder 描述**
+
+- 作者/年份更正：Wei et al., 2024 → Le et al., NeurIPS 2025
+- 输入更正：~~手工统计特征（firing rate, ISI 等）~~ → 原始 binned spike counts（20ms bin，从 calibration trials 插值到固定长度）
+- 架构更正：明确为 MLP₁ → mean pool → MLP₂，cross-attention 在 IDEncoder 之后用于解码
+
+**3. 全面更新 NeuroHorizon IDEncoder 设计方案（跨 5 个文件 18 处修改）**
+
+核心设计更新：
+- **输入**：原始神经活动（非手工统计特征），两种 tokenization 方案：
+  - 方案 A (Binned Timesteps, SPINT 风格)：作为 base 实现
+  - 方案 B (Spike Event Tokenization, POYO 风格)：作为 NeuroHorizon 创新点之一
+- **输出**：unit embedding (d_model 维)，替换 InfiniteVocabEmbedding（非 SPINT 的加法注入）
+- **架构**：先参考 SPINT 的 feedforward 设计（MLP₁ → mean pool → MLP₂）
+
+更新的文件：
+- `cc_core_files/proposal_review.md`：第五节完全重写（8 处修改）
+- `cc_core_files/plan.md`：Phase 2.1 任务重写 + 新增 2.1.2b 方案 B 任务（3 处修改）
+- `cc_core_files/proposal.md`：SPINT 描述、创新点一、Unit Embedding 节等（5 处修改）
+- `cc_core_files/dataset.md`：SPINT 参考描述（2 处修改）
+- `cc_core_files/code_research.md`：IDEncoder 描述（1 处修改）
+
+**执行结果**：
+- 所有文件已提交并推送到 GitHub（3 次 commit）
+- 项目文档体系中关于 IDEncoder 的描述已统一为最新设计方案
+
+**遇到的问题**：
+1. Python 脚本中三引号嵌套导致语法错误 → 改为将替换内容写入独立文件，脚本读取文件内容后替换
+2. 首次脚本运行在 Change 2 失败时已修改了 content 变量但 `sys.exit(1)` 导致未写入文件 → 拆分为独立脚本分步执行
+3. 远程文件中存在 UTF-8 替换字符（U+FFFD）导致字符串匹配失败 → 改用 index-based 替换
+
+**对应 plan.md 任务**：不直接对应 plan.md 中的代码任务，属于项目文档优化工作（Phase 0 阶段）
