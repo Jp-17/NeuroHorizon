@@ -332,22 +332,38 @@
 - 方案 B（滑动窗口，不依赖 trial 结构）：✅ 灵活支持任意窗口大小，最大化数据利用率
 - **建议**：初期用方案 A 快速验证（trial 结构清晰），稳定后切换方案 B 做窗口梯度测试
 
-**跨 session 划分**：Perich-Miller 2018 按动物/日期划分 train/val/test session，不应按 trial 划分
-
 **数据下载**：通过 brainsets API 自动处理，无需手动配置
 
 ---
 
-### 4.2 阶段二/三：IBL（可选扩展）
+### 4.2 阶段二/三：Brainsets 跨 Session 使用，及 IBL 可选扩展
+
+#### Brainsets（必做基础）
+
+**Session 划分**：Perich-Miller 2018 按动物/日期划分 train/val/test session，不应按 trial 划分
+- 建议划分：以动物为粒度（例如 C/J 训练，M 测试），或在同一动物内按日期划分，确保 test session 的神经元在训练中未曾出现
+- IDEncoder 验证目标：test session 仅用参考窗口统计特征生成 unit embedding，不参与任何梯度更新
+
+**Session 数量扩增**：从小规模验证开始，视跨 session 效果逐步扩增
+
+| 步骤 | Session 数量 | 说明 |
+|------|------------|------|
+| IDEncoder 单动物验证 | 5-10 sessions（单动物） | 确认 IDEncoder 替换正确、pipeline 通 |
+| 初步跨 session | 20-40 sessions（多动物） | 测试跨动物零样本泛化基准性能 |
+| 全量 Brainsets | 70+ sessions（3 只动物全量） | Brainsets 范围内最终跨 session 结论 |
+
+**预测窗口**：沿用阶段一确定的最优窗口（250ms 或 500ms）；跨 session 实验阶段不必同时测试多个窗口，以控制实验量
+
+---
+
+#### IBL（可选扩展）
+
+**启动时机**：Brainsets 跨 session 结果令人满意（IDEncoder 明显优于固定嵌入基线）时，扩展到 IBL 以获得更大规模验证
 
 **连续时间截取策略**：IBL 是行为驱动的变长 trial，有随机 ITI（试次间间隔）
-- 策略 A（trial 对齐）：以 `stimOn_times` 为锚点，输入窗口 = `[stimOn - T_in, stimOn]`，预测窗口 = `[stimOn, stimOn + T_pred]`；清晰但混入了决策/奖励期
+- 策略 A（trial 对齐）：以 `stimOn_times` 为锚点，输入 `[stimOn - T_in, stimOn]`，预测 `[stimOn, stimOn + T_pred]`；清晰但混入了决策/奖励期
 - 策略 B（连续截取）：直接在连续记录上滑动窗口，不对齐 trial；最大化数据量，支持任意预测窗口长度
 - **建议**：长时程预测用策略 B，跨 session 实验两种均可
-
-**预测窗口选择**：
-- 250ms / 500ms / 1s：均可行（连续记录，无 trial 边界限制）
-- 具体采用哪种由阶段一的结果决定（若 500ms 效果已好，则阶段二以 500ms 为主，可选测试 1s）
 
 **Session 扩展策略（动态调整）**：
 
