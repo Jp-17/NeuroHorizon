@@ -440,3 +440,45 @@
 **遇到的问题**：无
 
 **对应 plan.md 任务**：不直接对应 plan.md 代码任务，属于项目文档修缮工作
+
+---
+
+## 2026-03-01-night
+
+### 任务：proposal_review.md 全面重构
+
+**完成时间**：2026-03-01
+
+**完成内容**：
+
+对 `cc_core_files/proposal_review.md` 进行全面重构（801 行 → 1326 行，79% rewrite），与最新 proposal.md（2026-03-01 重构版）和 code understanding 文档对齐。
+
+**新文档结构**：
+- 文档定位与结构说明（更新，明确与 proposal.md/plan.md/code_research.md/dataset.md/background.md 的分工）
+- §一 Phase 0 概要（**新增**）：开发环境、POYO 代码要点、数据发现（hold/reach 时长、Poisson 适用性）、R²=0.807 基线锚点
+- §二 Phase 1 执行参考（**大幅重写**）：整合 code understanding 文档深度分析，12 个子节覆盖双窗口、tokenize 改造、PoissonNLLLoss、causal mask、T-token decoder 设计（含信息瓶颈分析）、PerNeuronMLPHead、bin query、模型组装、行为解码双路径、训练脚本、实验设计、验收标准
+- §三 Phase 2 执行参考（精简重组）：IDEncoder 方案 A/B、SPINT 注入对比、IVE 集成、优化器分组、跨 session 实验
+- §四 Phase 3 执行参考（**新增**）：数据格式统一、分层采样、encoder 冻结策略、行为解码微调代码、迁移实验设计（3 种对比方案 + 少样本实验）
+- §五 Phase 4 执行参考（**大幅扩展**）：Allen Dataset 类代码、DINOv2 离线提取、MultimodalInjection 模块代码、行为数据注入、多模态实验矩阵、Δ_m 条件分解实现
+- §六 风险与应对汇总（重组，新增迁移/多模态风险）
+- §七 模型规模配置参考（更新，增加显存估算）
+- 附录 A 项目架构速览（从原§一移入，更新表格）
+- 附录 B POYO 代码接口参考（从原§二移入，路径全部更新为 torch_brain/，新增 xformers/Dataset API 等勘误）
+- 附录 C 关键文件清单（从原§八移入，更新路径，按 Phase 标注）
+
+**关键删除/合并**：
+- 原§十"合理性评估"全部删除或合并：
+  - "SwiGLU vs GEGLU"：proposal.md 已统一 GEGLU → 删除
+  - "信息瓶颈"：合并到 §二 decoder 设计
+  - "非自回归基线"：合并到 §二实验设计
+  - 数据可获取性/Allen 问题：已在 dataset.md 解决 → 删除
+  - 变长输出/causal mask 兼容性：已在正文覆盖 → 删除
+  - 模型规模配置：保留为独立 §七
+
+**执行结果**：
+- Git commit: cc9e016（1 file changed, +1326 insertions, -800 deletions, 79% rewrite）
+- 已 push
+
+**遇到的问题**：无
+
+**对应 plan.md 任务**：不直接对应 plan.md 代码任务，属于项目文档体系优化（为 Phase 1 执行做准备）
