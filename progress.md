@@ -510,3 +510,45 @@
 - SSH sed 命令插入多行时换行符未正确生效，导致内容被拼成单行；解决：改用 Python 脚本进行字符串替换
 
 **对应 plan.md 任务**：不直接对应 plan.md 代码任务，属于项目执行规范补充
+
+
+---
+
+## 2026-03-02 | jp-video-1 | 跨文档交叉核查与对齐修复（6 文件 12+ 处修改）
+
+**任务内容**：
+对 NeuroHorizon 的 5 份核心规划文档（background.md, dataset.md, proposal.md, proposal_review.md, plan.md）+ CLAUDE.md 进行最终一致性核查，修复跨文档不对齐。
+
+**执行过程**：
+
+1. **CLAUDE.md**（1 处）：项目状态从"Phase 0 执行阶段"更新为"Phase 1 待执行"，附 Phase 0 关键结论摘要（R²=0.807 基线、数据支持确认、基底选择决策）
+
+2. **plan.md**（9 处）：
+   - 7 处章节引用修正：proposal_review.md 重构后章节编号变化（§一=Phase 0, §二=Phase 1, ..., §五=Phase 4），更新 Phase 0-4 全部执行参考指针和内部引用
+   - 4.2.2 行为条件注入描述更新为"linear projection + rotary time embedding → 输入端拼接"
+   - 4.2.3 图像条件注入描述补充"输入端拼接"方式
+
+3. **dataset.md**（1 处）：SPINT 引文从"Liu et al., 2023"修正为"Le et al., NeurIPS 2025"
+
+4. **background.md**（2 处）：对比表修正 — NeuroHorizon 计算效率"高"→"中"（新增模块增加计算量）；POYO+ 跨Session"有限"→"需微调"（更精确描述其 extend_vocab 机制）
+
+5. **proposal.md**（1 处，最大改动）：§4.5 多模态条件注入完整重写 —
+   - 新增两种注入方案对比表（Processing Layer 注入 vs 输入端拼接）
+   - 明确采用方案 B（输入端拼接）及三点理由
+   - 补充行为数据注入完整处理流程：Linear projection → rotary time embedding 时间对齐 → 输入端拼接
+   - 保留视觉刺激注入描述，补充"输入端拼接"方式
+
+6. **proposal_review.md**（3 处）：
+   - §5.3 注入位置分析表新增"Processing Layer 注入"行
+   - §5.4 行为数据注入展开为详细的 Rotary Time Embedding 时间对齐机制说明（4 点：统一时间坐标系、RoPE 自动编码、无需手动插值、拼接融合）
+   - §六 风险表"自回归 50 步误差累积"行追加 coarse-to-fine 策略
+
+**验证通过**：
+- `grep 'SPINT' cc_core_files/` — 全部文件 SPINT 引文统一为"Le et al."
+- `grep '第[三四五六七]节' plan.md` — 零匹配（旧章节编号已清除）
+- `grep 'Phase 1 待执行' CLAUDE.md` — 项目状态已更新
+- `grep '计算效率' background.md` — NeuroHorizon 列显示"中"
+
+**遇到的问题**：Python 脚本中 LaTeX 反斜杠（\mathbf 等）在字符串匹配时转义不一致，导致首次 proposal.md 替换失败
+
+**解决方法**：改用行号定位（grep -n 找到 §4.5 起止行）+ 逐行替换方式，避免 LaTeX 特殊字符匹配问题

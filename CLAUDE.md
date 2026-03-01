@@ -18,9 +18,14 @@
 
 ## 当前项目状态
 
-**Phase 0 执行阶段**
+**Phase 1 待执行**
 
-核心规划文档已完成，项目正式进入执行阶段。按 `cc_core_files/plan.md` 的 Phase 0 开始执行。
+Phase 0（环境准备与基线复现）已于 2026-02-28 全部完成。关键结论：
+- **基线锚点**：POYO+ 行为解码 R² = 0.807（Perich-Miller 10 sessions）
+- **数据支持**：Hold 676ms / Reach 1090ms，20ms bin 87.6% 零值 → Poisson NLL 适用
+- **基底选择**：基于 POYOPlus 改造（复用 encoder + processor，重写 decoder + tokenize）
+
+下一步按 `cc_core_files/plan.md` 的 Phase 1（自回归改造验证 + 长时程生成验证）执行。
 
 ---
 

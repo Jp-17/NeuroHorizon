@@ -306,19 +306,37 @@ $$\mathbf{h}_i^{(0)} = \mathbf{u}_{n_i} + \mathbf{e}_{\text{spike}}$$
 
 ### 4.5 多模态条件注入
 
-在 encoder 的特定层，通过 cross-attention 注入多模态条件信息：
+#### 注入方案对比
 
-**行为数据（Behavior）**：
+| 方案 | 描述 | 优点 | 缺点 | 适用性 |
+|------|------|------|------|--------|
+| **方案 A: Processing Layer 注入** | 在 processor self-attn 层间插入额外 cross-attn `H^(l) += CrossAttn(H^(l), c)` | 各层可不同程度融合；信息注入位置灵活 | 需修改 processor 架构；增加参数量；消融时需逐层禁用 | 适合需要层级化融合的场景 |
+| **方案 B: 输入端拼接**（采用） | 条件 tokens 与 spike tokens 拼接 → Perceiver cross-attn | 简单模块化；与 Perceiver 原生设计一致；消融只需移除 tokens | 增加 encoder 输入序列长度 | 适合 Perceiver 架构，天然支持长输入 |
+
+**最终采用方案 B（输入端拼接）的理由**：
+1. POYO 的 Perceiver cross-attention 本身就是为处理长变长输入设计的，多模态 tokens 自然融入此流程
+2. 模块化消融更简洁（移除/添加 tokens 即可，无需修改模型结构）
+3. 无需修改 processor 架构，降低代码侵入性
+
+> 两种方案的详细技术分析参见 `proposal_review.md` §五。
+
+#### 行为数据（Behavior）注入
+
+行为数据（cursor velocity、running speed、wheel position 等）为低维连续时间序列，采样率可能与 spike data 不同。处理流程：
+
+1. **Linear projection**：将原始行为维度映射到模型维度 $d_{\text{model}}$
+
 $$\mathbf{c}_{\text{beh}} = \text{Linear}(\mathbf{x}_{\text{behavior}}) \in \mathbb{R}^{T_b \times d}$$
-$$\mathbf{H}^{(l)} = \mathbf{H}^{(l)} + \text{CrossAttn}(\mathbf{H}^{(l)}, \mathbf{c}_{\text{beh}}, \mathbf{c}_{\text{beh}})$$
 
-行为数据（运动轨迹、速度、wheel position等）经线性投影到模型维度后，作为 cross-attention 的 key/value。
+2. **Rotary time embedding 时间对齐**：通过 rotary time embedding 编码行为数据各采样点的绝对时间位置。由于行为数据与 spike events 共享同一绝对时间坐标系，Perceiver cross-attention 的 RoPE 机制自动处理两者的时间对齐——无需手动插值或重采样
 
-**视觉刺激（Image）**：
+3. **输入端拼接**：投影后的行为 tokens 与 spike tokens 拼接为统一 encoder 输入，经 Perceiver cross-attention 压缩融合
+
+#### 视觉刺激（Image）注入
+
 $$\mathbf{c}_{\text{img}} = \text{Linear}(\text{DINOv2}(\mathbf{I})) \in \mathbb{R}^{N_p \times d}$$
-$$\mathbf{H}^{(l)} = \mathbf{H}^{(l)} + \text{CrossAttn}(\mathbf{H}^{(l)}, \mathbf{c}_{\text{img}}, \mathbf{c}_{\text{img}})$$
 
-DINOv2 为冻结的预训练视觉模型（ViT-B），仅训练线性投影层。DINOv2 embedding 必须**离线预计算**（非训练时实时提取）。这避免了 Neuroformer 中���外的对比学习训练阶段，简化了整体训练流程并利用了 DINOv2 强大的视觉表征能力。
+DINOv2 为冻结的预训练视觉模型（ViT-B），仅训练线性投影层。DINOv2 embedding 必须**离线预计算**（非训练时实时提取）。投影后的图像 tokens 同样通过输入端拼接方式融入 Perceiver encoder。这避免了 Neuroformer 中额外的对比学习训练阶段，简化了整体训练流程并利用了 DINOv2 强大的视觉表征能力。
 
 ---
 

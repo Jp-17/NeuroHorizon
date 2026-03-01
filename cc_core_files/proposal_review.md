@@ -1050,6 +1050,7 @@ class MultimodalInjection(nn.Module):
 | 方案 | 描述 | 优点 | 缺点 |
 |------|------|------|------|
 | **输入端拼接**（推荐） | 与 spike tokens 拼接 → Perceiver cross-attn | 简单，模块化，可消融 | 增加 encoder 输入长度 |
+| Processing Layer 注入 | 在 processor self-attn 层间插入额外 cross-attn `H^(l) += CrossAttn(H^(l), c)` | 层级化融合，信息注入灵活 | 需修改 processor 架构，增加参数量，消融不便 |
 | Cross-attn context | 作为额外 KV 源 | 信息注入更灵活 | 需修改 cross-attn 接口 |
 | Latent 初始化 | 用 DINOv2 初始化 latent | 信息密度高 | 实现复杂 |
 
@@ -1061,7 +1062,14 @@ class MultimodalInjection(nn.Module):
 
 $$\mathbf{c}_{\text{beh}} = \text{Linear}(\mathbf{x}_{\text{behavior}}) \in \mathbb{R}^{T_b \times d}$$
 
-行为数据在时间轴上采样率可能与 spike data 不同，通过 rotary time embedding 编码其绝对时间位置，使 Perceiver cross-attn 自动处理时间对齐。
+#### Rotary Time Embedding 时间对齐机制
+
+行为数据的采样率（如 50Hz / 100Hz）通常与 spike data 的事件驱动时间戳不同。NeuroHorizon 通过 rotary time embedding（RoPE）统一处理不同采样率的时间对齐：
+
+1. **统一绝对时间坐标系**：行为数据各采样点和 spike events 共享同一绝对时间坐标（以 trial/window 起始时刻为零点），各 token 携带其真实采样时刻 $t_i$
+2. **RoPE 自动编码时间关系**：在 Perceiver cross-attention 中，latent queries 通过 RoPE 与所有 encoder input tokens（spike tokens + behavior tokens）的时间距离自动反映在 attention weights 中——时间上相近的 tokens 天然获得更高 attention 权重
+3. **无需手动插值**：由于 Perceiver cross-attention 原生支持变长、异构采样率的输入序列（每个 token 独立携带时间戳），不需要将行为数据重采样到 spike data 的时间网格上
+4. **与 spike tokens 拼接**：投影后的行为 tokens 与 spike tokens 在序列维度拼接为统一 encoder 输入，Perceiver 的序列压缩机制自然处理增长的输入长度
 
 ### 5.5 多模态实验设计
 
@@ -1143,7 +1151,7 @@ def compute_conditional_delta_m(model, test_data, modality, condition_var):
 
 | 风险 | Phase | 可能性 | 影响 | 应对措施 |
 |------|-------|--------|------|----------|
-| 自回归 50 步误差累积 | 1 | 高 | 高 | Scheduled sampling；并行预测作为 ablation |
+| 自回归 50 步误差累积 | 1 | 高 | 高 | Scheduled sampling；并行预测作为 ablation；可选 coarse-to-fine 策略（先 100ms bin 预测粗粒度，再 20ms bin 细化） |
 | causal mask 维度错误 | 1 | 中 | 高 | 单元测试：修改 t+1 输入，验证 t 输出不变 |
 | Poisson NLL 数值不稳定 | 1 | 中 | 中 | log_rate clamp(-10, 10)；监控梯度范数 |
 | IDEncoder 输入表示能力不足 | 2 | 中 | 中 | 方案 A/B 对比；���加参考窗口长度；混合方案 |

@@ -41,7 +41,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 > **目标**：验证开发环境完整性，深度理解 POYO 代码架构，在 Brainsets 数据上建立行为解码 baseline。
 > **数据集**：Brainsets 原生（Perich-Miller 2018 为主）
-> **执行参考**：`cc_core_files/proposal_review.md` 第三节
+> **执行参考**：`cc_core_files/proposal_review.md` 第一节（§一）
 > **cc_todo**：`cc_todo/phase0-env-baseline/`
 
 ### 0.1 环境验证与代码理解
@@ -132,7 +132,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 > **目标**：在 Brainsets 原生数据上实现核心自回归解码器，验证 causal mask 正确性和不同预测窗口下的生成质量。
 > **数据集**：Perich-Miller 2018（Brainsets 原生，5-20 sessions）
-> **执行参考**：`cc_core_files/proposal_review.md` 第四节（含各模块代码级修改方案）
+> **执行参考**：`cc_core_files/proposal_review.md` 第二节（§二，含各模块代码级修改方案）
 > **cc_todo**：`cc_todo/phase1-autoregressive/`
 
 ### 1.1 核心模块实现
@@ -157,7 +157,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
   - 新建 `torch_brain/nn/autoregressive_decoder.py`
   - 实现 decoder block：cross-attn(bin_query → encoder_latents) + causal self-attn(bins) + FFN
   - 实现 Per-Neuron MLP Head：`concat(bin_repr, unit_emb) → log-rate`
-  - 参考 `proposal_review.md` 第四节关于信息瓶颈问题的设计方案选择
+  - 参考 `proposal_review.md` 第二节 §2.5 关于信息瓶颈问题的设计方案选择
   - **单元测试**：teacher forcing 和自回归推理两种模式均可运行
 
 - [ ] **1.1.5** 组装 NeuroHorizon 模型（分三步）
@@ -206,7 +206,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 > **目标**：实现 IDEncoder，在 Brainsets 数据上验证跨 session 零样本泛化；可选扩展至 IBL 大规模数据。
 > **数据集**：Perich-Miller 2018（必做）；IBL（可选扩展，详见 `cc_core_files/dataset.md` 第 3.3 节）
 > **前提**：Phase 1 的自回归改造已验证 causal mask 正确、loss 收敛
-> **执行参考**：`cc_core_files/proposal_review.md` 第五节
+> **执行参考**：`cc_core_files/proposal_review.md` 第三节（§三）
 > **cc_todo**：`cc_todo/phase2-cross-session/`
 
 ### 2.1 IDEncoder 实现
@@ -230,7 +230,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
   - **作为 NeuroHorizon 的创新点之一**：Spike Event Tokenization for IDEncoder
 
 - [ ] **2.1.3** 集成到 NeuroHorizon
-  - IDEncoder 输出替换 `InfiniteVocabEmbedding` 的 unit_emb（非加法注入），**注意保留其 tokenizer/detokenizer 逻辑**（参见 `proposal_review.md` 第五节）
+  - IDEncoder 输出替换 `InfiniteVocabEmbedding` 的 unit_emb（非加法注入），**注意保留其 tokenizer/detokenizer 逻辑**（参见 `proposal_review.md` 第三节（§三））
   - 更新 `torch_brain/nn/__init__.py`；优化器参数组：IDEncoder 用 AdamW，session_emb 保留 SparseLamb
   - 验证前向传播维度匹配，end-to-end pipeline 正常运行
 
@@ -286,7 +286,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 > **目标**：揭示性能随训练数据量（session 数）的 scaling 规律；验证自回归预训练对行为解码下游任务的迁移增益。
 > **数据集**：Perich-Miller 2018（必做）；IBL（可选扩展，需 Phase 2.4 管线就绪）
 > **前提**：Phase 2 跨 session 泛化已有基本结论
-> **执行参考**：`cc_core_files/proposal_review.md` 第六节
+> **执行参考**：`cc_core_files/proposal_review.md` 第四节（§四）
 > **cc_todo**：`cc_todo/phase3-scaling/`
 
 ### 3.1 Brainsets Scaling 测试（必做）
@@ -317,7 +317,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 > **目标**：实现并验证视觉图像（DINOv2）和行为数据的条件注入，量化不同模态的预测贡献。
 > **数据集**：Allen Visual Coding Neuropixels（58 sessions），详见 `cc_core_files/dataset.md` 第 3.5 节
 > **前提**：Phase 2/3 的自回归预测和跨 session 泛化已有基本结论
-> **执行参考**：`cc_core_files/proposal_review.md` 第七节
+> **执行参考**：`cc_core_files/proposal_review.md` 第五节（§五）
 > **cc_todo**：`cc_todo/phase4-multimodal/`
 
 ### 4.1 Allen 数据准备
@@ -333,8 +333,8 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 ### 4.2 多模态数据集与模型实现
 
 - [ ] **4.2.1** 编写 Allen Dataset 类（`examples/neurohorizon/datasets/allen_multimodal.py`）
-- [ ] **4.2.2** 实现行为条件注入（linear projection + cross-attn，注入位置参见 `proposal_review.md`）
-- [ ] **4.2.3** 实现 DINOv2 图像条件注入（同接口，DINOv2 权重冻结，仅训练投影层）
+- [ ] **4.2.2** 实现行为条件注入（linear projection + rotary time embedding → 输入端拼接，方案详见 `proposal_review.md` §五）
+- [ ] **4.2.3** 实现 DINOv2 图像条件注入（linear projection → 输入端拼接，DINOv2 权重冻结，仅训练投影层，方案详见 `proposal_review.md` §五）
 
 ### 4.3 多模态实验
 
