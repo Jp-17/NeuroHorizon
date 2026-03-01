@@ -394,3 +394,49 @@
 **遇到的问题**：无
 
 **对应 plan.md 任务**：不直接对应 plan.md 代码任务，属于项目文档体系优化
+
+
+---
+
+## 2026-03-01-evening
+
+### 任务：修订 code_research.md — 删除 §8§9 + 采纳审查建议修正
+
+**完成时间**：2026-03-01
+
+**完成内容**：
+
+对 `cc_core_files/code_research.md` 进行了系统性修订，包含两部分工作：
+
+**1. 删除 §8 和 §9**
+- §8「与 NeuroHorizon 改造的关键接口」：内容已在 proposal_review.md 中更详细覆盖，此处冗余
+- §9「已验证的基线」：引用已废弃的 cc_todo/poyo_setup_log.md，基线结果已记录在 results.md
+
+**2. 采纳审查建议修正（20+ 处，逐条验证后采纳）**
+
+对照 `cc_todo/20260225-review/20260225-code-research-review.md` 的审查报告，逐条通过 SSH 在代码库中验证后采纳：
+
+- **数据错误修正**：POYO-MP heads 从 4/4 修正为 cross=2/self=8，补充 atn_dropout=0.2
+- **文件名修正**：`feed_forward.py` → `feedforward.py`（验证发现原文文件名有误）
+- **架构遗漏补全**：
+  - GEGLU 激活函数详细说明（feedforward.py 验证）
+  - rotate_value 三层差异：enc=True, proc=True, dec=False（poyo_plus.py 验证）
+  - TokenType 枚举实际只有 3 种（tokenizers.py 验证），嵌入表容量 4 中 index=3 预留
+- **新增 §3.5 CaPOYO 模型分析**：input_value_map + unit_emb 半维 + 拼接机制（capoyo.py 验证）
+- **项目结构补全**：position_embeddings.py、transforms 完整列表（6 文件）、nested.py 命名空间说明
+- **采样器补全**：从 2 种扩展为 5 种完整表格（sampler.py 验证）
+- **训练细节修正**：
+  - readout 参数也标记 sparse=True（train.py 验证）
+  - OneCycleLR div_factor=1 纠正"50% warmup"误导描述（train.py 验证）
+  - 补充 MultiTaskDecodingStitchEvaluator
+- **其他**：模态数 16→19（registry.py 验证）、prepare_for_multitask_readout 说明、varlen forward 方法、collation 规范
+
+**唯一异议**：审查建议修正 forward pass 行号（200→166），选择直接移除精确行号改为引用方法名——行号随代码演进极易过时。
+
+**执行结果**：
+- code_research.md 从 ~350 行调整为 327 行（删除 §8§9 约 -71 行，新增内容 +77 行）
+- 已 git commit + push（commit 17da576）
+
+**遇到的问题**：无
+
+**对应 plan.md 任务**：不直接对应 plan.md 代码任务，属于项目文档修缮工作
