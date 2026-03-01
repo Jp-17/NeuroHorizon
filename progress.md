@@ -341,3 +341,56 @@
 3. 远程文件中存在 UTF-8 替换字符（U+FFFD）导致字符串匹配失败 → 改用 index-based 替换
 
 **对应 plan.md 任务**：不直接对应 plan.md 中的代码任务，属于项目文档优化工作（Phase 0 阶段）
+
+
+---
+
+## 2026-03-01-afternoon
+
+### 任务：proposal.md 大幅重构 — 拆分 background.md + 重写方案结构
+
+**完成时间**：2026-03-01
+
+**完成内容**：
+
+**1. 新建 `cc_core_files/background.md`（103 行）**
+
+从 proposal.md 拆分研究背景内容，形成独立文档：
+- §1 研究背景（1.1 现状、1.2 研究意义、1.3 研究动机）
+- §2 构建 Spike Foundation Model 的核心挑战（原 proposal.md §2.2 全部 4 条挑战）
+- §3 相关工作（NDT3 更正为"自回归生成"，对比表新增"多模态归因分析"列）
+
+研究意义重写为三个维度：梯度无关跨 session 泛化、自回归预测、多模态可解释性。
+
+**2. 重写 `cc_core_files/proposal.md`（899 行 → 458 行）**
+
+新结构：
+- 项目概述（一句话）
+- §1 核心挑战：仅保留 3 条（移除"计算效率"，该条非创新点，移入 background.md）
+- §2 问题定义：去除所有硬编码"T=1s"；新增第 4 条"多模态可解释性"（含 $\Delta_m$ 公式和条件分解）
+- §3 研究创新点：创新点二修正（输出是"预测"非"历史"）；创新点四降级为附录补充
+- §4 方法设计与创新模块实现（详细）：架构图、双窗口、causal decoder、per-neuron MLP head、bin query、Poisson NLL、IDEncoder、tokenization、多模态注入
+- §5 数据集（简表，引用 dataset.md）
+- §6 实验设计（简要，对齐 plan.md）
+- §7 可能的风险（原§9 更名）
+- §8 参考文献
+- 附录A 符号表（更新新符号）
+- 补充：Perceiver 序列压缩（原创新点四内容）
+
+关键修正：
+- NDT3 从"masked prediction"更正为"autoregressive generation"
+- 所有"T=1s"硬编码改为灵活描述
+- 移除振荡相关内容
+- 创新点二输出从"历史重建"更正为"未来预测"
+
+**3. 更新 CLAUDE.md**
+
+在项目简介链接和文档导航表中添加 background.md 条目。
+
+**执行结果**：
+- Git commit: e169de9（3 files changed, +564, -899）
+- 已 push 到 GitHub
+
+**遇到的问题**：无
+
+**对应 plan.md 任务**：不直接对应 plan.md 代码任务，属于项目文档体系优化
