@@ -137,36 +137,36 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 ### 1.1 核心模块实现
 
-- [ ] **1.1.1** 添加 Poisson NLL Loss
+- [x] **1.1.1** 添加 Poisson NLL Loss
   - 修改 `torch_brain/nn/loss.py`，实现 `PoissonNLLLoss`
   - 处理数值稳定性（log-sum-exp 技巧，避免 NaN；注意低发放率神经元的 log(0) 问题）
   - 实现 `forward(log_rate, spike_count, weights)` 接口（与现有 loss 接口一致）
 
-- [ ] **1.1.2** 注册 spike_counts 输出模态
+- [x] **1.1.2** 注册 spike_counts 输出模态
   - 修改 `torch_brain/registry.py`，添加 `spike_counts` 模态类型
   - 定义 `timestamp_key`、`value_key`、`loss_fn`
 
-- [ ] **1.1.3** 修改 RotarySelfAttention 支持 causal mask ⚠️ 重点
+- [x] **1.1.3** 修改 RotarySelfAttention 支持 causal mask ⚠️ 重点
   - 修改 `torch_brain/nn/rotary_attention.py`
   - 修改 `rotary_attn_pytorch_func` 的 mask reshape 逻辑（支持 2D / 3D / 4D mask）
   - 若使用 xformers 后端，同步修改 `rotary_attn_xformers_func`
   - 新增 `create_causal_mask(seq_len)` 工具函数
   - **单元测试**：验证 causal mask 正确阻止未来 token 信息泄露
 
-- [ ] **1.1.4** 实现自回归 Cross-Attention Decoder ⚠️ 重点
+- [x] **1.1.4** 实现自回归 Cross-Attention Decoder ⚠️ 重点
   - 新建 `torch_brain/nn/autoregressive_decoder.py`
   - 实现 decoder block：cross-attn(bin_query → encoder_latents) + causal self-attn(bins) + FFN
   - 实现 Per-Neuron MLP Head：`concat(bin_repr, unit_emb) → log-rate`
   - 参考 `proposal_review.md` 第二节 §2.5 关于信息瓶颈问题的设计方案选择
   - **单元测试**：teacher forcing 和自回归推理两种模式均可运行
 
-- [ ] **1.1.5** 组装 NeuroHorizon 模型（分三步）
+- [x] **1.1.5** 组装 NeuroHorizon 模型（分三步）
   - **1.1.5a** 模型骨架：复用 POYO encoder + processing layers，集成 IDEncoder 预留接口，验证 encoder 部分维度正确
   - **1.1.5b** Decoder 集成：接入 AutoregressiveDecoder，实现完整 forward()，验证 teacher forcing 模式端到端可运行
   - **1.1.5c** tokenize() 实现：构建 spike count targets（binning spike events），处理参考窗口，验证与 collate 函数的兼容性
   - 更新 `torch_brain/models/__init__.py` 导出
 
-- [ ] **1.1.6** 编写训练脚本与评估指标
+- [x] **1.1.6** 编写训练脚本与评估指标
   - 新建 `examples/neurohorizon/train.py` + Hydra configs（Small / Base 两套配置）
   - 新建 `torch_brain/utils/neurohorizon_metrics.py`：PSTH 相关性、Poisson log-likelihood、R²
   - 实现"预测准确性随时间步衰减"评估曲线

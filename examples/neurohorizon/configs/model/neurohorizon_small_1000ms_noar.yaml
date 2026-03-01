@@ -1,0 +1,18 @@
+# NeuroHorizon Small - 1000ms NON-AUTOREGRESSIVE baseline (no causal mask)
+_target_: torch_brain.models.NeuroHorizon
+sequence_length: 1.5    # 0.5s history + 1.0s prediction
+pred_window: 1.000
+bin_size: 0.020
+latent_step: 0.05
+num_latents_per_step: 32
+dim: 128
+enc_depth: 6
+dec_depth: 2
+dim_head: 64
+cross_heads: 2
+self_heads: 8
+ffn_dropout: 0.2
+lin_dropout: 0.4
+atn_dropout: 0.2
+max_pred_bins: 50
+causal_decoder: false   # Non-autoregressive: bidirectional decoder attention

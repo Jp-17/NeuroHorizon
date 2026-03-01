@@ -83,6 +83,7 @@ class NeuroHorizon(nn.Module):
         t_min: float = 1e-4,
         t_max: float = 2.0627,
         max_pred_bins: int = 50,
+        causal_decoder: bool = True,
     ):
         super().__init__()
 
@@ -157,6 +158,7 @@ class NeuroHorizon(nn.Module):
             self_heads=self_heads,
             ffn_dropout=ffn_dropout,
             atn_dropout=atn_dropout,
+            causal=causal_decoder,
         )
 
         # ── Per-Neuron MLP Head ──

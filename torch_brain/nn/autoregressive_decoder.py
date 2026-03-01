@@ -42,9 +42,11 @@ class AutoregressiveDecoder(nn.Module):
         self_heads: int = 8,
         ffn_dropout: float = 0.2,
         atn_dropout: float = 0.0,
+        causal: bool = True,
     ):
         super().__init__()
         self.dim = dim
+        self.causal = causal
         self.depth = depth
 
         self.layers = nn.ModuleList()
@@ -100,8 +102,8 @@ class AutoregressiveDecoder(nn.Module):
         """
         B, T_pred, _ = bin_queries.shape
 
-        # Create causal mask if not provided
-        if causal_mask is None:
+        # Create causal mask if not provided (skip for non-AR mode)
+        if causal_mask is None and self.causal:
             causal_mask = create_causal_mask(T_pred, device=bin_queries.device)
             causal_mask = causal_mask.unsqueeze(0).expand(B, -1, -1)
 
