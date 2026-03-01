@@ -168,3 +168,4 @@ uv.lock
 # 允许脚本目录下的 data 子目录
 \!scripts/data/
 \!scripts/data/**
+results/
