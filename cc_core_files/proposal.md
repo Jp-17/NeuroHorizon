@@ -1,58 +1,44 @@
 # NeuroHorizon: 跨Session鲁棒的长时程神经脉冲数据预测编码模型
 
-## 研究计划书
-
 **项目名称**：NeuroHorizon — 面向跨Session鲁棒性与长时程预测的可扩展神经脉冲编码模型
 
 **研究领域**：计算神经科学 / 神经数据建模 / 脑机接口
 
 **目标会议/期刊**：NeurIPS / ICLR / Nature Methods
 
-**日期**：2026年2月13日
+---
+
+## 项目概述
+
+NeuroHorizon 是一个基于 POYO/POYO+（NeurIPS 2023 / ICLR 2025）框架改造的统一神经编码模型，旨在同时实现 **gradient-free 的跨session泛化**、**长时程自回归神经活动预测**，以及**多模态条件融合与可解释性分析**。
+
+> 详细研究背景、研究意义、研究动机与相关工作综述，参见 `cc_core_files/background.md`。
 
 ---
 
 ## 目录
 
-1. [研究背景](#1-研究背景)
+1. [核心挑战](#1-核心挑战)
 2. [问题定义](#2-问题定义)
-3. [相关工作](#3-相关工作)
-4. [研究创新点](#4-研究创新点)
-5. [方法设计](#5-方法设计)
-6. [实验设置](#6-实验设置)
-7. [数据集](#7-数据集)
-8. [预期结果与实验](#8-预期结果与实验)
-9. [创新性与局限性讨论](#9-创新性与局限性讨论)
-10. [参考文献](#10-参考文献)
-11. [执行计划](#11-执行计划)
+3. [研究创新点](#3-研究创新点)
+4. [方法设计与创新模块实现](#4-方法设计与创新模块实现)
+5. [数据集](#5-数据集)
+6. [实验设计](#6-实验设计)
+7. [可能的风险](#7-可能的风险)
+8. [参考文献](#8-参考文献)
+附录A：[符号表](#附录a符号表)
 
 ---
 
-## 1. 研究背景
+## 1. 核心挑战
 
-### 1.1 当前研究现状
+NeuroHorizon 聚焦于当前神经数据基础模型尚未统一解决的三大核心挑战：
 
-大规模神经记录技术（如Neuropixels探针、多电极阵列等）的快速发展使得同时记录数千个神经元成为可能，推动了对神经群体活动的深层理解。然而，如何有效建模这些高维、高时间分辨率的spiking数据，仍然是计算神经科学的核心挑战之一。
+1. **跨Session神经元身份漂移**：不同recording session之间，电极记录到的神经元集合可能完全不同。传统方法将每个神经元视为固定输入维度，导致模型与特定session强耦合，需要为每个新session重新训练或微调。
+2. **长时程神经活动预测**：当前方法主要关注短时间窗口（几十毫秒）内的预测，长时程预测几乎未被系统性地探索。将预测窗口显著延长时，spike train的稀疏性和随机性使不确定性急剧增加。
+3. **多模态融合与可解释性**：行为数据、视觉刺激等多模态条件信息如何有效融合以辅助神经活动预测，以及各模态在不同实验状态下对预测的贡献如何量化，是尚待解决的问题。
 
-近年来，受自然语言处理（NLP）领域Transformer架构成功的启发，研究者开始将基础模型（Foundation Model）的理念引入神经数据建模。一系列"神经数据基础模型"相继涌现：Neural Data Transformer（NDT1/NDT2/NDT3）系列通过masked modeling范式建模binned spike counts；LFADS及其变体利用变分自编码器提取低维潜在动力学；Neuroformer首次提出自回归的spike-level预测框架并支持多模态条件输入；POYO/POYO+通过tokenization of individual spikes实现了高时间分辨率建模，并利用Perceiver架构实现了跨session的数据整合；SPINT通过IDEncoder机制实现了无需梯度更新的跨session泛化。
-
-这些进展虽然令人瞩目，但当前模型仍然面临几个关键瓶颈：(1) 大多数模型（如NDT系列）仍依赖binned spike counts作为输入，丢失了毫秒级时间信息；(2) 跨session泛化仍然困难，不同session中的神经元集合可能完全不同，传统方法需要对每个新session进行微调；(3) 长时程预测（>200ms）几乎未被系统性地探索，现有方法主要关注短时间窗口内的next-token prediction；(4) 多模态信息（行为数据、视觉刺激等）的融合预测并没有充分实现。
-
-### 1.2 研究意义
-
-本研究旨在构建一个同时解决跨session鲁棒性和长时程预测两大核心问题的统一神经编码模型。这一研究具有多层面的重要意义：
-
-**技术层面**：跨session的鲁棒泛化将大幅降低神经数据分析的实验成本——无需为每个新session重新训练或微调模型。长时程预测能力为实时脑机接口（BCI）系统提供了更稳定的解码基础。
-
-**科学层面**：长时程神经活动预测能力将帮助研究者理解神经群体动力学的长程依赖性和时间演化规律。同时，通过在模型中引入多模态信息（行为数据、视觉刺激），可以量化不同输入模态对神经活动的预测贡献，揭示感觉-运动系统中信息编码的深层机制。
-
-**方法论层面**：本研究提出的架构设计（类IDEncoder的神经元身份编码支持跨session机制、长时程的自回归解码器）将为神经数据基础模型的设计提供新的范式参考。
-
-### 1.3 研究动机
-
-当前最先进的神经数据模型（如POYO+、NDT3）虽然在各自的任务上取得了优秀表现，但它们在设计上存在不同的侧重与局限：POYO+擅长高时间分辨率的spike-level建模但缺乏长时程生成能力；NDT3支持大规模数据训练但采用masked prediction范式、不适合自回归生成；Neuroformer支持自回归生成和多模态输入但跨session能力较弱；SPINT提出了优秀的跨session机制但主要应用于解码任务。
-
-这些模型各有优势但缺乏统一。我们的研究动机正是在于：能否设计一个统一的编码模型，同时继承POYO的高时间分辨率tokenization、SPINT的跨session泛化能力、Neuroformer的多模态融合与自回归生成能力，并将预测时间窗口扩展到1秒甚至更长。
+> 更多关于构建 Spike Foundation Model 的通用技术挑战，详见 `cc_core_files/background.md` 第2节。
 
 ---
 
@@ -60,593 +46,362 @@
 
 ### 2.1 核心问题
 
-**形式化定义**：给定来自任意recording session $s$ 的一段时间窗口 $[0, T]$（$T = 1\text{s}$）内的神经群体spiking活动 $\mathcal{S} = \{(n_i, t_i)\}_{i=1}^{N_{\text{spikes}}}$，其中 $n_i$ 为神经元标识、$t_i$ 为spike时间戳，以及可选的多模态条件信息 $\mathcal{C}$（行为数据、视觉刺激等），我们的目标是：
+**形式化定义**：给定来自任意recording session $s$ 的一段历史时间窗口内的神经群体spiking活动 $\mathcal{S} = \{(n_i, t_i)\}_{i=1}^{N_{\text{spikes}}}$，其中 $n_i$ 为神经元标识、$t_i$ 为spike时间戳，以及可选的多模态条件信息 $\mathcal{C}$（行为数据、视觉刺激等），我们的目标是：
 
 1. **编码**：学习一个通用的神经群体活动表征 $\mathbf{Z} = f_\theta(\mathcal{S}, \mathcal{C})$，该表征捕获神经群体的时空动态模式。
 
-2. **长时程预测**：基于编码表征，通过自回归解码器生成未来时间窗口 $[T, T + \Delta T]$ 内各神经元在固定time bins中的spike counts预测 $\hat{\mathbf{Y}} = g_\phi(\mathbf{Z})$。
+2. **长时程预测**：基于编码表征，通过自回归解码器生成未来预测窗口 $[T, T + \Delta T]$ 内各神经元在固定time bins中的spike counts预测 $\hat{\mathbf{Y}} = g_\phi(\mathbf{Z})$。我们将系统性地探索不同预测窗口长度（从250ms到更长时间尺度）下的预测性能边界，以确定模型的实际长时程预测能力。
 
 3. **跨Session泛化**：模型在新的session $s'$（可能包含完全不同的神经元集合）上无需梯度更新即可泛化工作。
 
-### 2.2 问题的挑战性
+4. **多模态可解释性**：将多模态条件分解为独立子集 $\mathcal{C} = \{\mathcal{C}^{(1)}, \mathcal{C}^{(2)}, \ldots, \mathcal{C}^{(M)}\}$（如 $\mathcal{C}^{(\text{beh})}$ 行为数据、$\mathcal{C}^{(\text{img})}$ 视觉刺激），通过模态消融与归因分析，量化各模态在不同实验状态（脑区、刺激类型、行为阶段等）下对预测性能的贡献。形式化地，定义模态 $m$ 的贡献为：
 
-**挑战一：跨Session的神经元身份漂移**。不同recording session之间，电极记录到的神经元集合可能完全不同（电极微移、信号漂移等）。传统方法将每个神经元视为固定的输入维度，导致模型与特定session强耦合。即使是同一被试的连续两天记录，神经元集合的重叠率也可能很低。这要求模型具备在不知道具体神经元身份的情况下，从群体活动模式中提取有意义表征的能力。
+$$\Delta_m = \mathcal{L}(g_\phi(f_\theta(\mathcal{S}, \mathcal{C}))) - \mathcal{L}(g_\phi(f_\theta(\mathcal{S}, \mathcal{C} \setminus \mathcal{C}^{(m)})))$$
 
-**挑战二：长时程时序依赖的捕获**。神经活动存在丰富的长程时间依赖性（如oscillatory dynamics、slow drift等），但spike train本身是高度稀疏且随机的（泊松过程或近似泊松过程）。将预测窗口从传统的几十毫秒扩展到1秒，信号的不确定性显著增加，预测难度呈指数级增长。如何在保持预测准确性的同时扩展时间范围，是核心技术挑战。
+其中 $\mathcal{L}$ 为预测性能度量（如Poisson log-likelihood或 $R^2$）。进一步，该贡献可在不同条件变量 $v$（如脑区、刺激类别、行为状态）上进行条件分解 $\Delta_m(v)$，从而揭示模态-状态交互效应，为理解感觉-运动系统中的信息编码机制提供可量化的科学洞见。
 
-**挑战三：序列长度与计算效率**。以1ms分辨率处理1秒的数据，单个神经元就产生1000个时间步。对于数百个神经元，原始spike sequence长度可达数万甚至数十万。标准Transformer的 $O(N^2)$ 复杂度使得直接处理如此长的序列在计算上不可行。
+### 2.2 问题范围
 
-**挑战四：多模态异构信息的有效融合**。行为数据（运动轨迹、速度等）是低维连续信号，视觉刺激（图像/视频）是高维结构化信号，而spiking数据是高维稀疏的点过程信号。这些异构模态的有效融合需要精心设计的架构。
-
-### 2.3 问题的范围
-
-本研究聚焦于以下边界条件：输入为侵入式电极记录的spiking数据；预测目标为固定time bin内的spike counts（而非单个spike event的精确时间）；跨session指同一脑区、同一或不同被试的不同recording session；多模态条件信息包括行为数据（如眼动，running speed等）和视觉刺激（如自然图像、光栅等）。
+本研究聚焦于以下边界条件：输入为侵入式电极记录的spiking数据；预测目标为固定time bin内的spike counts（而非单个spike event的精确时间）；跨session指同一脑区、同一或不同被试的不同recording session；多模态条件信息包括行为数据（如眼动、running speed等）和视觉刺激（如自然图像、光栅等）。
 
 ---
 
-## 3. 相关工作
+## 3. 研究创新点
 
-### 3.1 神经数据基础模型
+### 创新点一：基于Feed-Forward IDEncoder的Gradient-Free跨Session泛化（主要创新）
 
-#### 3.1.1 Binned Spike Count 方法
+借鉴SPINT (Le et al., NeurIPS 2025)的IDEncoder思想，设计feed-forward网络从每个神经元在参考窗口中的原始放电活动中直接学习unit embedding。与SPINT的关键差异：(1) IDEncoder输出直接**替换**POYO的InfiniteVocabEmbedding作为unit embedding（非SPINT的加法注入），更契合Perceiver架构的token-level设计；(2) 提出**Spike Event Tokenization方案**（方案B）——直接使用raw spike event timestamps + rotary time embedding作为IDEncoder输入，保留精确spike timing信息，与主模型输入表示一致，作为NeuroHorizon的创新点之一。推理时只需一次前向传播即可获得新session的unit embedding（gradient-free）。
 
-**NDT系列（Neural Data Transformer）**：NDT1 (Ye & Pandarinath, 2021) 首次将Transformer引入神经数据建模，使用masked prediction在binned spike counts上预测神经活动。NDT2/STNDT进一步引入时空分离的attention机制，提升了计算效率。NDT3 (Ye et al., 2024) 将规模扩展到多个数据集和脑区，验证了scaling law在神经数据上的适用性。优点是训练稳定、兼容传统分析流程；缺点是binning丢失了亚毫秒级时间信息，masked prediction范式不支持自回归生成。
+### 创新点二：长时程自回归Spike Count预测（主要创新）
 
-**LFADS系列**：LFADS (Pandarinath et al., 2018) 及其变体使用变分序列自编码器（VAE）从binned spike counts中推断低维潜在动力学。优点是提供了可解释的潜在因子；缺点是模型容量有限，难以扩展到大规模数据。
+提出基于cross-attention的自回归decoder，从历史神经活动预测未来的神经发放。核心设计：(1) **双窗口数据结构**——历史窗口（previous_window）的spike events作为encoder输入提供上下文，预测窗口（target_window）的binned spike counts作为decoder的预测目标；(2) **bin-level自回归**——与Neuroformer逐spike生成不同，我们的decoder在固定time bins（20ms）上预测spike counts，每步同时预测所有神经元在一个time bin的发放数，大幅降低序列长度和生成难度；(3) **causal decoder + per-neuron MLP head**——decoder通过cross-attention获取encoder完整上下文，通过causal self-attention实现时间因果性，per-neuron MLP head将时间步表示与神经元身份结合进行预测；(4) 系统性探索不同预测窗口长度（250ms → 500ms → 更长）下的性能边界。
 
-#### 3.1.2 Spike-Level 方法
+### 创新点三：多模态条件注入与可解释性分析
 
-**Neuroformer** (Antoniades et al., 2024)：首个将自回归Transformer用于spike-level预测的工作。输入为 (neuron_id, timestamp) 的spike event序列，使用GPT-style causal attention进行next-spike prediction，并支持通过cross-attention引入behavior和image条件信息（图像通过对比学习编码）。优点是spike-level建模保留了完整时间信息，支持多模态；缺点是跨session能力较弱，自回归生成效率低（每次仅生成一个spike event）。
-
-**POYO/POYO+** (Azabou et al., 2024)：提出将individual spikes作为tokens，通过unit-specific embedding和RoPE时间编码实现高时间分辨率建模。关键创新是引入Perceiver架构的cross-attention对spike序列进行压缩，将 $O(N_{\text{spikes}})$ 的序列压缩为固定长度的latent array，极大降低了计算成本。POYO+进一步实现了跨session和跨brain area的联合训练。优点是高时间分辨率、计算效率高、支持大规模训练；缺点是主要用于解码任务（predict behavior from spikes），缺乏自回归生成能力。
-
-#### 3.1.3 跨Session方法
-
-**SPINT** (Le et al., NeurIPS 2025)：专门解决跨session泛化问题。核心创新是IDEncoder模块——通过将每个session中观察到的神经元原始活动数据（binned spike counts）编码为unit embedding，使模型能够在新session上无需梯度更新即可工作。IDEncoder采用MLP1 -> mean pool -> MLP2的feedforward架构，从calibration trials的原始spike count序列（非手工统计特征）中端到端学习神经元identity表示。这种gradient-free的泛化机制是解决neural identity drift问题的优雅方案。
-
-**Multi-task Masking (MtM)** (Ye et al., 2024)：通过随机mask输入和输出的神经元子集来实现跨session鲁棒性，是一种数据增强式的解决方案。
-
-#### 3.1.4 其他相关工作
-
-**LDNS** (Hurwitz et al., 2024)：将latent diffusion model应用于神经数据，通过去噪过程生成neural population dynamics。
-
-**PopT** (Ye et al., 2024)：基于population-level tokenization的方法。
-
-**POSSM** (Azabou et al., 2025)：POYO的后续工作，将SSM（State Space Model）引入spike sequence建模，用Mamba替代Transformer以处理更长的序列。
-
-### 3.2 现有方法的对比与研究空白
-
-| 特性 | NDT3 | Neuroformer | POYO+ | SPINT | POSSM | **Ours** |
-|------|------|-------------|-------|-------|-------|----------|
-| 时间分辨率 | Binned | Spike-level | Spike-level | Binned | Spike-level | Spike-level |
-| 自回归生成 | ✗ | ✓ | ✗ | ✗ | ✗ | ✓ |
-| 跨Session (gradient-free) | ✗ | ✗ | 有限 | ✓ | 有限 | ✓ |
-| 长时程预测 (≥1s) | ✗ | 有限 | ✗ | ✗ | ✗ | ✓ |
-| 多模态条件 | ✗ | ✓ | ✗ | ✗ | ✗ | ✓ |
-| 计算效率 | 中 | 低 | 高 | 中 | 高 | 高 |
-
-**研究空白总结**：目前没有一个模型能够同时实现 (1) spike-level的高时间分辨率输入、(2) gradient-free的跨session泛化、(3) 长时程（≥1s）的自回归预测生成、(4) 灵活的多模态条件输入。NeuroHorizon旨在填补这一空白。
+通过cross-attention机制灵活注入多模态条件信息：行为数据经线性投影后注入，视觉刺激直接使用预训练DINOv2模型提取embedding后注入（冻结DINOv2权重，无需像Neuroformer那样进行额外的对比学习训练）。通过模态消融实验与归因分析（$\Delta_m$ 和条件分解 $\Delta_m(v)$），量化各模态在不同实验状态下对预测性能的贡献，提供可量化的科学洞见。
 
 ---
 
-## 4. 研究创新点
+## 4. 方法设计与创新模块实现
 
-### 创新点一：基于Feed-Forward IDEncoder的跨Session Unit Embedding学习（主要创新）
+> 本节详细介绍 NeuroHorizon 的架构设计与创新模块实现。更详细的代码级改造方案参见 `cc_core_files/proposal_review.md`；底层代码架构分析参见 `cc_todo/phase0-env-baseline/20260228-phase0-env-code-understanding.md`。
 
-借鉴SPINT的IDEncoder思想，但进行关键改进：我们设计一个feed-forward网络，从每个神经元在短暂参考窗口中的放电模式（firing pattern）直接学习该神经元的unit embedding，而非使用手工设计的特征或复杂的encoder。这种方法的优势在于：(1) 推理时无需梯度更新（gradient-free），只需将新session的参考数据通过前馈网络即可获得unit embedding；(2) 通过end-to-end训练，unit embedding能够捕获对下游任务最有用的神经元特征表征；(3) 支持动态适应——即使在同一session内神经元特性发生漂移，也可通过更新参考窗口实时调整embedding。
+### 4.1 总体架构
 
-**创新理由**：SPINT的IDEncoder已证明了gradient-free跨session泛化的可行性，但其主要用于解码任务且使用binned spike counts作为输入。我们在此基础上进行两项关键扩展：(1) 将IDEncoder机制从解码任务扩展到编码/生成任务中，且IDEncoder输出直接作为unit embedding（替换POYO的InfiniteVocabEmbedding），而非SPINT的加法注入；(2) 提出**Spike Event Tokenization方案**（方案B）——直接使用raw spike event timestamps + rotary time embedding作为IDEncoder输入，保留精确spike timing信息，与主模型输入表示一致。方案B与SPINT的binned方案（方案A）进行对比实验，验证spike-level identity推断的优势。
-
-### 创新点二：扩展时间窗口的自回归Spike Count预测（主要创新）
-
-将输入时间窗口扩展至1秒（相比Neuroformer的约200ms），并设计基于cross-attention的decoder进行自回归预测。与Neuroformer逐spike生成的方式不同，我们的decoder在固定time bins中预测spike counts。具体而言：encoder将1秒内的所有spike events编码为latent representation，decoder通过cross-attention attend到encoder输出，并在一系列预定义的time bins上自回归地生成各神经元的spike count预测。
-
-**创新理由**：(1) 预测spike counts而非individual spikes大幅降低了序列长度和生成难度，同时保留了对群体活动模式的捕获能力；(2) 1秒的时间窗口能够捕获更丰富的时间依赖性（如theta oscillation ~4-8Hz的完整周期）；(3) cross-attention解码器允许模型选择性地关注encoder中最相关的时间段和神经元，提升长时程预测的准确性。
-
-### 创新点三：多模态条件注入与科学发现
-
-通过cross-attention机制灵活注入多模态条件信息。对于行为数据（如运动轨迹、速度），使用线性投影后通过cross-attention与neural representation交互；对于视觉刺激（如自然图像），直接使用预训练的DINOv2模型提取image embedding后注入（无需像Neuroformer那样进行额外的对比学习训练），简化了训练流程并利用了DINOv2强大的视觉表征能力。
-
-**创新理由**：(1) 直接使用DINOv2替代对比学习是一个简洁而有效的设计选择——DINOv2已在大规模视觉数据上预训练，其特征空间自然适合表征visual stimuli；(2) 通过分析不同模态对预测准确率的贡献，可以进行有价值的科学发现，如量化视觉刺激vs.内在动力学对V1神经元活动的预测贡献。
-
-### 创新点四（可选）：基于Perceiver的序列压缩与SSM高效推理
-
-借鉴POYO的Perceiver cross-attention机制压缩spike序列长度，降低encoder端的计算复杂度。在需要实时推理的场景下，可选择将Transformer backbone替换为State Space Model（如Mamba），进一步提升长序列处理的效率（$O(N)$ 复杂度替代 $O(N^2)$）。
-
----
-
-## 5. 方法设计
-
-### 5.1 总体框架
-
-NeuroHorizon采用Encoder-Decoder架构，总体流程如下：
+NeuroHorizon 基于 POYOPlus 改造（复用 encoder + processor，重写 decoder + tokenize），采用 Encoder-Decoder 架构：
 
 ```
-输入：Spike Events {(neuron_id, timestamp)} + 可选多模态条件信息
-  │
-  ▼
-[Step 1] Spike Tokenization & Embedding
-  │  - 每个spike event → token
-  │  - Unit Embedding (via IDEncoder) + Temporal Embedding (RoPE)
-  │
-  ▼
-[Step 2] (可选) Perceiver Cross-Attention 序列压缩
-  │  - 将变长spike序列压缩为固定长度latent array
-  │
-  ▼
-[Step 3] Transformer/SSM Encoder
-  │  - 编码神经群体时空动态
-  │  - Multi-modal cross-attention (behavior/image条件注入)
-  │
-  ▼
-[Step 4] Cross-Attention Decoder (自回归)
-  │  - 在固定time bins上预测spike counts
-  │  - 逐time bin自回归生成
-  │
-  ▼
-输出：未来时间窗口的spike count predictions {count_{neuron, time_bin}}
+数据输入
+├── previous_window spike events  [N_spikes]
+│   unit_index / timestamps / token_type
+│        ↓ unit_emb (InfiniteVocabEmbedding / IDEncoder) + token_type_emb
+│   inputs [N_spikes, dim]
+│        ↓ enc_atn (Perceiver cross-attn, latents ← inputs)  ← 序列压缩
+│   latents [L, dim]
+│        ↓ proc_layers (RotarySelfAttention × depth)
+│   latents [L, dim]  ← 完整历史上下文表示
+│                │
+│   bin_queries ─┘  (learnable base + rotary time embed) [T, dim]
+│        ↓ [× N_dec autoregressive decoder blocks]
+│        │  ├─ cross-attn(bin_queries, latents)    [T, dim]  ← 双向
+│        │  ├─ causal self-attn(bin_queries)        [T, dim]  ← causal mask
+│        │  └─ FFN (GEGLU)
+│   bin_repr [T, dim]
+│        ↓ 投影到 dim//2
+│   PerNeuronMLPHead: concat(bin_repr[t, dim//2], unit_emb[n, dim//2])
+│        ↓ 3层MLP → log_rate [T, N]
+│        ↓ Poisson NLL loss
+│   vs target_spike_counts [T, N]
 ```
 
-### 5.2 模块一：Spike Tokenization与Embedding
+**复用模块**（来自 POYO/POYOPlus，不修改）：
+- **Spike Tokenization**：每个spike event $(n_i, t_i)$ 作为独立token，通过 `unit_emb + token_type_emb` 获取embedding，RoPE编码连续时间戳
+- **Perceiver 序列压缩**：通过 `enc_atn`（1层RotaryCrossAttention）将变长spike序列压缩为固定长度 $L$ 的latent array（$L \ll N_{\text{spikes}}$），后续计算复杂度从 $O(K^2)$ 降为 $O(L^2)$
+- **Processing Layers**：$depth$ 层 RotarySelfAttention + GEGLU FFN，编码完整历史上下文
 
-#### 5.2.1 Token定义
+**新增/替换模块**（NeuroHorizon 核心创新）：
+- Autoregressive Decoder（§4.2）
+- IDEncoder（§4.3）
+- 多模态条件注入（§4.5）
 
-每个spike event $(n_i, t_i)$ 被视为一个独立token，保留了spike-level的时间分辨率。输入序列为：
+### 4.2 自回归生成模块
 
-$$
-\mathcal{X} = [(n_1, t_1), (n_2, t_2), \ldots, (n_K, t_K)]
-$$
+#### 4.2.1 双窗口数据组织
 
-其中按时间戳排序，$K$ 为1秒窗口内的总spike数量（通常数百到数千）。
+每个训练样本中的神经活动数据分为两个部分，承担不同角色：
 
-#### 5.2.2 Unit Embedding (IDEncoder)
+| 属性 | previous_window（历史窗口） | target_window（预测窗口） |
+|------|---------------------------|-------------------------|
+| **用途** | Perceiver encoder 输入（提供上下文） | Autoregressive decoder 的预测目标 |
+| **表示格式** | Spike events（离散时间戳，POYO格式） | Binned spike counts（固定时间格上的整数） |
+| **数据形状** | `[N_spikes, 3]`（timestamp, unit_id, type） | `[T_pred_bins, N_units]` |
+| **复用现有架构** | 完全复用 POYO 的 spike tokenization | 新增 binning pipeline |
+| **对应 loss** | 无（不做预测） | PoissonNLL |
 
-对每个神经元 $n$，其unit embedding通过feed-forward IDEncoder网络生成：
+```
+时间轴：
+├── [t_start, t_start + T_hist]  ← previous_window（历史窗口）
+│       spike events → encoder 输入
+│
+└── [t_start + T_hist, t_start + T_hist + T_pred]  ← target_window（预测窗口）
+        binned spike counts → decoder 预测目标
+```
 
-$$
-\mathbf{u}_n = \text{IDEncoder}(\mathbf{r}_n) = \text{FFN}(\mathbf{r}_n)
-$$
+**Binning pipeline**（在 `tokenize()` 中完成）：将 target_window 内的 spike events 按固定 bin 宽度（默认20ms）统计为 `[T_pred_bins, N_units]` 的 spike counts 张量。Bin 中心时刻用于 rotary time embedding。
 
-其中 $\mathbf{r}_n$ 是神经元 $n$ 在参考窗口中的**原始神经活动表示**。我们提出两种tokenization方案：(A) **Binned Timesteps**（基础方案，参考SPINT）：将参考窗口spike events以20ms bin化后插值到固定长度 $T_{\text{ref}}$，$\mathbf{r}_n \in \mathbb{R}^{M \times T_{\text{ref}}}$（M个参考窗口）；(B) **Spike Event Tokenization**（创新方案）：直接使用raw spike event timestamps注入rotary time embedding后通过attention pooling聚合。方案B保留了精确的spike timing信息，与主模型的spike event输入表示一致，是本项目的**创新点之一**。
+#### 4.2.2 Causal Decoder 设计
 
-IDEncoder的架构参考SPINT (Le et al., NeurIPS 2025)的feedforward设计：MLP1 -> mean pooling -> MLP2。具体结构为：
+Decoder 采用 $N_{dec}$ 层（推荐2-4层）decoder block，每个 block 包含：
 
-$$
-\text{FFN}: \mathbb{R}^{d_{\text{ref}}} \rightarrow \mathbb{R}^{d_{\text{model}}}
-$$
+```
+bin_queries [B, T_pred, dim]
+     │
+     ├─① Cross-Attention（bin_queries attend to encoder_latents）
+     │       Q = bin_queries,  K = V = encoder_latents
+     │       mask: 无（双向）— latents 来自历史窗口，是完整的上下文信息
+     │
+     ├─② Causal Self-Attention（bin_queries 彼此 attend）
+     │       Q = K = V = bin_queries
+     │       mask: causal 下三角 — bin t 只看 bin 0..t（自回归约束）
+     │
+     └─③ FFN (GEGLU)
+```
 
-$$
-\mathbf{u}_n = W_3 \cdot \text{GELU}(W_2 \cdot \text{GELU}(W_1 \cdot \mathbf{r}_n + b_1) + b_2) + b_3
-$$
+**Causal 分析总结**：
 
-**关键设计**：IDEncoder的参数在训练时通过反向传播学习，但在推理时对新session的神经元只需做一次前向传播即可获得embedding，实现gradient-free泛化。
+| 层 | 位置 | 是否需要 causal | 理由 |
+|----|------|----------------|------|
+| `enc_atn`（encoder cross-attn） | Perceiver encoder | ❌ | latent attend to 历史 spike events，无需因果 |
+| `proc_layers`（self-attn × depth） | Processor | ❌ | latents 互相 attend，编码完整历史，双向 |
+| Decoder cross-attn | AR Decoder | ❌ | bin_queries attend to encoder_latents（完整历史） |
+| **Decoder causal self-attn** | AR Decoder | **✅** | bin t 不能 attend 到 bin t+1..T 的 query 表示 |
 
-#### 5.2.3 Temporal Embedding (RoPE)
+**结论：只有 decoder 内部的 self-attention 需要 causal mask**，encoder 和 decoder 的 cross-attention 均保持双向。
 
-借鉴POYO的设计，使用Rotary Position Embedding (RoPE) 编码连续时间戳信息：
+**Teacher Forcing 与自回归推理**：
+- **训练时（Teacher Forcing）**：所有 $T_{pred}$ 的 bin query 同时送入 decoder，causal mask 确保时间因果性，一次前向传播得到所有步预测
+- **推理时（自回归生成）**：逐步生成。注意 bin_query 本身不依赖前一步的预测输出（bin_query 是固定的 learnable base + rotary time embed），causal self-attn 使后续 bin 能 attend 到前序 bin 的**decoder 隐状态**（而非预测输出值），这是标准 Transformer decoder 的自回归模式
 
-$$
-\mathbf{p}(t_i) = \text{RoPE}(t_i)
-$$
+#### 4.2.3 Per-Neuron MLP Head
 
-RoPE的优势在于：(1) 能够编码任意精度的连续时间值（不受离散binning限制）；(2) 自然支持位置的相对关系编码（attention score只依赖时间差而非绝对时间）；(3) 可外推到训练中未见过的时间范围。
+预测目标是 `[T_pred_bins, N_units]` 的 spike counts，需要同时感知**时间信息**（bin 的 decoder 表示）和**神经元身份**（unit embedding）。
 
-#### 5.2.4 Token Embedding
+**设计**：对每个 (time_bin $t$, unit $n$) 对，将 bin 表示和 unit embedding 拼接后通过共享MLP映射到 log_rate：
 
-每个spike token的完整embedding为：
+```python
+class PerNeuronMLPHead(nn.Module):
+    def __init__(self, dim):
+        # 输入: concat(bin_repr[dim//2], unit_emb[dim//2]) = dim
+        self.mlp = nn.Sequential(
+            nn.Linear(dim, dim // 2),
+            nn.GELU(),
+            nn.Linear(dim // 2, dim // 4),
+            nn.GELU(),
+            nn.Linear(dim // 4, 1),   # 输出标量 log_rate
+        )
 
-$$
-\mathbf{h}_i^{(0)} = \mathbf{u}_{n_i} + \mathbf{e}_{\text{spike}}
-$$
+    def forward(self, bin_repr, unit_embs):
+        # bin_repr:  [B, T, dim//2]  ← decoder 输出投影到 dim//2
+        # unit_embs: [N, dim//2]     ← unit embedding 投影到 dim//2
+        B, T, _ = bin_repr.shape
+        N = unit_embs.shape[0]
+        combined = torch.cat([
+            bin_repr.unsqueeze(2).expand(B, T, N, -1),
+            unit_embs.unsqueeze(0).unsqueeze(0).expand(B, T, N, -1),
+        ], dim=-1)                          # [B, T, N, dim]
+        log_rate = self.mlp(combined).squeeze(-1)  # [B, T, N]
+        return log_rate
+```
 
-其中 $\mathbf{e}_{\text{spike}}$ 是一个可学习的spike type embedding（与POYO类似，用于区分spike tokens和其他类型的tokens）。RoPE时间编码在attention计算时直接应用于query和key，而非加到token embedding上。
+**设计理由**：
+- 不同神经元有不同的基础发放率和调谐特性，必须感知 unit identity
+- N_units 在不同 session 中可变（从几十到几百），无法用固定维度的线性层
+- 所有 (t, n) 对共享同一个 MLP 参数，通过 unit_emb 编码神经元间差异
 
-### 5.3 模块二：序列压缩（可选）
+**行为解码双路径**：NeuroHorizon 同时保留 POYO 原有的行为解码路径（用于 Phase 3 验证预训练迁移效果），encoder + processor 完全共享：
 
-当spike序列过长时（如>2000 spikes/秒），可借鉴POYO的Perceiver cross-attention进行压缩：
+```
+共享 encoder + processor (latents)
+       │
+       ├── [路径A] Spike Count Prediction
+       │     bin_queries → AR Decoder → PerNeuronMLPHead → PoissonNLL
+       │
+       └── [路径B] Behavior Decoding（复用 POYO 设计，Phase 3 启用）
+             task_queries → 原 POYO dec_atn → MultitaskReadout → MSE
+```
 
-$$
-\mathbf{Z}_{\text{latent}} = \text{CrossAttn}(\mathbf{Q}_{\text{latent}}, \mathbf{K}_{\text{spikes}}, \mathbf{V}_{\text{spikes}})
-$$
+#### 4.2.4 Bin Query 设计
 
-其中 $\mathbf{Q}_{\text{latent}} \in \mathbb{R}^{M \times d}$ 是 $M$ 个可学习的latent query tokens（$M \ll K$，如 $M=128$ 或 $256$），$\mathbf{K}$ 和 $\mathbf{V}$ 来自spike token embeddings。
+Bin query 编码每个预测时间 bin 的位置信息，采用 **learnable base + rotary time embedding** 方案（与 POYO 的 latent token 机制一脉相承）：
 
-这一步将变长的spike序列压缩为固定长度 $M$ 的latent representation，后续encoder的计算复杂度从 $O(K^2)$ 降为 $O(M^2)$。
+```python
+self.bin_emb = nn.Parameter(torch.randn(1, max_T_pred, dim))  # learnable base
+# rotary embedding 将绝对时间信息注入 Q/K 的旋转
+bin_timestamps = torch.linspace(t_pred_start + bin_size/2,
+                                t_pred_end - bin_size/2,
+                                T_pred_bins)  # 每个 bin 的中心时刻
+```
 
-### 5.4 模块三：Encoder
+**优势**：(1) 与 POYO 的 latent token 机制一致，复用现有 rotary embedding 基础设施；(2) RoPE 天然编码时间关系，cross-attn 时 encoder latents 和 bin queries 的时间距离反映在 attention 权重中；(3) 可变预测窗口（250ms/500ms/更长）只需调整 bin 数量，无需重新学习 embedding。
 
-#### 5.4.1 主干架构
+#### 4.2.5 损失函数
 
-默认采用标准Transformer encoder，由 $L$ 层self-attention + FFN组成：
+主要采用 Poisson negative log-likelihood loss：
 
-$$
-\mathbf{H}^{(l)} = \text{TransformerLayer}(\mathbf{H}^{(l-1)}), \quad l = 1, \ldots, L
-$$
+$$\mathcal{L}_{\text{pred}} = \sum_{b=1}^{B} \sum_{n=1}^{N} \left[ \exp(\hat{r}_{n,b}) - y_{n,b} \cdot \hat{r}_{n,b} \right]$$
 
-每层包括：
-- Multi-Head Self-Attention with RoPE
-- Layer Normalization (Pre-LN)
-- Feed-Forward Network (GEGLU activation)
-- Residual Connections
+其中 $\hat{r}_{n,b}$ 为模型预测的 log firing rate（经 clamp 至 $[-10, 10]$ 保证数值稳定），$y_{n,b}$ 为真实 spike count。模型输出 log_rate 而非 rate 本身，避免 exp 下溢。
 
-#### 5.4.2 可选：SSM替代方案
+### 4.3 IDEncoder 跨Session模块
 
-对于需要处理超长序列或要求实时推理的场景，可将Transformer替换为State Space Model（如Mamba）：
+#### 4.3.1 架构设计
 
-$$
-\mathbf{H}^{(l)} = \text{MambaLayer}(\mathbf{H}^{(l-1)})
-$$
+参考 SPINT (Le et al., NeurIPS 2025) 的 feedforward 架构，IDEncoder 从参考窗口的原始神经活动推断 unit embedding：
 
-SSM的优势是 $O(N)$ 的序列长度复杂度和高效的推理（无需KV cache），适合streaming/实时场景。
+$$E_i = \text{MLP}_2\left( \frac{1}{M} \sum_{j=1}^{M} \text{MLP}_1(X_i^{C_j}) \right)$$
 
-#### 5.4.3 多模态条件注入
+```
+输入：X_i^C ∈ ℝ^(M × T_ref)  （unit i 的 M 条参考窗口 binned spike counts）
 
-在encoder的特定层（如每隔2层），通过cross-attention注入多模态条件信息：
+Step 1: MLP₁(X_i^{C_j}): ℝ^T_ref → ℝ^H     每条参考窗口独立映射（3层FC）
+Step 2: Mean pooling across M windows          M 条取均值（置换不变）
+Step 3: MLP₂: ℝ^H → ℝ^d_model                映射到 unit embedding 维度（3层FC）
 
-**行为数据 (Behavior)**：
-$$
-\mathbf{c}_{\text{beh}} = \text{Linear}(\mathbf{x}_{\text{behavior}}) \in \mathbb{R}^{T_b \times d}
-$$
-$$
-\mathbf{H}^{(l)} = \mathbf{H}^{(l)} + \text{CrossAttn}(\mathbf{H}^{(l)}, \mathbf{c}_{\text{beh}}, \mathbf{c}_{\text{beh}})
-$$
+输出：E_i ∈ ℝ^d_model  （unit i 的 identity embedding）
+```
 
-**视觉刺激 (Image)**：
-$$
-\mathbf{c}_{\text{img}} = \text{DINOv2}(\mathbf{I}) \in \mathbb{R}^{N_p \times d_{\text{dino}}}
-$$
-$$
-\mathbf{c}_{\text{img}}' = \text{Linear}(\mathbf{c}_{\text{img}}) \in \mathbb{R}^{N_p \times d}
-$$
-$$
-\mathbf{H}^{(l)} = \mathbf{H}^{(l)} + \text{CrossAttn}(\mathbf{H}^{(l)}, \mathbf{c}_{\text{img}}', \mathbf{c}_{\text{img}}')
-$$
+**关键设计**：IDEncoder 参数在训练时通过反向传播学习，推理时对新 session 的神经元只需一次前向传播即可获得 embedding（gradient-free）。
 
-其中DINOv2是冻结的预训练视觉模型，仅训练投影层。这避免了Neuroformer中额外的对比学习训练阶段，简化了整体训练流程。
+#### 4.3.2 Identity 注入方式：替换 unit_emb
 
-### 5.5 模块四：Cross-Attention Decoder（长时程自回归预测）
+与 SPINT 的加法注入（$Z = X + E$）不同，NeuroHorizon 将 IDEncoder 输出**直接替换** POYO 的 `InfiniteVocabEmbedding`：
 
-#### 5.5.1 预测目标定义
+```python
+# POYO 原始路径（Phase 1）：
+inputs = self.unit_emb(input_unit_index) + self.token_type_emb(input_token_type)
 
-将预测时间窗口 $[T, T+\Delta T]$ 划分为 $B$ 个固定time bins，每个bin宽度为 $\delta$（如 $\delta = 20\text{ms}$）。预测目标为每个time bin中每个神经元的spike count：
+# NeuroHorizon IDEncoder 路径（Phase 2）：
+unit_embs = self.id_encoder(ref_data)            # [N_units, d_model]
+inputs = unit_embs[input_unit_index] + self.token_type_emb(input_token_type)
+```
 
-$$
-\hat{y}_{n,b} = \text{predicted spike count of neuron } n \text{ in time bin } b
-$$
+**设计动机**：POYO Perceiver 架构中每个 spike event 需要独立的 unit embedding 作为"身份标签"。IDEncoder 输出自然填充这个角色——从"查表"变为"从神经活动推断"。两种路径通过 `use_id_encoder` flag 切换，InfiniteVocabEmbedding 的 `tokenizer()`/`detokenizer()`/vocab 管理接口保留不变（被 data pipeline 大量依赖）。
 
-#### 5.5.2 解码流程
+#### 4.3.3 输入 Tokenization 方案
 
-Decoder采用自回归方式逐time bin生成预测。对于第 $b$ 个time bin：
+| 方案 | 输入 | 架构 | 定位 |
+|------|------|------|------|
+| **方案A: Binned Timesteps** | 参考窗口 spike events → 20ms bin → 固定长度 $T_{ref}$ | 纯MLP（与SPINT一致） | **基础实现**，可直接参考SPINT的验证结果 |
+| **方案B: Spike Event Tokenization** | Raw spike event timestamps + rotary time embedding → attention pooling | Attention + MLP | **NeuroHorizon创新**，保留精确spike timing |
 
-1. **Target query构建**：
-$$
-\mathbf{q}_b = \mathbf{e}_{\text{bin}} + \text{RoPE}(t_b)
-$$
-其中 $\mathbf{e}_{\text{bin}}$ 是可学习的bin type embedding，$t_b$ 是第 $b$ 个bin的中心时间。
+推荐先实现方案A（降低实现风险），方案B作为后续改进方向（若方案A效果不理想或需要更精细的timing信息）。方案A与方案B的对比实验可验证spike-level identity推断的优势。
 
-2. **Cross-attention到encoder输出**：
-$$
-\mathbf{d}_b = \text{CrossAttn}(\mathbf{q}_b, \mathbf{H}_{\text{enc}}, \mathbf{H}_{\text{enc}})
-$$
+### 4.4 Spike Tokenization
 
-3. **Causal self-attention**（仅attend到已预测的bins）：
-$$
-\mathbf{d}_b' = \text{CausalSelfAttn}(\mathbf{d}_b, \mathbf{d}_{1:b-1})
-$$
+复用 POYO 的 spike tokenization 机制：每个 spike event $(n_i, t_i)$ 作为独立 token，embedding 为：
 
-4. **Spike count预测**：
-$$
-\hat{y}_{n,b} = \text{MLP}([\mathbf{d}_b'; \mathbf{u}_n])
-$$
-输出经过softmax或Poisson parameter预测。
+$$\mathbf{h}_i^{(0)} = \mathbf{u}_{n_i} + \mathbf{e}_{\text{spike}}$$
 
-#### 5.5.3 损失函数
+其中 $\mathbf{u}_{n_i}$ 为 unit embedding（来自 IDEncoder 或 InfiniteVocabEmbedding），$\mathbf{e}_{\text{spike}}$ 为可学习的 spike type embedding。RoPE 时间编码在 attention 计算时直接应用于 query 和 key（编码连续时间戳的相对关系），而非加到 token embedding 上。每个 unit 还有 start/end boundary tokens 标记边界。
 
-主要采用Poisson negative log-likelihood loss：
+### 4.5 多模态条件注入
 
-$$
-\mathcal{L}_{\text{pred}} = -\sum_{b=1}^{B} \sum_{n=1}^{N} \left[ y_{n,b} \log \hat{\lambda}_{n,b} - \hat{\lambda}_{n,b} - \log(y_{n,b}!) \right]
-$$
+在 encoder 的特定层，通过 cross-attention 注入多模态条件信息：
 
-其中 $\hat{\lambda}_{n,b}$ 是模型预测的Poisson rate parameter。也可探索zero-inflated Poisson或negative binomial分布以更好地处理spike count数据的over-dispersion特性。
+**行为数据（Behavior）**：
+$$\mathbf{c}_{\text{beh}} = \text{Linear}(\mathbf{x}_{\text{behavior}}) \in \mathbb{R}^{T_b \times d}$$
+$$\mathbf{H}^{(l)} = \mathbf{H}^{(l)} + \text{CrossAttn}(\mathbf{H}^{(l)}, \mathbf{c}_{\text{beh}}, \mathbf{c}_{\text{beh}})$$
 
-总损失函数：
-$$
-\mathcal{L} = \mathcal{L}_{\text{pred}} + \alpha \mathcal{L}_{\text{reg}}
-$$
+行为数据（运动轨迹、速度、wheel position等）经线性投影到模型维度后，作为 cross-attention 的 key/value。
 
-其中 $\mathcal{L}_{\text{reg}}$ 包含可选的正则化项（如unit embedding的smooth regularization）。
+**视觉刺激（Image）**：
+$$\mathbf{c}_{\text{img}} = \text{Linear}(\text{DINOv2}(\mathbf{I})) \in \mathbb{R}^{N_p \times d}$$
+$$\mathbf{H}^{(l)} = \mathbf{H}^{(l)} + \text{CrossAttn}(\mathbf{H}^{(l)}, \mathbf{c}_{\text{img}}, \mathbf{c}_{\text{img}})$$
 
-### 5.6 训练策略
-
-#### 5.6.1 多Session联合训练
-
-收集来自多个session的数据，每个batch可包含来自不同session的样本。IDEncoder在训练时为每个session的每个神经元动态生成embedding，确保模型学习到session-invariant的表征。
-
-#### 5.6.2 数据增强
-
-- **Neuron Dropout**：随机丢弃一定比例（如20%）的神经元，模拟跨session时神经元缺失的情况
-- **Temporal Jitter**：对spike时间戳添加小幅度的随机扰动（如±1ms），增强时间鲁棒性
-- **Reference Window Augmentation**：随机选择不同的参考窗口用于IDEncoder输入
-
-#### 5.6.3 课程学习
-
-初始训练时使用较短的预测窗口（如100ms），逐步扩展到完整的1秒，帮助模型逐渐学习长程依赖。
+DINOv2 为冻结的预训练视觉模型（ViT-B），仅训练线性投影层。DINOv2 embedding 必须**离线预计算**（非训练时实时提取）。这避免了 Neuroformer 中���外的对比学习训练阶段，简化了整体训练流程并利用了 DINOv2 强大的视觉表征能力。
 
 ---
 
-## 6. 实验设置
+## 5. 数据集
 
-### 6.1 计算资源
+> 详细数据集介绍、选型策略与各阶段适配注意事项，参见 `cc_core_files/dataset.md`。
 
-- **训练硬件**：NVIDIA A100/H100 GPU × 4-8（根据数据规模调整）
-- **训练时间预估**：完整训练约1-2周（取决于数据规模和模型大小）
-- **推理硬件**：单张GPU即可完成推理
-
-### 6.2 软件环境
-
-- **编程语言**：Python 3.10+
-- **深度学习框架**：PyTorch 2.x + PyTorch Lightning
-- **关键库**：
-  - `einops`：张量操作
-  - `transformers` (HuggingFace)：RoPE实现参考
-  - `mamba-ssm`：SSM相关模块（可选）
-  - `wandb`：实验跟踪
-  - `hydra`：配置管理
-  - `allensdk`：Allen数据集接口
-- **版本控制**：Git + GitHub
-
-### 6.3 模型参数
-
-| 参数 | Small | Base | Large |
-|------|-------|------|-------|
-| Encoder Layers | 4 | 8 | 12 |
-| Decoder Layers | 2 | 4 | 6 |
-| Hidden Dim | 256 | 512 | 768 |
-| Attention Heads | 4 | 8 | 12 |
-| Perceiver Latents | 64 | 128 | 256 |
-| IDEncoder Layers | 2 | 3 | 4 |
-| 参数量（约） | ~5M | ~30M | ~100M |
-
-### 6.4 训练配置
-
-- **优化器**：AdamW ($\beta_1=0.9, \beta_2=0.999$, weight decay=0.01)
-- **学习率**：peak lr=1e-4, warmup 2000 steps, cosine decay
-- **Batch Size**：64-256（梯度累积）
-- **输入窗口**：1.0秒（1000ms）
-- **预测窗口**：0.5-1.0秒
-- **Time Bin大小**：20ms（与 SPINT 一致）
-- **Dropout**：0.1
-- **Mixed Precision**：BF16
+| 数据集 | 简介 | NeuroHorizon 用途 | 引入阶段 |
+|--------|------|------------------|---------|
+| **Brainsets（Perich-Miller）** | 猕猴运动皮层，70+ sessions，零配置接入 POYO 框架 | 自回归改造验证、长时程预测、跨session初期 | 阶段一～三核心 |
+| **IBL Brain-wide Map** | 小鼠全脑，459 sessions，12 实验室 | 大规模跨session泛化、data scaling（可选扩展） | 阶段二/三可选 |
+| **Allen Visual Coding Neuropixels** | 小鼠视觉皮层，58 sessions，丰富视觉刺激 | 多模态融合实验（neural + image） | 阶段四 |
+| **NLB / FALCON** | 标准化 benchmark | 与社区方法对比 | 补充/可选 |
 
 ---
 
-## 7. 数据集
+## 6. 实验设计
 
-### 7.1 数据集详细介绍
+> 详细实验方案与验收标准参见 `cc_core_files/proposal_review.md`；分阶段执行计划参见 `cc_core_files/plan.md`。
 
-#### 7.1.1 Allen Brain Observatory — Neuropixels Visual Coding
+### 6.1 核心实验
 
-- **来源**：Allen Institute for Brain Science
-- **内容**：该数据集是Allen脑科学研究所大规模标准化神经记录项目的核心组成部分。使用Neuropixels高密度硅探针记录清醒、头部固定小鼠的视觉皮层及相关区域（包括V1、LM、AL、PM、AM等视觉区域以及LGN、LP等丘脑区域）的神经活动。实验范式包括多种精心设计的视觉刺激：自然场景图像（118张静态自然图像）、drifting gratings（不同方向和时间/空间频率的移动光栅）、static gratings（静态光栅）、natural movies（自然视频片段，约30秒循环播放）、以及Gabor patches等。每个stimulus block持续时间通常为数十秒到数分钟，刺激间有固定的灰屏间隔。数据包含spike-sorted unit信息（通过Kilosort2处理）、LFP信号、以及running speed和eye tracking等行为数据。
-- **规模**：约58个session（来自不同小鼠），每session同时记录约200-700个高质量units，跨越6个视觉皮层区域和2个丘脑核团。每个session的总记录时长约2-3小时。
-- **优势**：(1) 极其标准化和可重复的实验范式，所有小鼠经历完全相同的刺激协议，便于跨session对比；(2) 丰富的视觉刺激元数据（每帧图像可用），是验证多模态（neural + image）融合的理想数据集；(3) 多个脑区的同步记录支持跨脑区分析；(4) 提供完善的Python API (AllenSDK)，数据获取和预处理流程成熟；(5) running speed和pupil size等行为数据可作为额外的条件输入。
-- **局限**：(1) session数量相对有限（~58个），可能不足以充分测试大规模跨session scaling；(2) 被试为被动观看范式（head-fixed passive viewing），行为变量较少（仅running speed和eye position）；(3) 数据主要集中在视觉通路，不涉及运动皮层等其他脑区。
-- **链接**：https://allensdk.readthedocs.io/
-- **用途**：主要用于多模态实验（neural + visual stimuli）的核心验证，以及视觉皮层跨session泛化测试
+| 实验 | 目标 | 主要数据集 | 对应阶段 |
+|------|------|-----------|---------|
+| 长时程预测评估 | 评估不同预测窗口长度下的性能边界 | Brainsets | Phase 1 |
+| 跨Session泛化 | 验证IDEncoder gradient-free泛化 | Brainsets（必做）/ IBL（可选） | Phase 2 |
+| Data Scaling | 性能随训练session数的变化规律 | Brainsets / IBL | Phase 3 |
+| 下游任务迁移 | 自回归预训练 → 行为解码迁移增益 | Brainsets | Phase 3 |
+| 多模态贡献分析 | 量化各模态对预测的贡献 $\Delta_m(v)$ | Allen | Phase 4 |
 
-#### 7.1.2 International Brain Laboratory (IBL) Dataset
+### 6.2 消融实验
 
-- **来源**：International Brain Laboratory（国际脑实验室），由全球22个实验室组成的联盟
-- **内容**：该数据集来自IBL的"Brain-wide Map"项目，是目前最大规模的标准化全脑Neuropixels记录数据集之一。所有实验室采用完全相同的行为任务范式——一个视觉决策任务（International Brain Laboratory task）：小鼠需要根据屏幕上出现的visual grating的对比度和位置（左/右），通过转动滚轮做出二选一决策。Neuropixels探针插入到全脑多个区域（包括视觉皮层、前额叶、纹状体、丘脑、海马、小脑等），提供了前所未有的全脑覆盖。数据包含高质量的spike-sorted units（经过统一的Kilosort + IBL pipeline处理）、详细的行为数据（wheel position/velocity、stimulus contrast、choice、reaction time、reward等）、以及视觉刺激参数。
-- **规模**：数百个recording session，来自数十只小鼠和多个实验室，涵盖全脑超过200个脑区。总计记录了数万个神经元。每个session通常持续约1-2小时，包含数百个行为trial。
-- **优势**：(1) **session数量极多**（数百个），是测试跨session泛化能力和data scaling的最佳选择；(2) 标准化的行为任务提供了丰富的、结构化的行为变量（stimulus、choice、reaction time、reward），非常适合neural + behavior多模态实验；(3) 跨实验室数据可测试模型的跨实验室泛化能力（更严格的泛化测试）；(4) 全脑覆盖使得可以验证模型在不同脑区上的通用性；(5) 数据通过统一的质量控制流程处理，一致性好；(6) NDT3、NEDS 等模型在 IBL 上有公开结果，可作为对比基线。注意：POYO/POYO+ 均未在 IBL Brain-wide Map 上验证，NeuroHorizon 在 IBL 上需自行建立 baseline。
-- **局限**：(1) 行为任务相对简单（二选一决策），行为变量的复杂度有限；(2) 视觉刺激为简单的光栅（非自然图像），不适合测试复杂visual encoding；(3) 每个session的探针位置不同，脑区覆盖不均匀，部分脑区数据较少。
-- **用途**：跨session泛化性核心测试、data scaling实验、neural + behavior多模态实验、跨脑区泛化分析
+- IDEncoder 消融：IDEncoder vs 可学习嵌入 vs random embedding
+- Decoder 深度消融：$N_{dec}$ = 1 / 2 / 4
+- 预测窗口长度消融
+- Scheduled sampling 消融
+- Causal decoder vs parallel prediction（非自回归）对比
+- Poisson NLL vs MSE loss 对比
 
-#### 7.1.3 Neural Latents Benchmark (NLB) Datasets
+### 6.3 Baseline 对比
 
-- **来源**：Neural Latents Benchmark，由Pandarinath Lab等多个课题组联合发起的神经数据建模基准测试
-- **内容**：NLB包含多个经典的非人灵长类（NHP, macaque）运动皮层数据集，所有数据集均来自已发表的高影响力研究：
-  - **MC_Maze**：猕猴在delayed reaching任务中的运动皮层（M1/PMd）记录。猕猴需要控制光标穿过不同复杂度的迷宫到达目标。包含丰富的运动学变量（hand position, velocity），约182个sorted units，约2500+trials。这是NLB中最常用的benchmark子集。
-  - **MC_RTT**：Random Target Task，猕猴不断追踪随机出现的目标。连续的运动行为提供了丰富的运动动力学数据，约130个sorted units。
-  - **Area2_Bump**：体感皮层Area 2的记录，猕猴在reaching任务中手臂受到随机力场扰动（bump perturbation）。约50-80个units，可用于研究感觉-运动整合。
-  - **DMFC_RSG**：前额叶背内侧皮层记录，猕猴执行时间估计任务（Ready-Set-Go）。约150个units，关注timing和决策相关的神经活动。
-- **规模**：每个数据集几十到约200个sorted neurons，每个数据集数百到数千个trials。总体规模相对较小，但质量极高且有标准化的评估协议。
-- **优势**：(1) **标准化的benchmark**——NDT1/NDT2/NDT3、LFADS、AutoLFADS等主流方法均在此评测，结果可直接对比，是论文中必须呈现的对比实验；(2) 提供标准化的数据划分（train/val/test splits）和评估代码；(3) NHP数据质量高（well-isolated单units），spike sorting质量有保证；(4) 运动皮层数据具有较强的低维动力学结构，适合验证模型捕获latent dynamics的能力；(5) MC_Maze等数据集包含行为数据（hand kinematics），可用于behavior decoding下游任务评估。
-- **局限**：(1) session数量极少（每个数据集通常只有1-2个session），**不适合跨session泛化实验**；(2) 没有视觉刺激信息，不支持image模态实验；(3) 数据规模较小，不适合scaling law研究；(4) 仅限运动皮层，不涉及视觉区域。
-- **链接**：https://neurallatents.github.io/
-- **用途**：主要用于与baseline方法的定量比较（长时程预测性能、latent quality评估），以及行为解码下游任务
+- 简单 baseline：PSTH-based prediction、线性预测
+- 模型 baseline：Neuroformer、NDT1/NDT2/NDT3、NEDS
+- POYO+ 原始行为解码（作为编码质量参照）
 
-#### 7.1.4 Jia Lab 实验室数据集
+### 6.4 评估指标
 
-- **来源**：Jia Lab内部数据
-- **内容**：多session的小鼠视觉皮层（V1为主）Neuropixels记录数据。实验包含多种视觉刺激条件下的神经响应记录，每个刺激条件有大量重复呈现（数十到上百次repeated trials），这是该数据集的核心优势。数据包含spike-sorted units、视觉刺激参数、以及可能的running speed等行为数据。实验设计注重刺激的系统性和重复性，为统计分析和长时程预测提供了坚实的数据基础。
-- **规模**：多个session（跨不同小鼠和不同天的记录），每个session包含数百个sorted units和大量重复trials。单session记录时长可达数小时。
-- **优势**：(1) **大量重复trials**是长时程预测实验的关键优势——高trial数使得可以可靠地评估单trial level的预测准确性，并计算trial-averaged PSTH作为ground truth参考；(2) 内部数据可灵活使用，不受外部数据集的使用限制；(3) 多session设计天然支持跨session泛化实验；(4) V1数据对视觉刺激有明确的编码关系，预测信号相对较强，适合作为方法验证的初始数据集；(5) 数据获取和预处理可以根据项目需求灵活调整。
-- **局限**：(1) 数据未公开，实验结果的可重复性依赖于数据描述的详细程度；(2) session数量相比IBL较少；(3) 仅限视觉皮层，脑区覆盖有限。
-- **用途**：长时程预测实验的核心验证数据集、跨session实验、多模态实验（neural + visual stimuli）
-
-#### 7.1.5 Neuroformer / NDT3 使用的其他数据集
-
-作为参考和对比，可能使用 Neuroformer 和 NDT3 论文中使用的数据集子集，确保结果的可比性。包括但不限于：Neuroformer使用的V1 two-photon calcium imaging数据集（用于验证自回归生成能力）、NDT3在大规模多session训练中使用的FALCON Benchmark数据集等。
-
-### 7.2 NeuroHorizon项目的数据集推荐与使用策略
-
-考虑到NeuroHorizon项目的三大核心目标——**长时程预测（最高优先级）、跨session泛化、多模态融合**——以下是推荐的数据集使用策略：
-
-#### 7.2.1 核心推荐：Brainsets 原生数据集（自回归改造与模型验证首选）
-
-**推荐理由**：Brainsets 原生数据集（以 Perich-Miller 2018 为主）是 POYO 框架自带的标准化数据管理包，可零配置接入训练框架，无需额外数据管线。Perich-Miller 包含 3 只猕猴 70+ sessions 的运动皮层记录，trial 结构清晰（hold period 均值 676ms、reach period 均值 1090ms），天然支持 250ms/500ms/1s 预测窗口梯度测试。3 只猴子的多动物多 session 结构同时适用于跨 session 泛化和 scaling 初期实验。建议作为**自回归改造验证、长时程预测开发、跨 session 初期测试的首选数据集**（阶段一～三核心）。
-
-> 注：原推荐的 Jia Lab 数据集因可获取性问题已排除，详见 `cc_core_files/dataset.md`。
-
-#### 7.2.2 可选扩展：IBL数据集（大规模跨session泛化）
-
-**推荐理由**：IBL 数据集的 459 个 session 是测试大规模跨 session 泛化和 data scaling 的最佳选择。其标准化的行为任务和丰富的行为变量使其同时适合 neural + behavior 的多模态实验。注意：POYO/POYO+ 均未在 IBL Brain-wide Map 上验证，NeuroHorizon 需自行建立 baseline（可与 NDT3、NEDS 对比）。IBL 数据管线工程量较大，建议在核心模型验证稳定后再接入。定位为阶段二/三的**可选扩展**而非必选路径。
-
-#### 7.2.3 重要补充：Allen Brain Observatory（多模态融合首选）
-
-**推荐理由**：Allen数据集提供了最丰富、最标准化的视觉刺激信息（natural scenes、gratings、natural movies的完整图像帧），是验证neural + image多模态融合的理想选择。DINOv2 image embedding的有效性需要在具有复杂自然视觉刺激的数据上验证，Allen数据集完美满足这一需求。建议作为**多模态融合实验的主要数据集**。
-
-#### 7.2.4 必要基准：NLB数据集（方法对比基准）
-
-**推荐理由**：NLB是领域内公认的benchmark，论文投稿时必须呈现与现有方法（NDT1/2/3、LFADS等）在此数据集上的对比结果。虽然不适合跨session和多模态实验，但对于长时程预测性能的对比以及downstream behavior decoding任务的评估是必要的。建议作为**论文中baseline对比的标准数据集**。
-
-#### 7.2.5 数据集使用优先级总结
-
-| 优先级 | 数据集 | 核心用途 | NeuroHorizon目标对应 |
-|--------|--------|---------|---------------------|
-| ★★★ | Brainsets (Perich-Miller) | 自回归改造验证、长时程预测、跨 session 初期、scaling 初期 | 阶段一～三核心 |
-| ★★☆ | IBL | 跨 session 大规模泛化、data scaling（可选扩展） | 阶段二/三可选 |
-| ★★☆ | Allen Brain Observatory | 多模态融合验证（neural+image） | 阶段四 |
-| ★☆☆ | NLB / FALCON | Benchmark 对比、标准化评估 | 补充/可选 |
-
-### 7.3 数据预处理
-
-1. **Spike Sorting**：对原始数据使用Kilosort等工具进行spike sorting（如数据未预处理）
-2. **质量筛选**：按照标准质量指标筛选units（如presence ratio > 0.9, ISI violation rate < 0.5%）
-3. **时间对齐**：将spike times与行为事件/刺激呈现时间对齐
-4. **参考窗口提取**：为每个session的每个unit提取IDEncoder所需的参考窗口数据
-5. **数据划分**：按session划分train/val/test（确保test sessions在训练中未见过）
+- **spike count 预测**：Poisson log-likelihood、PSTH correlation（trial-averaged）、$R^2$
+- **行为解���**（下游任务）：$R^2$、velocity MSE
+- **跨session泛化**：gradient-free 性能 vs per-session fine-tuning upperbound
+- **多模态贡献**：$\Delta_m$ 和条件分解 $\Delta_m(v)$
 
 ---
 
-## 8. 预期结果与实验
+## 7. 可能的风险
 
-### 8.1 实验一：跨Session泛化性测试
+**风险1：IDEncoder跨session泛化效果不佳**
+- 可能原因：参考窗口信息不足以区分神经元功能特性
+- 应对方案：增加参考窗口长度；尝试更复杂架构（如小型Transformer）；引入 Dynamic Channel Dropout（参考 SPINT）
 
-**目的**：验证IDEncoder机制的跨session泛化能力。
+**风险2：长时程预测准确性不足**
+- 可能原因：长预测窗口内的 spike count 过于稀疏/随机
+- 应对方案：增大 time bin 宽度（20ms → 50ms）；引入 scheduled sampling；采用概率预测；缩短预测窗口作为折中
 
-**设计**：
-- 在多个session上联合训练模型
-- 在完全未见过的新session上直接测试（gradient-free）
-- 对比方法：(a) per-session训练的baseline; (b) 直接apply的无IDEncoder模型; (c) fine-tuning方案; (d) SPINT
+**风险3：计算资源不足**
+- 可能原因：大规模多session训练超出GPU显存/时间
+- 应对方案：gradient accumulation；BF16 混合精度；Perceiver 压缩；从 Small 模型开始
 
-**评估指标**：
-- Co-smoothing bits/spike（参考NDT3）
-- Spike count预测的Poisson log-likelihood
-- R² of predicted firing rates vs. actual firing rates
+**风险4：多模态融合未带来显著提升**
+- 可能原因：DINOv2特征与neural activity的对应关系不够直接
+- 应对方案：添加 learnable adapter layers；尝试不同 DINOv2 变体；在视觉皮层数据上重点测试
 
-**预期结果**：NeuroHorizon在新session上的gradient-free性能应接近或超过per-session训练的baseline，且显著优于无IDEncoder的直接apply方案。
+**风险5：预测粒度局限**
+- 当前设计预测 spike counts in bins 而非 individual spike times，可能无法捕获 spike timing 的精细信息
+- 此为有意的设计权衡——bin-level 预测大幅降低序列长度和生成难度
 
-### 8.2 实验二：Data Scaling特性研究
-
-**目的**：研究模型性能随训练数据（session数量）和参数规模的变化规律。
-
-**设计**：
-- 固定模型大小，逐步增加训练session数量（10, 50, 100, 200+）
-- 固定数据量，变化模型大小（Small/Base/Large）
-- 绘制scaling curves
-
-**预期结果**：验证neural data foundation model的scaling law——性能应随数据和参数的增加呈现可预测的提升趋势（类似NLP中的power-law scaling）。
-
-### 8.3 实验三：长时程预测能力评估
-
-**目的**：评估模型在不同预测时间跨度下的预测准确性。
-
-**设计**：
-- 固定1秒输入窗口，变化预测窗口长度：100ms, 200ms, 500ms, 1000ms
-- 对比方法：Neuroformer（自回归spike生成）、NDT3（masked prediction）、LFADS
-- 分析预测准确性随时间跨度的衰减曲线
-
-**评估指标**：
-- 不同time bin位置上的Poisson log-likelihood
-- PSTH correlation（trial-averaged response prediction quality）
-- 预测spike count与真实值的pearson correlation
-
-**预期结果**：NeuroHorizon在长时间跨度（>500ms）上的预测性能显著优于现有方法，且衰减更为缓慢。
-
-### 8.4 实验四：多模态条件贡献分析
-
-**目的**：量化不同模态信息对预测准确率的贡献，进行科学发现。
-
-**设计**：
-- 模态组合实验：(a) neural only; (b) neural + behavior; (c) neural + image; (d) neural + behavior + image
-- 在不同脑区上分析模态贡献差异（如V1对image模态敏感度 vs. motor cortex对behavior模态敏感度）
-- 分析neural variability：计算多模态模型对trial-to-trial variability的解释程度
-
-**评估指标**：
-- 各模态组合的预测性能对比
-- 模态贡献的归因分析（通过ablation或gradient-based attribution）
-- $R^2$ improvement per modality
-
-**预期结果**：
-- 在视觉皮层数据上，image模态应显著提升预测性能
-- 在运动皮层数据上，behavior模态应提供最大的性能提升
-- 多模态融合应捕获更多的neural variability
-
-### 8.5 实验五：下游任务泛化性测试
-
-**目的**：验证预训练模型的通用表征质量。
-
-**设计**：
-- 冻结预训练的encoder，在下游任务上训练轻量级decoder
-- 下游任务：(a) 行为解码（如reaching方向、手臂速度）; (b) 刺激分类（如呈现的图像类别）
-- 对比方法：从头训练的task-specific模型、NDT3、POYO+
-
-**评估指标**：
-- 行为解码：$R^2$, velocity MSE
-- 刺激分类：accuracy, F1-score
-
-**可选扩展**：如果采用causal attention或SSM架构，可进行在线/实时解码实验，评估latency和streaming accuracy。
-
-### 8.6 实验六：消融研究 (Ablation Study)
-
-**目的**：验证各创新模块的独立贡献。
-
-**消融实验列表**：
-
-| 实验 | 消融内容 | 验证的贡献 |
-|------|---------|-----------|
-| A1 | 移除IDEncoder，使用random unit embedding | IDEncoder的跨session贡献 |
-| A2 | IDEncoder替换为手工统计特征（firing rate, ISI等，非端到端学习） | 端到端学习（原始活动）vs. 手工特征 |
-| A3 | 移除Perceiver压缩 | 序列压缩的效率vs.性能trade-off |
-| A4 | 缩短输入窗口至200ms | 长时间窗口的价值 |
-| A5 | 移除behavior模态 | 行为信息的贡献 |
-| A6 | 移除image模态 | 视觉信息的贡献 |
-| A7 | DINOv2替换为对比学习编码 | DINOv2 vs. contrastive learning |
-| A8 | Transformer替换为Mamba | 架构选择的影响 |
-| A9 | RoPE替换为fixed positional encoding | 时间编码方式的影响 |
-| A10 | Poisson loss替换为MSE loss | 损失函数选择的影响 |
+**风险6：数据依赖**
+- IDEncoder 的质量依赖于参考窗口数据的质量和长度
+- 极短或极嘈杂的参考窗口可能导致泛化性能下降
 
 ---
 
-## 9. 创新性与局限性讨论
-
-### 9.1 创新性总结
-
-本研究的核心贡献在于提出NeuroHorizon——首个同时实现跨session鲁棒泛化和长时程自回归预测的神经脉冲编码模型。具体创新包括：(1) 将IDEncoder机制从解码任务扩展到编码/生成任务，实现gradient-free的跨session泛化；(2) 设计基于cross-attention的decoder用于在固定time bins上的长时程spike count预测，将预测窗口扩展至1秒；(3) 通过DINOv2简化多模态条件注入流程；(4) 提供了neural data scaling law的实证研究。
-
-### 9.2 理论意义
-
-从理论层面，本研究验证了神经数据基础模型的可扩展性假设——即通过增加数据和模型规模，可以持续提升对神经群体活动的建模能力。IDEncoder机制的成功将表明，神经元的功能特性可以从其活动模式中自动推断，无需先验的解剖学或电生理学知识。长时程预测能力将揭示神经群体动力学中的长程结构。
-
-### 9.3 实际应用价值
-
-- **脑机接口 (BCI)**：跨session鲁棒性减少了BCI系统每日重新校准的需求；长时程预测为更稳定的控制信号提供基础。
-- **神经科学研究工具**：作为通用的neural encoding model，可用于数据增强、缺失数据插补、实验设计优化等。
-- **临床应用**：为慢性植入电极的长期稳定解码提供技术支撑。
-
-### 9.4 局限性
-
-1. **预测粒度**：当前设计预测spike counts in bins而非individual spike times，可能无法捕获spike timing的精细信息（如precise temporal coding）。
-2. **计算成本**：尽管引入了Perceiver压缩，大规模训练仍需要较多GPU资源。
-3. **数据依赖**：IDEncoder的质量依赖于参考窗口数据的质量和长度，极短或极嘈杂的参考窗口可能导致泛化性能下降。
-4. **脑区限制**：当前实验主要在视觉皮层和运动皮层验证，对其他脑区（如海马体、前额叶）的泛化性有待验证。
-5. **物种限制**：主要使用小鼠和非人灵长类数据，跨物种泛化能力未知。
-
-### 9.5 未来工作
-
-1. 探索predict individual spike times的可能性（如通过扩散模型或flow-matching）
-2. 将NeuroHorizon扩展到更多脑区和物种
-3. 探索self-supervised pretraining策略（如masked spike prediction + autoregressive prediction的联合训练）
-4. 在真实BCI系统中进行在线验证
-5. 结合neural ODE等连续时间模型，进一步改善动力学建模
-
----
-
-## 10. 参考文献
+## 8. 参考文献
 
 ### 核心参考论文
 
@@ -676,207 +431,6 @@ $$
 
 ---
 
-## 11. 执行计划
-
-> **注**：本节为初始规划草案，详细的可执行计划已迁移至 `cc_core_files/plan.md`（Phase 0-5 任务清单与完成状态）。执行参考请查阅 `cc_core_files/proposal_review.md`。以下内容仅作历史参考。
-
-> **核心原则**：本项目以POYO/POYO+的开源代码库为基础（https://github.com/mehdiazabou/poyo-1），采用**增量式开发**策略。每个阶段在已验证的代码基础上进行最小化修改，确保每一步的改动都可控、可调试、可回滚。避免从零开始重写，最大限度复用POYO的成熟组件（数据加载、tokenization、Perceiver encoder、训练框架等）。
-
-### 11.1 时间规划总览
-
-**总预计时间**：16-20周（约4-5个月）
-
-```
-Phase 1: 代码熟悉与基线复现         ████░░░░░░░░░░░░░░░░  [Week 1-4]
-Phase 2: 增量式模型改进             ░░░░████████░░░░░░░░  [Week 5-12]
-Phase 3: 完整实验与数据集扩展       ░░░░░░░░░░░░████░░░░  [Week 12-16]
-Phase 4: 论文撰写与修改             ░░░░░░░░░░░░░░░░████  [Week 16-20]
-```
-
-### 11.2 Phase 1: 代码熟悉与基线复现（第1-4周）
-
-**目标**：完全理解POYO代码架构，在目标数据集上复现POYO的baseline性能，建立实验基线。
-
-**Step 1.1：POYO代码库深度阅读与环境搭建（Week 1）**
-- Fork POYO/POYO+代码库，搭建完整的开发环境（PyTorch, wandb, hydra等）
-- 系统阅读代码结构：重点理解 (a) spike tokenization模块；(b) unit embedding（per-unit learnable embedding）的实现方式；(c) Perceiver cross-attention encoder的实现细节；(d) RoPE时间编码的具体实现；(e) 训练循环、数据加载器、配置管理
-- 同步阅读POYO/POYO+论文，将代码实现与论文描述逐一对应
-- 整理POYO代码模块依赖关系图，标注后续需要修改的模块
-- **关键论文精读**：SPINT（IDEncoder机制）、Neuroformer（自回归生成 + 多模态）
-
-**Step 1.2：数据集获取与适配（Week 2）**
-- **IBL数据集**（跨session核心）：通过IBL的ONE API下载数据，理解POYO代码中IBL数据的加载方式，验证数据可以正常流入POYO的training pipeline
-- **Jia Lab数据集**（长时程预测核心）：整理内部数据格式，编写数据适配器使其兼容POYO的数据加载框架（实现 `JiaLabDataset` 类，继承POYO的基础数据类）
-- **Allen数据集**（多模态核心）：通过AllenSDK下载Neuropixels Visual Coding数据，编写Allen数据适配器，特别注意提取视觉刺激帧与spike times的时间对齐
-- **NLB数据集**（基准对比）：下载MC_Maze等子集，编写NLB数据适配器
-- 验证方式：所有数据集都能成功加载并通过POYO数据pipeline的sanity check
-
-**Step 1.3：POYO基线复现（Week 3-4）**
-- 在IBL数据集上复现POYO的behavior decoding性能（R², velocity MSE），确认与论文报告的数值一致或接近
-- 在Jia Lab数据集上运行POYO（可能需要调整输出head），记录baseline性能
-- 分析POYO在当前目标任务上的表现：(a) 评估POYO encoder输出的latent representation质量；(b) 测试POYO在不同时间窗口长度下的性能；(c) 初步评估POYO的跨session表现（在held-out session上直接评估）
-- **交付成果**：POYO baseline性能报告（各数据集）、代码模块分析文档、明确的增量改进路线图
-
-### 11.3 Phase 2: 增量式模型改进（第5-12周）
-
-> **核心策略**：每个增量步骤只修改一个模块，在验证该改动有效后再进行下一步。每个步骤都有明确的A/B实验对比（改动前 vs 改动后）。优先实现与长时程预测直接相关的改动。
-
-**Increment 1：添加自回归Decoder用于长时程spike count预测（Week 5-7，3周）**
-
-这是NeuroHorizon与POYO最核心的差异——POYO仅用于解码（spikes → behavior），而NeuroHorizon需要预测未来的neural activity。
-
-- **Week 5**：在POYO encoder输出之上，添加cross-attention decoder模块
-  - 保持POYO encoder完全不变，仅添加新的decoder head
-  - 实现time bin query embedding + RoPE时间编码
-  - 实现cross-attention（decoder queries attend to encoder output）
-  - 实现causal self-attention mask（确保自回归特性）
-  - 实现spike count输出层（MLP: latent → per-neuron Poisson rate）
-  - 实现Poisson NLL loss
-- **Week 6**：在Jia Lab数据集上训练和调试
-  - 先用teacher forcing模式训练（提供ground truth previous bins作为decoder输入）
-  - 验证loss是否收敛，检查预测的spike count分布是否合理
-  - 逐步开启自回归模式（inference时使用模型自己的预测作为输入）
-  - 数据集选择理由：Jia Lab大量重复trials提供充足训练数据，V1响应可预测性较强
-- **Week 7**：长时程预测性能评估与调优
-  - 实验：固定1s输入窗口，逐步扩展预测窗口（100ms → 200ms → 500ms → 1000ms）
-  - 实现课程学习策略：训练初期使用短预测窗口，逐步增长
-  - A/B对比：NeuroHorizon (POYO encoder + new decoder) vs. 简单baseline（如线性预测、PSTH-based预测）
-  - 验证方式：预测spike count的Poisson log-likelihood、pearson correlation with ground truth firing rates
-  - **关键检查点**：长时程预测在Jia Lab数据上是否显著优于简单baseline？如果否，需要分析原因并调整decoder设计（如增加decoder层数、调整time bin宽度等）
-
-**Increment 2：用IDEncoder替换POYO的Per-Unit Learnable Embedding（Week 8-9，2周）**
-
-这是实现跨session泛化的核心改动。
-
-- **Week 8**：实现IDEncoder模块并集成到POYO框架
-  - 在POYO代码中定位unit embedding模块（per-unit learnable embedding lookup table）
-  - 实现feed-forward IDEncoder网络：输入为参考窗口神经活动特征向量，输出为unit embedding
-  - 实现参考窗口数据准备：从每个session的参考时段提取各neuron的spike events，binning (20ms) 后插值到固定长度（方案A），或直接使用spike event timestamps + rotary embedding + attention pooling（方案B）
-  - 将POYO的 `nn.Embedding(num_units, d_model)` 替换为 `IDEncoder(d_ref, d_model)`
-  - 确保替换后模型的前向传播正常运行，维度匹配
-- **Week 9**：在IBL数据集上验证跨session泛化
-  - 训练配置：多session联合训练（训练集包含多个session），实现neuron dropout数据增强
-  - 核心评估：在完全未见过的test session上，仅通过IDEncoder前向传播生成unit embedding（gradient-free），测试模型性能
-  - A/B对比：(a) NeuroHorizon with IDEncoder vs. (b) POYO原始per-unit embedding（需要为新session添加新embedding并fine-tune） vs. (c) 无IDEncoder的random embedding baseline
-  - 同时在Jia Lab数据集上验证IDEncoder不损害长时程预测性能
-  - **关键检查点**：IDEncoder的gradient-free跨session性能是否接近per-session fine-tuning？如果差距过大，考虑增加参考窗口长度或引入额外特征
-
-**Increment 3：添加多模态条件注入（Week 10-11，2周）**
-
-- **Week 10**：实现behavior模态注入
-  - 在POYO encoder的指定层添加cross-attention模块（encoder hidden states attend to behavior embeddings）
-  - 行为数据处理：线性投影 behavior features → d_model维度
-  - 在IBL数据集上训练和验证（IBL有丰富的行为变量：wheel velocity, stimulus contrast, choice等）
-  - A/B对比：neural only vs. neural + behavior
-  - 数据集选择理由：IBL的标准化行为任务提供结构化的behavior variables
-- **Week 11**：实现image模态注入
-  - 集成DINOv2预训练模型（冻结权重），提取image patch embeddings
-  - 添加线性投影层：DINOv2 output dim → d_model
-  - 在encoder中添加image cross-attention（与behavior cross-attention类似的接口）
-  - 在Allen数据集上训练和验证（Allen有完整的visual stimuli帧数据）
-  - A/B对比：neural only vs. neural + image vs. neural + behavior + image
-  - 数据集选择理由：Allen数据集的natural scenes和gratings提供了最丰富的视觉刺激信息
-  - **关键检查点**：多模态是否在Allen V1数据上带来显著预测性能提升？分析不同visual stimulus类型（natural scenes vs. gratings）下的modality contribution差异
-
-**Increment 4：优化与扩展实验（Week 12，1周）**
-
-- 将Increment 1-3的所有改动整合为完整的NeuroHorizon模型
-- 全面测试整合后的模型在各数据集上的性能
-- 实现Perceiver压缩的可选开关（对于spike数量特别大的session启用）
-- 针对发现的问题进行局部调优（如学习率调整、decoder层数、time bin宽度等）
-- 准备完整实验所需的配置文件和实验脚本
-
-### 11.4 Phase 3: 完整实验与数据集扩展（第12-16周）
-
-**Step 3.1：核心实验矩阵（Week 12-14）**
-
-在所有目标数据集上运行完整实验矩阵：
-
-| 实验 | 数据集 | 目标 |
-|------|--------|------|
-| 长时程预测 (100ms-1s) | Jia Lab (主), NLB MC_Maze (辅) | 验证预测窗口扩展能力 |
-| 跨Session泛化 | IBL (主), Jia Lab (辅) | 验证IDEncoder gradient-free泛化 |
-| Data Scaling | IBL | 验证scaling law (10/50/100/200+ sessions) |
-| 多模态-Behavior | IBL (主) | 量化behavior modality贡献 |
-| 多模态-Image | Allen (主), Jia Lab (辅) | 量化image modality贡献 |
-| 多模态-全模态 | Allen (neural+image+behavior) | 验证全模态融合效果 |
-| Baseline对比 | NLB (必须), IBL, Allen | 与NDT3/LFADS/Neuroformer对比 |
-| 下游任务 | IBL (behavior decoding), Allen (stimulus classification) | 验证通用表征质量 |
-
-**Step 3.2：消融实验（Week 14-15）**
-- 按照第8.6节的消融实验列表逐一执行
-- 所有消融实验在同一数据集（建议IBL或Jia Lab）上进行，确保可比性
-- 特别关注：IDEncoder消融（A1, A2）和长时程窗口消融（A4）
-
-**Step 3.3：结果分析与可视化（Week 15-16）**
-- 绘制scaling curves、预测性能随时间窗口的衰减曲线、模态贡献归因图
-- 生成论文所需的所有图表和表格
-- 撰写实验分析报告
-
-**交付成果**：完整实验结果表、性能对比图表、分析报告
-
-### 11.5 Phase 4: 论文撰写与修改（第16-20周）
-
-- **Week 16-17**：撰写论文初稿（方法、实验章节优先）
-- **Week 18-19**：内部审阅和修改，补充实验
-- **Week 19-20**：完善introduction、related work、discussion，最终定稿，准备补充材料
-
-**交付成果**：完整研究论文（目标NeurIPS/ICLR投稿格式）
-
-### 11.6 里程碑与检查点
-
-| 里程碑 | 时间 | 检验标准 |
-|--------|------|---------|
-| M1: POYO代码完全理解 | Week 1 | 能绘制完整的模块依赖关系图 |
-| M2: 数据Pipeline可用 | Week 2 | 4个数据集均可通过POYO数据流水线加载 |
-| M3: POYO基线复现 | Week 4 | IBL上复现POYO报告的behavior decoding性能（R²误差<5%） |
-| M4: 长时程预测初步验证 | Week 7 | Jia Lab数据上1s预测显著优于简单baseline |
-| M5: 跨Session初步验证 | Week 9 | IBL上gradient-free泛化性能>random baseline且接近fine-tuning |
-| M6: 多模态验证 | Week 11 | Allen数据上多模态性能>neural only |
-| M7: 完整模型整合 | Week 12 | 所有模块整合后的模型可稳定训练 |
-| M8: 完整实验结果 | Week 16 | 所有核心实验和消融实验完成，结果可复现 |
-| M9: 论文初稿 | Week 18 | 完整草稿可供内部评审 |
-| M10: 论文定稿 | Week 20 | 达到目标会议投稿标准 |
-
-### 11.7 增量式开发的关键原则
-
-1. **最小改动原则**：每个Increment只修改一个模块，保持其他模块不变。这使得每次改动的效果可以清晰归因。
-2. **持续测试原则**：每个Increment都有明确的A/B对比实验。改动后模型的性能至少不应低于改动前（除非该改动引入了新的、更难的任务目标）。
-3. **代码版本管理**：每个Increment完成后创建Git tag，确保可以随时回退到任何一个稳定版本。
-4. **数据集匹配原则**：每个改动选择最适合验证该改动效果的数据集进行初始测试（如长时程预测用Jia Lab，跨session用IBL，多模态用Allen），验证通过后再在其他数据集上泛化测试。
-5. **基于POYO代码的具体修改清单**：
-   - **不修改**：spike tokenization, RoPE temporal encoding, Perceiver cross-attention, Transformer encoder backbone, 训练框架（PyTorch Lightning, wandb, hydra）
-   - **替换**：unit embedding模块（per-unit learnable → IDEncoder feed-forward）
-   - **新增**：cross-attention decoder（自回归spike count预测）、多模态cross-attention layers（behavior/image条件注入）、Poisson NLL loss、数据集适配器（Jia Lab, Allen, NLB）
-
-### 11.8 风险评估与应对方案
-
-**风险1：IDEncoder跨session泛化效果不佳**
-- 可能原因：参考窗口信息不足以区分神经元功能特性
-- 应对方案：(a) 增加参考窗口长度；(b) 引入额外特征（如waveform shape）；(c) 采用更复杂的encoder架构（如小型Transformer而非FFN）；(d) 结合contrastive learning进行预训练
-
-**风险2：长时程预测准确性不足**
-- 可能原因：1秒窗口内的spike count过于稀疏/随机，难以预测
-- 应对方案：(a) 增大time bin宽度（如50ms instead of 10ms）；(b) 采用概率预测（输出分布而非点估计）；(c) 引入latent variable model捕获neural variability；(d) 缩短预测窗口作为折中
-
-**风险3：计算资源不足**
-- 可能原因：大规模多session训练超出可用GPU显存/时间
-- 应对方案：(a) 使用gradient accumulation减少显存需求；(b) 采用mixed precision (BF16)训练；(c) 优先使用Perceiver压缩减少序列长度；(d) 从Small模型开始验证
-
-**风险4：多模态融合未带来显著提升**
-- 可能原因：DINOv2特征与neural activity的correspondence不够直接
-- 应对方案：(a) 添加learnable adapter layers；(b) 尝试不同的DINOv2变体（ViT-S/B/L）；(c) 在visual cortex数据上重点测试（模态匹配度最高）
-
-**风险5：与现有方法对比不公平**
-- 可能原因：baseline方法的实现或调参不充分
-- 应对方案：(a) 尽量使用原始代码库；(b) 在原论文报告的数据集上先复现原始结果；(c) 联系原作者确认实验设置
-
-**风险6：POYO代码修改导致原有功能回退**
-- 可能原因：增量修改时无意中破坏了POYO原有的数据流或计算逻辑
-- 应对方案：(a) 每个Increment前先运行POYO原始baseline测试，确认基线性能未变化；(b) 使用Git分支管理，每个Increment在独立分支开发；(c) 编写关键模块的单元测试（如IDEncoder输出维度、decoder因果mask正确性等）
-
----
-
 ## 附录A：符号表
 
 | 符号 | 含义 |
@@ -886,13 +440,19 @@ Phase 4: 论文撰写与修改             ░░░░░░░░░░░░�
 | $\mathbf{u}_n$ | 神经元$n$的unit embedding |
 | $\mathbf{r}_n$ | 神经元$n$的参考窗口特征向量 |
 | $\mathbf{H}$ | Encoder隐层表征 |
-| $\hat{\lambda}_{n,b}$ | 预测的Poisson rate（神经元$n$, time bin $b$） |
+| $\hat{r}_{n,b}$ | 预测的log firing rate（神经元$n$, time bin $b$） |
 | $\mathcal{C}$ | 多模态条件信息 |
-| $T$ | 输入窗口长度（默认1s） |
-| $\Delta T$ | 预测窗口长度 |
-| $\delta$ | Time bin宽度 |
+| $\mathcal{C}^{(m)}$ | 第$m$个模态的条件信息 |
+| $\Delta_m$ | 模态$m$的预测贡献 |
+| $\Delta_m(v)$ | 模态$m$在条件变量$v$下的贡献 |
+| $T_{\text{hist}}$ | 历史窗口（previous_window）长度 |
+| $T_{\text{pred}}$ / $\Delta T$ | 预测窗口（target_window）长度 |
+| $\delta$ | Time bin宽度（默认20ms） |
 | $B$ | 预测time bin数量 |
+| $L$ | Perceiver latent array 长度 |
 
 ---
 
-*本研究计划书创建于2026年2月13日，将随研究进展持续更新。*
+## 补充：基于Perceiver的序列压缩与高效推理
+
+借鉴POYO的Perceiver cross-attention机制压缩spike序列长度，降低encoder端的计算复杂度。当spike序列过长时（如>2000 spikes/秒），$L$ 个可学习的latent query tokens（$L \ll K$，如 $L=128$ 或 $256$）通过cross-attention聚合spike信息，将后续计算复杂度从 $O(K^2)$ 降为 $O(L^2)$。在需要实时推理的场景下，可探索将Transformer backbone替换为State Space Model（如Mamba），实现 $O(N)$ 复杂度的高效推理。

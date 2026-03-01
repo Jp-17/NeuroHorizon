@@ -5,6 +5,7 @@
 **NeuroHorizon** 是一个基于 **POYO/POYO+** 框架（NeurIPS 2023）进行改造扩展的神经科学研究项目，目标是构建"跨 Session 鲁棒的长时程神经脉冲数据预测编码模型"。
 
 项目详细背景、研究动机、核心创新点和技术方案，请参阅：
+- **研究背景**：[cc_core_files/background.md](cc_core_files/background.md)（研究现状、研究意义、研究动机、相关工作）
 - **研究方案**：[cc_core_files/proposal.md](cc_core_files/proposal.md)
 - **执行参考**：[cc_core_files/proposal_review.md](cc_core_files/proposal_review.md)（各 Phase 代码改造方案、技术考量与风险评估）
 - **执行计划**：[cc_core_files/plan.md](cc_core_files/plan.md)
@@ -27,7 +28,8 @@
 
 | 文档 | 路径 | 说明 |
 |------|------|------|
-| 研究方案 | cc_core_files/proposal.md | 完整研究提案（背景、创新点、实验设计） |
+| 研究背景 | cc_core_files/background.md | 研究现状、研究意义、研究动机、相关工作 |
+| 研究方案 | cc_core_files/proposal.md | 核心挑战、创新点、方法设计、实验设计 |
 | 执行参考 | cc_core_files/proposal_review.md | 各 Phase 代码改造方案、技术考量、风险与验收标准（**执行 plan 任务前必读**） |
 | 执行计划 | cc_core_files/plan.md | 分阶段任务执行计划，按此计划推进项目 |
 | 代码分析 | cc_core_files/code_research.md | POYO 代码架构及改造接口分析 |
