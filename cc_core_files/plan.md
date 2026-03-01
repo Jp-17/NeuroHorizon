@@ -173,17 +173,17 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 ### 1.2 基础功能验证
 
-- [ ] **1.2.1** Teacher forcing 模式训练（5-10 sessions，Small 配置）
+- [x] **1.2.1** Teacher forcing 模式训练（5-10 sessions，Small 配置）
   - 验证 loss 收敛、预测 spike count 分布合理（Poisson 分布特性）
   - 与简单 baseline 对比（PSTH-based prediction、线性预测）
 
-- [ ] **1.2.2** 自回归推理验证
+- [x] **1.2.2** 自回归推理验证
   - 验证 causal mask 在推理时正确（未来 token 不被看到）
   - 绘制误差随预测步数的传播曲线，记录衰减速度
 
 ### 1.3 预测窗口梯度测试
 
-- [ ] **1.3.1** 250ms 预测窗口实验（10-20 sessions）
+- [x] **1.3.1** 250ms 预测窗口实验（10-20 sessions）
   - 作为基线，记录 PSTH 相关性 / R²
   - 方案 A（trial 对齐）：输入 = hold period，预测 = reach period 前 250ms
 
