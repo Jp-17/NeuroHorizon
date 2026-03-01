@@ -187,15 +187,15 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
   - 作为基线，记录 PSTH 相关性 / R²
   - 方案 A（trial 对齐）：输入 = hold period，预测 = reach period 前 250ms
 
-- [ ] **1.3.2** 500ms 预测窗口实验
+- [x] **1.3.2** 500ms 预测窗口实验
   - 视 250ms 结果决定是否引入 scheduled sampling
   - 对比：500ms 下 trial 对齐方案 A vs 滑动窗口方案 B
 
-- [ ] **1.3.3** 1000ms 预测窗口实验（~50 步自回归）
+- [x] **1.3.3** 1000ms 预测窗口实验（~50 步自回归）
   - 实现 scheduled sampling（从 100% teacher forcing 线性衰减至 ~10%，20-50 epoch）
   - non-autoregressive parallel prediction 对照基线
 
-- [ ] **1.3.4** 预测窗口汇总报告
+- [x] **1.3.4** 预测窗口汇总报告
   - 绘制性能随窗口长度的衰减曲线（写入 `cc_core_files/results.md`）
   - 决策：Phase 2/3 实验的主要预测窗口
 
