@@ -587,3 +587,529 @@ class NeuroHorizon(nn.Module):
 2. **xformers 后端**：服务器有 xformers，所有 CUDA 上的 attention 会走 `rotary_attn_xformers_func` 路径，改 causal mask 时必须同时修改 xformers 路径
 3. **PerceiverRotaryLayer 不存在**：`torch_brain.nn.rotary_attention` 中没有 `PerceiverRotaryLayer`，只有 `RotaryCrossAttention` 和 `RotarySelfAttention`
 4. **attn_mask 类型**：`rotary_attn_pytorch_func` 中 `F.scaled_dot_product_attention` 的 `attn_mask` 可以是 bool 型（False=masked）或 float 型（加到 attention scores）——两种类型行为不同，causal mask 推荐用 bool 类型（True=保留）
+
+---
+
+## 0.1.3 补充：核心设计点深度讨论
+
+> **写作背景**：本节基于 0.1.1/0.1.2 的代码精读和论文精读结果，对两个核心设计点展开讨论：
+> （1）per-neuron MLP head 的设计；
+> （2）IDEncoder 通过 flag 切换 InfiniteVocabEmbedding 的设计。
+> 同时，结合任务目标（自回归生成神经活动）的数据组织要求，进一步阐述 decoder 改造、输出 head 设计、query 设计和数据组织的完整技术方案。
+
+---
+
+### 一、任务数据组织的双窗口结构
+
+在正式讨论 per-neuron MLP head 之前，必须先明确数据组织，因为 head 的设计直接依赖输入输出的表示方式。
+
+#### 1.1 神经活动的两个角色
+
+本任务的核心目标是：给定一段**历史神经活动**，自回归地预测**未来的神经发放情况**。因此一个训练样本中的神经活动数据天然分为两个部分，承担不同的角色：
+
+```
+时间轴：
+├── [t_start, t_start + T_hist]  ← previous_window（历史窗口）
+│       作为 encoder 输入，提供上下文信息
+│       格式：spike events（timestamps + unit_ids）→ 不改变现有 POYO 架构
+│
+└── [t_start + T_hist, t_start + T_hist + T_pred]  ← target_window（预测窗口）
+        作为 decoder 的预测目标
+        格式：binned spike counts（逐 time bin × 逐 neuron 的发放数）
+        → 新增，需要 binning pipeline 生成
+```
+
+| 属性 | previous_window（历史） | target_window（目标） |
+|------|------------------------|----------------------|
+| **用途** | Perceiver encoder 输入（提供上下文） | Autoregressive decoder 的预测目标 |
+| **表示格式** | Spike events（离散时间戳） | Binned spike counts（连续时间格上的整数） |
+| **数据形状** | `[N_spikes, 3]`（timestamp, unit_id, type） | `[T_pred_bins, N_units]` |
+| **现有架构复用** | ✅ 完全复用 POYO 的 spike tokenization | ❌ 需新增 binning pipeline |
+| **对应 loss** | 无（不做预测） | PoissonNLL（log_rate vs spike_counts） |
+
+#### 1.2 binning pipeline 设计
+
+target_window 内的 spike events 需要转换为 `[T_pred_bins, N_units]` 的 spike counts 张量：
+
+```python
+# binning 参数（初始推荐值）
+bin_size    = 0.020   # 20ms
+T_pred      = 0.250   # 预测窗口 250ms（Phase 1 起点）
+T_pred_bins = int(T_pred / bin_size)  # = 12 个 time bins
+
+# binning 操作（在 tokenize() 中完成）
+# spike_times: List[float]  target_window 内所有 spike 的时间戳
+# spike_units: List[int]    对应的 unit global index
+bin_edges = linspace(t_pred_start, t_pred_end, T_pred_bins + 1)
+spike_counts = zeros(T_pred_bins, N_units, dtype=float32)
+for each spike (t, uid):
+    bin_idx = floor((t - t_pred_start) / bin_size)
+    spike_counts[bin_idx, uid] += 1
+```
+
+**在 tokenize() 中的新增字段**：
+```python
+model_inputs = {
+    # ---- 原有字段（previous_window spike events）----
+    "input_unit_index":  ...,    # [N_spikes_hist]
+    "input_timestamps":  ...,    # [N_spikes_hist]
+    "input_token_type":  ...,    # [N_spikes_hist]
+    "latent_index":      ...,    # [N_latents]
+    "latent_timestamps": ...,    # [N_latents]
+
+    # ---- 新增字段（target_window binned counts）----
+    "target_spike_counts":  spike_counts,    # [T_pred_bins, N_units]  float32
+    "target_bin_timestamps": bin_centers,    # [T_pred_bins]  每个 bin 的中心时刻
+    "target_unit_mask":      unit_mask,      # [N_units]  bool，标记哪些 unit 有 spike（用于 loss weighting）
+}
+```
+
+#### 1.3 Teacher Forcing vs 自回归推理
+
+**训练时（Teacher Forcing）**：
+- 将所有 `T_pred_bins` 的 bin query 同时送入 decoder
+- Causal self-attention mask 确保 bin t 的 query 只能 attend 到 bin 0..t-1 的 query
+- 一次前向传播得到所有 T 步的预测，计算全局 PoissonNLL loss
+- 高效，可并行化
+
+**推理时（自回归生成）**：
+```
+step 1: bin_query[0] → cross-attn(encoder_latents) → 不做 self-attn（无历史） → head → log_rate[0, :]
+step 2: [bin_query[0], bin_query[1]] → cross-attn + causal self-attn → head → log_rate[1, :]
+...
+step T: [bin_query[0..T-1], bin_query[T]] → head → log_rate[T, :]
+```
+注意：推理时的 bin_query 不依赖前一步的预测输出（bin_query 是固定的位置编码/时间戳 embedding），而 causal self-attn 使得后续 bin 能够 attend 到前序 bin 的**表示**（decoder 中间层的隐状态，非输出）。这是 Transformer decoder 的标准自回归模式。
+
+---
+
+### 二、per-neuron MLP head 展开讨论
+
+#### 2.1 为什么需要 per-neuron head？
+
+**现有 POYOPlus 的 readout 结构**：
+```python
+# MultitaskReadout 中：
+output_latents[B, N_out, dim]  →  nn.Linear(dim, task_output_dim)  →  任务预测值
+```
+这是"per-task, all-neuron-shared"的 readout：一个线性层对所有神经元共享，直接将 latent 映射到行为维度。
+
+**为什么 spike count 预测不能用这个结构？**
+
+1. **输出维度问题**：需要预测的是 `[T_pred_bins, N_units]` 的 spike counts。N_units 在不同 session 中不同（从几十到几百），无法用固定维度的线性层。
+
+2. **神经元身份问题**：不同神经元有不同的基础发放率、调谐特性。同一个 time bin 内，神经元 A 可能发 3 次，神经元 B 可能发 0 次。Readout 必须感知神经元 身份（unit embedding）。
+
+3. **组合表示需要**：预测神经元 n 在 time bin t 的 spike count 需要同时利用：
+   - **时间信息**：bin t 的解码器隐状态（来自 cross-attn + causal self-attn 后）
+   - **神经元身份**：unit n 的 embedding（来自 IDEncoder 或 InfiniteVocabEmbedding）
+
+#### 2.2 per-neuron MLP head 设计
+
+**核心思路**：对每个 `(time_bin, unit)` 对，将 bin 的解码器表示和 unit embedding 拼接后映射到 log_rate。
+
+```
+输入：
+  bin_repr  [B, T, dim//2]    ← decoder 输出的 bin 表示（投影到 dim//2）
+  unit_emb  [N, dim//2]       ← unit embedding（IDEncoder 或 InfiniteVocabEmbedding 输出，投影到 dim//2）
+
+操作：
+  # 广播拼接：每个 (t, n) 对
+  bin_expanded  = bin_repr.unsqueeze(2).expand(B, T, N, dim//2)   # [B, T, N, dim//2]
+  unit_expanded = unit_emb.unsqueeze(0).unsqueeze(0).expand(B, T, N, dim//2)  # [B, T, N, dim//2]
+  combined = cat([bin_expanded, unit_expanded], dim=-1)            # [B, T, N, dim]
+
+  # MLP（2-3 层）
+  log_rate = mlp_head(combined)   # [B, T, N, 1] → squeeze → [B, T, N]
+
+输出：
+  log_rate  [B, T, N]         ← 每个 (时间步, 神经元) 的预测 log firing rate
+```
+
+**MLP head 结构**（参考 SPINT 的轻量级设计）：
+```python
+class PerNeuronMLPHead(nn.Module):
+    def __init__(self, dim):
+        # 输入 dim = bin_dim//2 + unit_dim//2 = dim//2 + dim//2 = dim
+        self.mlp = nn.Sequential(
+            nn.Linear(dim, dim // 2),
+            nn.GELU(),
+            nn.Linear(dim // 2, dim // 4),
+            nn.GELU(),
+            nn.Linear(dim // 4, 1),   # 输出标量 log_rate
+        )
+
+    def forward(self, bin_repr, unit_embs):
+        # bin_repr:  [B, T, dim//2]
+        # unit_embs: [N, dim//2]
+        B, T, _ = bin_repr.shape
+        N = unit_embs.shape[0]
+        combined = torch.cat([
+            bin_repr.unsqueeze(2).expand(B, T, N, -1),
+            unit_embs.unsqueeze(0).unsqueeze(0).expand(B, T, N, -1),
+        ], dim=-1)                          # [B, T, N, dim]
+        log_rate = self.mlp(combined).squeeze(-1)  # [B, T, N]
+        return log_rate
+```
+
+**与 PoissonNLL loss 的接口**：
+```python
+log_rate  = per_neuron_head(bin_repr, unit_embs)   # [B, T, N]
+target    = batch["target_spike_counts"]            # [B, T, N]  float32
+
+# PoissonNLL: loss = exp(log_rate) - target * log_rate
+# clamp log_rate 避免 exp 溢出
+log_rate_clamped = log_rate.clamp(-10, 10)
+loss = (log_rate_clamped.exp() - target * log_rate_clamped).mean()
+```
+
+#### 2.3 行为预测时的 head 复用
+
+NeuroHorizon 在 Phase 3 还需要验证自回归预训练对行为解码的迁移。此时需要一个行为预测 head，与 spike count head 并存：
+
+```
+共享的 encoder + processor（latents）
+       │
+       ├── [spike_count 任务]
+       │     bin_queries → 自回归 decoder → PerNeuronMLPHead → PoissonNLL
+       │
+       └── [behavior_decoding 任务]（复用 POYO 的设计）
+             task_queries (session_emb + task_emb) → cross-attn(latents) → nn.Linear → MSE
+```
+
+**实现方式**：在 NeuroHorizon 的 forward() 中通过 `task` 参数路由：
+```python
+def forward(self, ..., task="spike_prediction"):
+    latents = self.encode_and_process(inputs)   # 共享的 encoder + processor
+
+    if task == "spike_prediction":
+        bin_repr = self.ar_decoder(bin_queries, latents)  # 自回归 decoder
+        return self.per_neuron_head(bin_repr, unit_embs)
+
+    elif task == "behavior_decoding":
+        out = self.dec_atn(task_queries, latents)         # 原 POYO decoder（保留）
+        return self.multitask_readout(out)
+```
+
+---
+
+### 三、IDEncoder 集成：是否废弃 InfiniteVocabEmbedding？
+
+#### 3.1 InfiniteVocabEmbedding 的两个功能必须分开看
+
+`InfiniteVocabEmbedding`（以下简称 IVE）在 POYO 中承担**两个相互独立的功能**：
+
+| 功能 | 说明 | 是否可替换 |
+|------|------|-----------|
+| **① 查表 embedding**（`forward()`）| 根据 unit global index 返回 `[N, dim]` embedding，用于神经元身份表示 | ✅ 可被 IDEncoder 替换 |
+| **② Pipeline 管理**（`tokenizer()`/`detokenizer()`/vocab） | 管理 unit_id ↔ global_index 的映射，collate/dataset 大量依赖此接口 | ❌ 不可删除 |
+
+**结论：不废弃 IVE，而是将其 ① 的功能用 IDEncoder 旁路替换，保留 ②。**
+
+#### 3.2 具体实现：flag 切换方案
+
+```python
+class NeuroHorizon(nn.Module):
+    def __init__(self, ..., use_id_encoder=False, id_encoder_cfg=None):
+        # ✅ 保留 IVE（供 tokenizer/detokenizer/vocab 管理使用）
+        self.unit_emb = InfiniteVocabEmbedding(dim, ...)
+
+        # IDEncoder 作为可选路径
+        self.use_id_encoder = use_id_encoder
+        if use_id_encoder:
+            self.id_encoder = IDEncoder(**id_encoder_cfg)
+            # 注意：IDEncoder 输出维度 = dim（与 IVE 一致，不需要额外投影层）
+
+    def _get_unit_embeddings(self, input_unit_index, ref_data=None):
+        """统一的 unit embedding 获取接口，支持两种路径。"""
+        if self.use_id_encoder and ref_data is not None:
+            # IDEncoder 路径：从参考窗口的神经活动推断 embedding
+            # ref_data: [N_units, M_windows, T_ref]
+            all_unit_embs = self.id_encoder(ref_data)          # [N_units, dim]
+            return all_unit_embs[input_unit_index]             # [N_spikes, dim]
+        else:
+            # 原 IVE 路径（Phase 1 使用）
+            return self.unit_emb(input_unit_index)             # [N_spikes, dim]
+            # 注意：self.unit_emb 的 forward() 仍然正常工作
+            # tokenizer()/detokenizer() 接口完全不受影响
+
+    def forward(self, input_unit_index, input_token_type, ..., ref_data=None):
+        unit_embs = self._get_unit_embeddings(input_unit_index, ref_data)
+        inputs = unit_embs + self.token_type_emb(input_token_type)
+        # 后续 encode + process + decode 不变
+```
+
+#### 3.3 Phase 1 → Phase 2 的切换路径
+
+| 阶段 | `use_id_encoder` | unit embedding 来源 | 备注 |
+|------|-----------------|--------------------|----|
+| Phase 1 | `False` | IVE `forward()` | 完全复用现有机制，per-session 可学习 embedding |
+| Phase 2 | `True` | IDEncoder 前向推断 | 同一接口，只改 `_get_unit_embeddings()` 路径 |
+
+**优化器分组**（Phase 2 需要）：
+```python
+optimizer = torch.optim.AdamW([
+    {"params": model.id_encoder.parameters(),  "lr": 1e-4},  # IDEncoder 用 AdamW
+    {"params": model.unit_emb.parameters(),    "lr": 0.0},   # IVE embedding 权重冻结（不再用于 forward，但保留 vocab 管理）
+    {"params": model.session_emb.parameters(), "lr": 1e-3,
+     "optimizer_class": SparseLamb},                          # session_emb 保留 SparseLamb
+    {"params": other_params,                   "lr": 1e-4},
+])
+```
+
+---
+
+### 四、Decoder 改造：哪些部分需要 causal？
+
+#### 4.1 现有 POYO decoder 结构回顾
+
+```python
+# POYOPlus.forward() 中的 decoder：
+# Step 6: dec_atn（1 层 RotaryCrossAttention）
+output_latents = self.dec_atn(
+    query=output_latents,     # [B, N_out, dim]  output queries（session_emb + task_emb）
+    context=latents,          # [B, L, dim]       encoder latents（processor 输出）
+    attn_mask=None,           # 无 mask，双向
+)
+# Step 7: readout → MultitaskReadout
+```
+
+**关键认识**：POYOPlus 的 decoder 只有**1 层 cross-attn**，没有 self-attn。output_latents 是固定数量的 learnable query（N 个），彼此之间不互相 attend，也不需要 causal。
+
+#### 4.2 NeuroHorizon 自回归 decoder 需要什么？
+
+自回归解码的语义要求：**bin t 的预测只能依赖 bin 0..t-1 的历史信息**，不能看到未来的 bin。
+
+这意味着需要**在 bin query 之间添加 causal self-attn**。
+
+**最终 decoder 结构**（每个 decoder block）：
+
+```
+bin_queries [B, T_pred, dim]
+     │
+     ├─① Cross-Attn（bin_queries attend to encoder_latents）
+     │       Q = bin_queries,  K = V = encoder_latents
+     │       mask: 无（双向，latents 来自历史窗口，完整信息）
+     │       → [B, T_pred, dim]
+     │
+     ├─② Self-Attn（bin_queries attend to each other）⚠️ 这里需要 causal mask
+     │       Q = K = V = bin_queries
+     │       mask: causal（下三角），bin t 只看 0..t
+     │       → [B, T_pred, dim]
+     │
+     └─③ FFN
+             → [B, T_pred, dim]
+```
+
+**顺序问题**：先 cross-attn 还是先 causal self-attn？
+
+| 顺序 | 含义 | 推荐 |
+|------|------|------|
+| cross → causal self | bin 先从 encoder latents 获取上下文，再做因果推理 | ✅ **推荐**（更自然） |
+| causal self → cross | bin 先做因果推理，再从 encoder latents 获取上下文 | 也可行，但信息流顺序不够直觉 |
+
+#### 4.3 完整 causal 分析：哪些层需要改，哪些不需要
+
+| 层 | 位置 | 是否 causal | 理由 |
+|----|------|------------|------|
+| `enc_atn`（encoder cross-attn） | Perceiver encoder | ❌ 不需要 | latent attend to previous_window spike events，无需因果 |
+| `proc_layers`（self-attn × depth） | Processor | ❌ 不需要 | latents 互相 attend，编码完整历史，双向 OK |
+| **Decoder cross-attn** | AR Decoder | ❌ **不需要 causal** | bin_queries attend to encoder_latents（完整历史） |
+| **Decoder causal self-attn** | AR Decoder | ✅ **需要 causal** | bin t 不能 attend 到 bin t+1..T 的 query 表示 |
+
+**结论**：只有 decoder 内部的 **self-attn** 需要 causal mask，encoder 和 decoder 的 cross-attn 均保持双向。
+
+#### 4.4 rotary_attention.py 的改造范围
+
+Phase 1 改造只涉及 `RotarySelfAttention`（用于 decoder self-attn），`RotaryCrossAttention` 无需修改。
+
+```python
+# RotarySelfAttention.forward() 的调用方：decoder block 的 self-attn
+# 传入 attn_mask = create_causal_mask(T_pred, device)  # [T_pred, T_pred] bool 下三角
+# rotary_attn_pytorch_func 中需要处理 (B, N_q, N_kv) 3D mask 形状
+# （现有代码只处理 (B, N_kv) 2D padding mask）
+```
+
+#### 4.5 Decoder block 数量
+
+POYOPlus 的 decoder 只有 1 层。NeuroHorizon 推荐 **N_dec = 2~4** 层的 AR decoder block（消融在 Phase 5 中进行）：
+
+- Small 配置（Phase 1 调试用）：N_dec = 2
+- Base 配置（Phase 1 完整验证用）：N_dec = 4
+
+---
+
+### 五、输出 head 设计总结
+
+#### 5.1 两条输出路径
+
+```
+NeuroHorizon.forward()
+       │
+       ├── [路径 A] Spike Count Prediction（Phase 1 主目标）
+       │         bin_queries [B, T_pred, dim]
+       │              ↓ AR Decoder（N_dec 层：cross-attn + causal self-attn + FFN）
+       │         bin_repr [B, T_pred, dim]
+       │              ↓ 投影到 dim//2
+       │         bin_repr_half [B, T_pred, dim//2]
+       │              ↓ PerNeuronMLPHead（concat unit_emb, 3层MLP）
+       │         log_rate [B, T_pred, N_units]
+       │              ↓ PoissonNLL vs target_spike_counts [B, T_pred, N_units]
+       │
+       └── [路径 B] Behavior Decoding（Phase 3 验证迁移用）
+                 task_queries (session_emb + task_emb) [B, N_out, dim]
+                      ↓ 原 POYO dec_atn（1 层 cross-attn，双向）
+                 output_latents [B, N_out, dim]
+                      ↓ MultitaskReadout（原 POYO 设计，保留不改）
+                 behavior_pred [B, N_out, behavior_dim]
+                      ↓ MSE vs behavior labels
+```
+
+#### 5.2 路径 A 与路径 B 的参数共享情况
+
+| 模块 | 路径 A 用 | 路径 B 用 | 共享 |
+|------|----------|----------|------|
+| `unit_emb` / `id_encoder` | ✅（unit embedding） | ❌ | 否 |
+| `token_type_emb` | ✅ | ✅ | ✅ |
+| `enc_atn` + `enc_ffn` | ✅ | ✅ | ✅ |
+| `proc_layers` | ✅ | ✅ | ✅ |
+| `ar_decoder`（新增） | ✅ | ❌ | 否 |
+| `dec_atn`（原 POYO） | ❌ | ✅ | 否 |
+| `per_neuron_head`（新增） | ✅ | ❌ | 否 |
+| `multitask_readout`（原 POYO） | ❌ | ✅ | 否 |
+
+**encoder + processor 完全共享**：预训练获得的 latent representation 可直接用于两个下游任务，这正是 Phase 3 "预训练迁移验证"的基础。
+
+---
+
+### 六、输出神经活动的 cross-attention query 设计
+
+#### 6.1 POYO 原有的 output query 回顾
+
+在 POYOPlus 中，decoder 的 query 来自两个 embedding 的叠加：
+```python
+output_latents = session_emb(output_session_index)   # [B, N_out, dim]  ← 每个 session 的可学习嵌入
+               + task_emb(output_decoder_index)       # [B, N_out, dim]  ← 每个任务的可学习嵌入
+```
+
+- `output_session_index`：标识哪个 session（处理跨 session 的输出差异）
+- `output_decoder_index`：标识哪个任务（行为维度 x / y / speed 等）
+- `N_out`：输出点数量（等于所有任务的输出时间点总数）
+
+这是一个**时间上连续**的 query 设计——通过 `prepare_for_multitask_readout()` 将目标时间戳对应的 session/task embedding 排列好。
+
+#### 6.2 NeuroHorizon 的 bin query 设计
+
+bin query 需要编码**每个预测时间 bin 的位置信息**。有两种实现方式：
+
+**方案 X：Learnable Positional Embedding（固定 T_pred）**
+```python
+self.bin_pos_emb = nn.Embedding(max_T_pred, dim)  # 可学习位置编码
+
+# 使用时：
+bin_queries = self.bin_pos_emb(torch.arange(T_pred, device=device))  # [T_pred, dim]
+bin_queries = bin_queries.unsqueeze(0).expand(B, -1, -1)             # [B, T_pred, dim]
+```
+- 优点：简单，无需时间戳信息
+- 缺点：固定长度，不同预测窗口长度需要不同 embedding；缺乏时间绝对位置信息
+
+**方案 Y：Rotary Time Embedding（连续时间戳）—— 推荐**
+```python
+# 复用现有的 create_linspace_latent_tokens 工具
+bin_timestamps = torch.linspace(t_pred_start, t_pred_end, T_pred)  # [T_pred]
+# 通过 rotary embedding 将时间戳编码进 Q/K 中（类似 latent tokens 的做法）
+# 在 tokenize() 中生成 target_bin_timestamps 字段，forward() 时传入 RotaryCrossAttention
+
+# bin_queries 本身初始化为 learnable（类似 latent_emb），时间信息通过 rotary 注入
+self.bin_emb = nn.Parameter(torch.randn(1, max_T_pred, dim))  # learnable base
+# rotary embedding 负责将绝对时间信息注入 Q/K 的旋转
+```
+- 优点：与 POYO 的 latent token 设计一致，可变长度，时间信息精确
+- 缺点：需要在 tokenize() 中准备 bin_timestamps
+
+**推荐方案 Y**，理由：
+1. 与现有 POYO 的 latent token 机制（`create_linspace_latent_tokens`）一脉相承，无需引入新机制
+2. Rotary time embedding 天然编码时间关系，cross-attn 时 encoder_latents 和 bin_queries 的时间距离会反映在 attention 权重中
+3. 可变预测窗口（250ms / 500ms / 1s）只需调整 T_pred 数量，不需要重新学习 embedding
+
+#### 6.3 bin query 与 original behavior query 的关系
+
+| 属性 | POYO behavior query | NeuroHorizon bin query |
+|------|--------------------|-----------------------|
+| **内容** | session_emb + task_emb（可学习） | learnable base + rotary time embedding |
+| **数量** | N_out（等于目标时间点数） | T_pred_bins（等于预测 bin 数） |
+| **时间信息** | 通过 `output_timestamps` 注入 rotary | 通过 `bin_timestamps` 注入 rotary |
+| **跨 session 差异** | session_emb 区分不同 session | 所有 session 共享（时间相对位置决定 bin query） |
+| **对应的下游 head** | MultitaskReadout（linear） | PerNeuronMLPHead（per-neuron MLP） |
+| **decoder 结构** | 1 层 cross-attn（无 self-attn） | N_dec 层（cross-attn + causal self-attn） |
+
+**核心改造关系**：bin query 是对 POYO output query 的**扩展**，而非替换——将原来的"任务级静态 query"扩展为"时间步级动态 query"，增加了 causal self-attn 来实现自回归。
+
+#### 6.4 tokenize() 中 bin query 的构造
+
+```python
+def tokenize(self, data):
+    # ... 原有 previous_window 处理（复用 POYO 逻辑）...
+
+    # ---- 新增：target_window bin query 准备 ----
+    t_pred_start = data["target_window_start"]
+    t_pred_end   = data["target_window_end"]
+    T_pred_bins  = int((t_pred_end - t_pred_start) / bin_size)
+
+    bin_centers  = torch.linspace(
+        t_pred_start + bin_size / 2,
+        t_pred_end   - bin_size / 2,
+        T_pred_bins
+    )  # [T_pred_bins]  每个 bin 的中心时刻（用于 rotary time embedding）
+
+    # bin_index: 类比 latent_index（指向 self.bin_emb 的哪个位置）
+    bin_index = torch.arange(T_pred_bins)  # [T_pred_bins]
+
+    # 构建 spike_counts target（binning）
+    spike_counts = self._bin_spike_events(
+        data["spikes.timestamps"],
+        data["spikes.unit_index"],
+        t_pred_start, t_pred_end, bin_size, N_units
+    )  # [T_pred_bins, N_units]
+
+    return {
+        # ... 原有字段 ...
+        "bin_index":           bin_index,           # [T_pred_bins]
+        "bin_timestamps":      bin_centers,          # [T_pred_bins]
+        "target_spike_counts": spike_counts,         # [T_pred_bins, N_units]
+    }
+```
+
+---
+
+### 七、设计全景图（Phase 1 完整架构）
+
+```
+数据输入
+├── previous_window spike events  [N_spikes]
+│   unit_index / timestamps / token_type
+│        ↓ unit_emb (IVE) + token_type_emb
+│   inputs [N_spikes, dim]
+│        ↓ enc_atn (cross-attn, latents←inputs)
+│   latents [L, dim]
+│        ↓ proc_layers (self-attn × depth)
+│   latents [L, dim]  ← Perceiver 完整上下文表示
+│                │
+│                │ ↙ [路径 A: spike prediction]
+│   bin_queries ─┘  (learnable base + rotary time embed) [T, dim]
+│        ↓ [× N_dec decoder blocks]
+│        │  ├─ cross-attn(bin_queries, latents) [T, dim]
+│        │  ├─ causal self-attn(bin_queries)    [T, dim]  ← ⚠️ causal mask
+│        │  └─ FFN
+│   bin_repr [T, dim]
+│        ↓ 投影 [T, dim//2]
+│   PerNeuronMLPHead: concat(bin_repr[t], unit_emb[n]) → MLP → log_rate[t,n]
+│   log_rate [T, N]
+│        ↓ PoissonNLL
+│   loss vs target_spike_counts [T, N]
+│
+└── (路径 B，Phase 3 启用)
+    task_queries → POYO dec_atn → MultitaskReadout → behavior_pred
+```
+
+---
