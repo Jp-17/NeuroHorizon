@@ -362,7 +362,7 @@ class PoissonNLLLoss(Loss):
 
 #### 2. `torch_brain/registry.py` — 注册 spike_counts 模态
 
-**改造方式**：在文件末尾添加 `register_modality("spike_counts", ...)` ���用。
+**改造方式**：在文件末尾添加 `register_modality("spike_counts", ...)` 调用。
 
 **关键注意点**：
 - `dim` 参数：等于神经元数量 N——但 N 在不同 session 中可变，需要动态处理。
@@ -424,7 +424,7 @@ T=3, N=2 时：每个时间步包含 N 个 neuron token，因此 causal mask 以
 
 **需要单元测试**：
 - Teacher forcing 模式（目标序列作为输入）端到端正确
-- 自回归推理模式（循环生成）输出与 teacher forcing 一致（在无噪声条件下���
+- 自回归推理模式（循环生成）输出与 teacher forcing 一致（在无噪声条件下）
 - causal mask 验证：position t 的输出不依赖 position t+1 及之后的输入
 
 #### 5. 新建 `torch_brain/models/neurohorizon.py`（分 3 步）
