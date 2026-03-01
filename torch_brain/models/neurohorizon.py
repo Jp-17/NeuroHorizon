@@ -17,7 +17,7 @@ import torch.nn as nn
 from torchtyping import TensorType
 from temporaldata import Data
 
-from torch_brain.data import pad8, pad2d, track_mask8
+from torch_brain.data import pad, pad8, pad2d, track_mask, track_mask8
 from torch_brain.nn import (
     Embedding,
     FeedForward,
@@ -372,8 +372,8 @@ class NeuroHorizon(nn.Module):
                 # Decoder inputs
                 "bin_timestamps": bin_timestamps,
                 # Unit info
-                "target_unit_index": pad8(global_unit_indices),
-                "target_unit_mask": track_mask8(global_unit_indices),
+                "target_unit_index": pad(global_unit_indices),
+                "target_unit_mask": track_mask(global_unit_indices),
             },
             # Targets
             "target_spike_counts": pad2d(torch.tensor(spike_counts)),

@@ -1,0 +1,37 @@
+# NeuroHorizon defaults
+data_root: ./data/processed/
+log_dir: ./logs
+
+# Transforms
+train_transforms: []
+eval_transforms: []
+
+# Training
+epochs: 500
+batch_size: 64
+eval_epochs: 10
+eval_batch_size: null
+seed: 42
+sanity_check_validation: false
+
+optim:
+  base_lr: 3.125e-5
+  weight_decay: 1e-4
+  lr_decay_start: 0.5
+
+# Logging
+wandb:
+  enable: false
+  entity: null
+  project: neurohorizon
+  run_name: null
+  log_model: false
+
+# GPU and CPU
+precision: 32
+nodes: 1
+gpus: 1
+num_workers: 4
+
+# Checkpointing
+ckpt_path: null

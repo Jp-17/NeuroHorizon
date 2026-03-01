@@ -1,0 +1,31 @@
+defaults:
+  - defaults.yaml
+  - model: neurohorizon_small.yaml
+  - dataset: perich_miller_10sessions.yaml
+  - _self_
+
+# Absolute paths
+data_root: /root/autodl-tmp/NeuroHorizon/data/processed/
+log_dir: /root/autodl-tmp/NeuroHorizon/results/logs/phase1_small
+
+# Training
+epochs: 300
+batch_size: 64
+eval_epochs: 10
+seed: 42
+
+# Precision
+precision: bf16-mixed
+
+# Unit dropout
+train_transforms:
+  - _target_: torch_brain.transforms.UnitDropout
+    max_units: 200
+    min_units: 30
+    mode_units: 80
+    peak: 4
+
+# Disable wandb for initial testing
+wandb:
+  enable: false
+  run_name: neurohorizon_small_250ms

@@ -1,0 +1,17 @@
+# Dataset config for NeuroHorizon spike prediction
+# Reuses Perich-Miller 10 sessions, minimal config (no multitask_readout needed)
+- selection:
+  - brainset: perich_miller_population_2018
+    sessions:
+      - c_20131003_center_out_reaching
+      - c_20131022_center_out_reaching
+      - c_20131101_center_out_reaching
+      - c_20131204_center_out_reaching
+      - j_20160405_center_out_reaching
+      - j_20160406_center_out_reaching
+      - j_20160407_center_out_reaching
+      - m_20150610_center_out_reaching
+      - m_20150612_center_out_reaching
+      - m_20150615_center_out_reaching
+    config:
+      multitask_readout: []

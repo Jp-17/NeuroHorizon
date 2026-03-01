@@ -1,0 +1,17 @@
+# NeuroHorizon Small model config
+_target_: torch_brain.models.NeuroHorizon
+sequence_length: 0.75   # 0.5s history + 0.25s prediction
+pred_window: 0.250      # 250ms prediction window
+bin_size: 0.020         # 20ms bins → 12 time bins
+latent_step: 0.05       # latent grid step
+num_latents_per_step: 32
+dim: 128
+enc_depth: 6            # processor depth
+dec_depth: 2            # decoder depth
+dim_head: 64
+cross_heads: 2
+self_heads: 8
+ffn_dropout: 0.2
+lin_dropout: 0.4
+atn_dropout: 0.2
+max_pred_bins: 50       # supports up to 1s prediction
