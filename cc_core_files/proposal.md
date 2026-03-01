@@ -266,7 +266,7 @@ $$
 每层包括：
 - Multi-Head Self-Attention with RoPE
 - Layer Normalization (Pre-LN)
-- Feed-Forward Network (SwiGLU activation)
+- Feed-Forward Network (GEGLU activation)
 - Residual Connections
 
 #### 5.4.2 可选：SSM替代方案
@@ -308,7 +308,7 @@ $$
 
 #### 5.5.1 预测目标定义
 
-将预测时间窗口 $[T, T+\Delta T]$ 划分为 $B$ 个固定time bins，每个bin宽度为 $\delta$（如 $\delta = 10\text{ms}$ 或 $20\text{ms}$）。预测目标为每个time bin中每个神经元的spike count：
+将预测时间窗口 $[T, T+\Delta T]$ 划分为 $B$ 个固定time bins，每个bin宽度为 $\delta$（如 $\delta = 20\text{ms}$）。预测目标为每个time bin中每个神经元的spike count：
 
 $$
 \hat{y}_{n,b} = \text{predicted spike count of neuron } n \text{ in time bin } b
@@ -415,7 +415,7 @@ $$
 - **Batch Size**：64-256（梯度累积）
 - **输入窗口**：1.0秒（1000ms）
 - **预测窗口**：0.5-1.0秒
-- **Time Bin大小**：10ms或20ms
+- **Time Bin大小**：20ms（与 SPINT 一致）
 - **Dropout**：0.1
 - **Mixed Precision**：BF16
 
@@ -440,7 +440,7 @@ $$
 - **来源**：International Brain Laboratory（国际脑实验室），由全球22个实验室组成的联盟
 - **内容**：该数据集来自IBL的"Brain-wide Map"项目，是目前最大规模的标准化全脑Neuropixels记录数据集之一。所有实验室采用完全相同的行为任务范式——一个视觉决策任务（International Brain Laboratory task）：小鼠需要根据屏幕上出现的visual grating的对比度和位置（左/右），通过转动滚轮做出二选一决策。Neuropixels探针插入到全脑多个区域（包括视觉皮层、前额叶、纹状体、丘脑、海马、小脑等），提供了前所未有的全脑覆盖。数据包含高质量的spike-sorted units（经过统一的Kilosort + IBL pipeline处理）、详细的行为数据（wheel position/velocity、stimulus contrast、choice、reaction time、reward等）、以及视觉刺激参数。
 - **规模**：数百个recording session，来自数十只小鼠和多个实验室，涵盖全脑超过200个脑区。总计记录了数万个神经元。每个session通常持续约1-2小时，包含数百个行为trial。
-- **优势**：(1) **session数量极多**（数百个），是测试跨session泛化能力和data scaling的最佳选择；(2) 标准化的行为任务提供了丰富的、结构化的行为变量（stimulus、choice、reaction time、reward），非常适合neural + behavior多模态实验；(3) 跨实验室数据可测试模型的跨实验室泛化能力（更严格的泛化测试）；(4) 全脑覆盖使得可以验证模型在不同脑区上的通用性；(5) 数据通过统一的质量控制流程处理，一致性好；(6) POYO/POYO+已经在IBL数据集上进行了训练和评估，可直接对比。
+- **优势**：(1) **session数量极多**（数百个），是测试跨session泛化能力和data scaling的最佳选择；(2) 标准化的行为任务提供了丰富的、结构化的行为变量（stimulus、choice、reaction time、reward），非常适合neural + behavior多模态实验；(3) 跨实验室数据可测试模型的跨实验室泛化能力（更严格的泛化测试）；(4) 全脑覆盖使得可以验证模型在不同脑区上的通用性；(5) 数据通过统一的质量控制流程处理，一致性好；(6) NDT3、NEDS 等模型在 IBL 上有公开结果，可作为对比基线。注意：POYO/POYO+ 均未在 IBL Brain-wide Map 上验证，NeuroHorizon 在 IBL 上需自行建立 baseline。
 - **局限**：(1) 行为任务相对简单（二选一决策），行为变量的复杂度有限；(2) 视觉刺激为简单的光栅（非自然图像），不适合测试复杂visual encoding；(3) 每个session的探针位置不同，脑区覆盖不均匀，部分脑区数据较少。
 - **用途**：跨session泛化性核心测试、data scaling实验、neural + behavior多模态实验、跨脑区泛化分析
 
@@ -475,13 +475,15 @@ $$
 
 考虑到NeuroHorizon项目的三大核心目标——**长时程预测（最高优先级）、跨session泛化、多模态融合**——以下是推荐的数据集使用策略：
 
-#### 7.2.1 核心推荐：Jia Lab数据集（长时程预测首选）
+#### 7.2.1 核心推荐：Brainsets 原生数据集（自回归改造与模型验证首选）
 
-**推荐理由**：Jia Lab数据集的大量重复trials是长时程预测实验不可替代的优势。对于评估1秒甚至更长时间窗口的预测准确性，需要足够的trial数来可靠估计预测性能的统计显著性。同时，V1神经元对视觉刺激的响应具有较好的可预测性（尤其是stimulus-driven component），为验证长时程预测方法提供了信号较强的测试场景。建议作为长时程预测能力的**主要验证数据集**和**开发迭代的首选数据集**。
+**推荐理由**：Brainsets 原生数据集（以 Perich-Miller 2018 为主）是 POYO 框架自带的标准化数据管理包，可零配置接入训练框架，无需额外数据管线。Perich-Miller 包含 3 只猕猴 70+ sessions 的运动皮层记录，trial 结构清晰（hold period 均值 676ms、reach period 均值 1090ms），天然支持 250ms/500ms/1s 预测窗口梯度测试。3 只猴子的多动物多 session 结构同时适用于跨 session 泛化和 scaling 初期实验。建议作为**自回归改造验证、长时程预测开发、跨 session 初期测试的首选数据集**（阶段一～三核心）。
 
-#### 7.2.2 核心推荐：IBL数据集（跨session泛化首选）
+> 注：原推荐的 Jia Lab 数据集因可获取性问题已排除，详见 `cc_core_files/dataset.md`。
 
-**推荐理由**：IBL数据集的数百个session是跨session泛化实验的最佳选择，也是POYO/POYO+已经使用的核心数据集，便于直接对比。其标准化的行为任务和丰富的行为变量使其同时适合neural + behavior的多模态实验。大量session还支持data scaling law研究。建议作为跨session泛化能力的**核心评估数据集**。
+#### 7.2.2 可选扩展：IBL数据集（大规模跨session泛化）
+
+**推荐理由**：IBL 数据集的 459 个 session 是测试大规模跨 session 泛化和 data scaling 的最佳选择。其标准化的行为任务和丰富的行为变量使其同时适合 neural + behavior 的多模态实验。注意：POYO/POYO+ 均未在 IBL Brain-wide Map 上验证，NeuroHorizon 需自行建立 baseline（可与 NDT3、NEDS 对比）。IBL 数据管线工程量较大，建议在核心模型验证稳定后再接入。定位为阶段二/三的**可选扩展**而非必选路径。
 
 #### 7.2.3 重要补充：Allen Brain Observatory（多模态融合首选）
 
@@ -495,12 +497,12 @@ $$
 
 | 优先级 | 数据集 | 核心用途 | NeuroHorizon目标对应 |
 |--------|--------|---------|---------------------|
-| ★★★ | Jia Lab | 长时程预测核心验证、开发迭代 | 长时程预测（首要） |
-| ★★★ | IBL | 跨session泛化、data scaling | 跨session（次要）|
-| ★★☆ | Allen Brain Observatory | 多模态融合验证（neural+image） | 多模态（第三） |
-| ★★☆ | NLB | Baseline对比、downstream tasks | 方法对比基准 |
+| ★★★ | Brainsets (Perich-Miller) | 自回归改造验证、长时程预测、跨 session 初期、scaling 初期 | 阶段一～三核心 |
+| ★★☆ | IBL | 跨 session 大规模泛化、data scaling（可选扩展） | 阶段二/三可选 |
+| ★★☆ | Allen Brain Observatory | 多模态融合验证（neural+image） | 阶段四 |
+| ★☆☆ | NLB / FALCON | Benchmark 对比、标准化评估 | 补充/可选 |
 
-### 7.2 数据预处理
+### 7.3 数据预处理
 
 1. **Spike Sorting**：对原始数据使用Kilosort等工具进行spike sorting（如数据未预处理）
 2. **质量筛选**：按照标准质量指标筛选units（如presence ratio > 0.9, ISI violation rate < 0.5%）
@@ -656,7 +658,7 @@ $$
 6. **POYO**: Azabou, M., et al. (2024). A Unified, Scalable Framework for Neural Population Decoding. *NeurIPS*.
 7. **POYO+**: Azabou, M., et al. (2024). POYO+: Scaling Neural Foundation Models with Multi-Area and Multi-Task Learning.
 8. **POSSM**: Azabou, M., et al. (2025). POSSM: State Space Models for Neural Population Spike Data.
-9. **SPINT**: Wei, X., et al. (2024). SPINT: Session-invariant neural decoding via gradient-free ID encoding.
+9. **SPINT**: Le, V., et al. (2025). SPINT: Session-invariant neural decoding via gradient-free ID encoding. *NeurIPS*.
 10. **MtM**: Ye, J., et al. (2024). Multi-task Masking for Cross-session Neural Decoding.
 11. **LDNS**: Hurwitz, C., et al. (2024). Latent Diffusion for Neural Spiking Data.
 12. **NEDS**: Karpowicz, B., et al. (2024). Neural Embedding for Data Sharing.
@@ -675,6 +677,8 @@ $$
 ---
 
 ## 11. 执行计划
+
+> **注**：本节为初始规划草案，详细的可执行计划已迁移至 `cc_core_files/plan.md`（Phase 0-5 任务清单与完成状态）。执行参考请查阅 `cc_core_files/proposal_review.md`。以下内容仅作历史参考。
 
 > **核心原则**：本项目以POYO/POYO+的开源代码库为基础（https://github.com/mehdiazabou/poyo-1），采用**增量式开发**策略。每个阶段在已验证的代码基础上进行最小化修改，确保每一步的改动都可控、可调试、可回滚。避免从零开始重写，最大限度复用POYO的成熟组件（数据加载、tokenization、Perceiver encoder、训练框架等）。
 

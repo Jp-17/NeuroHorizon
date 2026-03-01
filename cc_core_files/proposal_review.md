@@ -21,7 +21,7 @@
 |------|-------------|------------------------|
 | 任务类型 | 连续值解码（行为） | 自回归 spike count 预测 |
 | 输出模态 | 连续行为量 | 离散 spike counts（泊松） |
-| 时间分辨率 | 1ms bin | 10ms bin（可调） |
+| 时间分辨率 | spike-level（亚毫秒） | 20ms bin（可调，与 SPINT 一致） |
 | 跨 Session | InfiniteVocabEmbedding（查表） | IDEncoder（参考窗口神经活动 → unit embedding） |
 | 跨数据集 | 单数据集微调 | Brainsets + IBL + Allen 联合训练 |
 | 多模态 | 无 | DINOv2 视觉特征（Phase 4） |
@@ -42,21 +42,28 @@
 ### 2.1 核心组件与接口
 
 ```
-poyo/
-├── model/
-│   ├── perceiver_io.py        # PerceiverIO: encode + decode
-│   ├── rotary_attention.py    # RotarySelfAttention / RotaryCrossAttention
-│   ├── sequence_model.py      # SequenceModel (主干网络)
-│   └── heads.py               # 各任务 head（含 InfiniteVocabEmbedding）
+torch_brain/                          # 实际代码目录（非 poyo/）
 ├── data/
-│   ├── collate.py             # batch 拼接，需扩展支持变长输出
-│   ├── sampler.py             # TrialSampler（可复用）
-│   └── dataset.py             # Dataset 基类
+│   ├── dataset/dataset.py            # HDF5 lazy-loading
+│   ├── collate.py                    # pad8 / chain / track_mask8
+│   └── transforms/                   # UnitDropout / RandomCrop / TimeScaling
+├── utils/
+│   ├── tokenizers.py                 # create_start_end_unit_tokens / create_linspace_latent_tokens
+│   └── binning.py                    # binning 工具（已存在，可复用）
 ├── nn/
-│   ├── embedding.py           # InfiniteVocabEmbedding（含 tokenizer/detokenizer）
-│   └── dropout.py             # UnitDropout（含 TriangleDistribution，可复用）
-└── utils/
-    └── config.py              # 模型配置入口
+│   ├── infinite_vocab_embedding.py   # unit_emb, session_emb（含 tokenizer/detokenizer/vocab）
+│   ├── embedding.py                  # token_type_emb, latent_emb, task_emb
+│   ├── rotary_attention.py           # RotaryCrossAttention / RotarySelfAttention
+│   │   └── rotary_attn_pytorch_func / rotary_attn_xformers_func
+│   ├── feedforward.py                # FeedForward (GEGLU)
+│   ├── multitask_readout.py          # MultitaskReadout + prepare_for_multitask_readout
+│   └── loss.py                       # MSELoss / CrossEntropyLoss / MallowDistanceLoss
+├── registry.py                       # ModalitySpec / MODALITY_REGISTRY / register_modality
+├── models/
+│   ├── poyo.py                       # POYO（单任务）
+│   ├── poyo_plus.py                  # POYOPlus（多任务，NeuroHorizon 的基底）
+│   └── capoyo.py                     # CaPOYO（钙信号，不直接使用）
+└── optim.py                          # SparseLamb（session_emb 专用优化器）
 ```
 
 **关键尺寸约定**（以 Base 配置为例）：
@@ -87,17 +94,17 @@ class FeedForward(nn.Module):
 
 | 接口 | 位置 | 说明 |
 |------|------|------|
-| `PerceiverIO.encode()` | `perceiver_io.py` | Encoder 完整保留，latent 初始化方式不变 |
-| `RotaryCrossAttention` | `rotary_attention.py` | 跨注意力逻辑不变，仅 self-attn 加 causal mask |
-| `UnitDropout` | `nn/dropout.py` | 直接复用，无需修改 |
+| Encoder cross-attn + process layers | `models/poyo_plus.py` | Encoder 完整保留，latent 初始化方式不变 |
+| `RotaryCrossAttention` | `nn/rotary_attention.py` | 跨注意力逻辑不变，仅 self-attn 加 causal mask |
+| `UnitDropout` | `data/transforms/` | 直接复用，无需修改 |
 | `TrialSampler` | `data/sampler.py` | 直接复用用于 trial-aligned 采样 |
-| `forward_varlen()` 接口 | `sequence_model.py` | 使用 `BlockDiagonalMask` 的高效变长 forward，保留 |
+| `forward()` / `tokenize()` | `models/poyo_plus.py` | 使用 `BlockDiagonalMask` 的高效变长 forward，保留 |
 
 ### 2.3 需要替换/修改的组件
 
 | 组件 | 修改方式 | 影响范围 |
 |------|----------|----------|
-| `RotarySelfAttention` | 添加 causal mask 支持（见 4.3） | 仅解码器 self-attn |
+| `RotarySelfAttention`（`nn/rotary_attention.py`） | 添加 causal mask 支持（见 4.3），需同时修改 `rotary_attn_pytorch_func` 和 `rotary_attn_xformers_func` | 仅解码器 self-attn |
 | `InfiniteVocabEmbedding` | 新增 IDEncoder 作为替代路径 | unit 嵌入生成 |
 | `collate.py` | 添加变长神经元输出的 padding 函数 | 数据批处理 |
 | Loss 函数 | 新增 `PoissonNLLLoss` wrapper | 训练循环 |
@@ -153,7 +160,7 @@ python -c "import poyo; from poyo.model.perceiver_io import PerceiverIO; print('
 | 下载 | Brainsets | `brainsets download` CLI | `.h5` 文件 |
 | 下载 | IBL | ONE API（`one.load_dataset`） | 需自写 Dataset 子类 |
 | 下载 | Allen | `allensdk` CLI | NWB 格式 |
-| 预处理 | 全部 | bin spikes @ 10ms，对齐 trial | `spike_counts` 张量 |
+| 预处理 | 全部 | bin spikes @ 20ms，对齐 trial | `spike_counts` 张量 |
 | 特征提取 | 全部 | 提取 IDEncoder 参考窗口数据（见 5.1） | 每 unit 特征向量 |
 | 验证 | 全部 | 统计 unit 数、trial 数、脑区覆盖 | 数据统计报告 |
 
@@ -228,9 +235,9 @@ SPIKE_COUNTS = ModalitySpec(
 
 ### 4.3 RotarySelfAttention causal mask 修改（重点）
 
-**问题**：原始 `RotarySelfAttention` 的 reshape 逻辑不支持直接传入 causal mask，因为位置编码与 mask 应用顺序存在冲突。
+**问题**：原始 `RotarySelfAttention` 的 attn_mask reshape 逻辑只处理 1D kv-padding mask（`b n -> b () () n`），不支持 2D causal mask（`N_q × N_kv` 上三角）。两个后端（`rotary_attn_pytorch_func` 和 `rotary_attn_xformers_func`）均需修改。
 
-**定位文件**：`poyo/model/rotary_attention.py`
+**定位文件**：`torch_brain/nn/rotary_attention.py`
 
 **修改方案**：
 
@@ -348,29 +355,51 @@ class AutoregressiveDecoder(nn.Module):
 
 **注意**：causal mask 需在 T 维度上应用（时间自回归），N 维度上保持全连接，需要自定义 mask 生成逻辑以区分时间和神经元维度。
 
+> **设计更新（2026-03-01）**：经深度分析后（详见 `cc_todo/phase0-env-baseline/20260228-phase0-env-code-understanding.md` 第四～七节），最终设计采用**更高效的 T-token decoder**方案：
+>
+> - **Decoder 仅在 T 维度操作**：bin_queries `[B, T_pred, dim]` 通过 cross-attn(encoder_latents) + causal self-attn + FFN，不在 decoder 内部展开 (T, N)
+> - **(T, N) 展开仅在 head 层**：PerNeuronMLPHead 接收 bin_repr `[B, T, dim//2]` + unit_emb `[N, dim//2]`，广播拼接后 MLP → log_rate `[B, T, N]`
+> - **效率优势**：decoder 的 cross-attn 和 self-attn 仅在 T 个 token（如 12 个 bin）上计算，避免了 T×N 的显存爆炸
+> - **Causal mask 简化**：标准的 T×T 下三角 causal mask，无需 block-diagonal 处理
+>
+> 上方"信息瓶颈隐患分析"中的方案 D 是最终设计的基础，但具体实现从"decoder 内部 T×N expand"简化为"head 层 T×N expand"。
+
 ### 4.5 Per-Neuron MLP Head
 
 ```python
 class PerNeuronMLPHead(nn.Module):
     """
-    输入 decoder 输出 [B, T, N, dim]，输出每个神经元的 log_rate [B, T, N]
+    输入 bin_repr [B, T, dim//2] 和 unit_embs [N, dim//2]，
+    广播拼接后输出 log_rate [B, T, N]。
+    (T,N) 展开仅在本 head 中发生，decoder 仅在 T 维度操作。
     """
-    def __init__(self, dim, hidden_dim=None):
+    def __init__(self, dim):
         super().__init__()
-        hidden_dim = hidden_dim or dim // 2
+        # 输入 dim = bin_dim//2 + unit_dim//2 = dim
         self.mlp = nn.Sequential(
-            nn.Linear(dim, hidden_dim),
+            nn.Linear(dim, dim // 2),
             nn.GELU(),
-            nn.Linear(hidden_dim, 1),
+            nn.Linear(dim // 2, dim // 4),
+            nn.GELU(),
+            nn.Linear(dim // 4, 1),
         )
 
-    def forward(self, x):
-        # x: [B, T, N, dim]
-        log_rate = self.mlp(x).squeeze(-1)  # [B, T, N]
-        return log_rate.clamp(-10, 10)      # 数值稳定
+    def forward(self, bin_repr, unit_embs):
+        # bin_repr:  [B, T, dim//2]  — decoder 输出投影后
+        # unit_embs: [N, dim//2]     — IDEncoder 或 IVE 输出投影后
+        B, T, _ = bin_repr.shape
+        N = unit_embs.shape[0]
+        combined = torch.cat([
+            bin_repr.unsqueeze(2).expand(B, T, N, -1),
+            unit_embs.unsqueeze(0).unsqueeze(0).expand(B, T, N, -1),
+        ], dim=-1)                              # [B, T, N, dim]
+        log_rate = self.mlp(combined).squeeze(-1)  # [B, T, N]
+        return log_rate.clamp(-10, 10)
 ```
 
 ### 4.6 NeuroHorizon 模型组装（分步骤）
+
+> **tokenize() 设计参考**：`cc_todo/phase0-env-baseline/20260228-phase0-env-code-understanding.md` 第一节和第六节有详细的 tokenize() 设计，包括双窗口数据组织（previous_window spike events + target_window binned spike counts）、新增字段清单（`target_spike_counts`, `bin_timestamps`, `target_unit_mask`）以及 bin query 构造方式。
 
 **步骤 2.5a：模型骨架 + Encoder 复用**
 
@@ -688,15 +717,15 @@ input_tokens = torch.cat([spike_tokens, visual_token, context_tokens], dim=1)
 |----------|----------|----------|
 | `poyo/model/rotary_attention.py` | 修改 | `RotarySelfAttention.forward()` 添加 `causal` 参数 |
 | `poyo/data/collate.py` | 修改 | 添加变长 N（神经元数）的 padding 函数 |
-| `neurohorizon/model/neurohorizon.py` | 新建 | 主模型类，组装 encoder + decoder + head |
-| `neurohorizon/model/id_encoder.py` | 新建 | IDEncoder：参考窗口神经活动 → unit embedding（参考 SPINT 架构） |
-| `neurohorizon/model/ar_decoder.py` | 新建 | AutoregressiveDecoder（含 causal self-attn） |
-| `neurohorizon/model/heads.py` | 新建 | PerNeuronMLPHead |
-| `neurohorizon/losses.py` | 新建 | PoissonNLLLoss |
-| `neurohorizon/data/registry.py` | 新建 | spike_counts 模态注册 |
-| `neurohorizon/data/ibl_dataset.py` | 新建 | IBL 数据集适配器 |
-| `neurohorizon/data/allen_dataset.py` | 新建 | Allen Natural Movies 适配器 |
-| `neurohorizon/data/feature_extractor.py` | 新建 | IDEncoder 参考窗口数据准备（binning + 插值） |
+| `torch_brain/models/neurohorizon.py` | 新建 | 主模型类，组装 encoder + decoder + head |
+| `torch_brain/nn/id_encoder.py` | 新建 | IDEncoder：参考窗口神经活动 → unit embedding（参考 SPINT 架构） |
+| `torch_brain/nn/autoregressive_decoder.py` | 新建 | AutoregressiveDecoder（含 causal self-attn） |
+| `torch_brain/nn/per_neuron_head.py` | 新建 | PerNeuronMLPHead |
+| `torch_brain/nn/loss.py`（在现有文件中新增） | 新建 | PoissonNLLLoss |
+| `torch_brain/registry.py`（在现有文件中新增） | 新建 | spike_counts 模态注册 |
+| `examples/neurohorizon/datasets/ibl.py` | 新建 | IBL 数据集适配器 |
+| `examples/neurohorizon/datasets/allen_multimodal.py` | 新建 | Allen Natural Movies 适配器 |
+| `scripts/extract_reference_data.py` | 新建 | IDEncoder 参考窗口数据准备（binning + 插值） |
 | `scripts/extract_dino_features.py` | 新建 | DINOv2 特征离线预计算 |
 | `configs/model/small.yaml` | 新建 | Small 配置（dim=256, enc=4, dec=2, heads=4） |
 | `configs/model/base.yaml` | 新建 | Base 配置（dim=512, enc=8, dec=4, heads=8） |
@@ -764,7 +793,7 @@ input_tokens = torch.cat([spike_tokens, visual_token, context_tokens], dim=1)
 
 | 配置 | enc_depth | dec_depth | dim | heads | cross_heads | 参数量 |
 |------|-----------|-----------|-----|-------|-------------|--------|
-| Small | 4 | 2 | 256 | 4 | 1 | ~5M |
+| Small | 2 | 2 | 128 | 4 | 1 | ~2M |
 | Base | 8 | 4 | 512 | 8 | 2 | ~30M |
 | Large | 12 | 6 | 768 | 12 | 2 | ~100M |
 
