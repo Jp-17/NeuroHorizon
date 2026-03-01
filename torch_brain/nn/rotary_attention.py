@@ -14,6 +14,22 @@ except ImportError:
 from torch_brain.nn import RotaryTimeEmbedding
 
 
+def create_causal_mask(seq_len: int, device=None) -> torch.Tensor:
+    """Create a causal (lower-triangular) boolean mask.
+
+    Returns a [seq_len, seq_len] bool tensor where position (i, j) is True
+    iff j <= i (i.e. token i can attend to token j).
+
+    Args:
+        seq_len: Length of the sequence.
+        device: Device for the tensor.
+
+    Returns:
+        Tensor of shape [seq_len, seq_len], dtype=torch.bool.
+    """
+    return torch.ones(seq_len, seq_len, dtype=torch.bool, device=device).tril()
+
+
 class RotaryCrossAttention(nn.Module):
     """Cross-attention layer with rotary positional embeddings.
 
@@ -388,9 +404,16 @@ def rotary_attn_pytorch_func(
             x=value, rotary_emb=kv_pos_emb, unsqueeze_dim=1
         )
 
-    # attention mask
+    # attention mask: support 2D padding (B, N_kv), 3D causal (B, N_q, N_kv),
+    # or 4D full (B, H, N_q, N_kv)
     if attn_mask is not None:
-        attn_mask = rearrange(attn_mask, "b n -> b () () n")
+        if attn_mask.ndim == 2:
+            # (B, N_kv) padding mask -> (B, 1, 1, N_kv)
+            attn_mask = rearrange(attn_mask, "b n -> b () () n")
+        elif attn_mask.ndim == 3:
+            # (B, N_q, N_kv) causal/full mask -> (B, 1, N_q, N_kv)
+            attn_mask = rearrange(attn_mask, "b n m -> b () n m")
+        # ndim == 4: already in (B, H, N_q, N_kv) format
 
     # perform attention, by default will use the optimal attention implementation
     out = F.scaled_dot_product_attention(
@@ -456,18 +479,19 @@ def rotary_attn_xformers_func(
             x=value, rotary_emb=kv_pos_emb, unsqueeze_dim=2
         )
 
-    # WARNING: this is very slow, avoid using attn_mask if possible, refer to xformers
-    # documentation
-    attn_mask = (
-        repeat(attn_mask, "b m -> b h n m", h=num_heads, n=query.size(1))
-        if attn_mask is not None
-        else None
-    )
-    attn_bias = (
-        attn_mask.to(query.dtype).masked_fill(attn_mask.logical_not(), float("-inf"))
-        if attn_mask is not None
-        else None
-    )
+    # Handle attention mask for xformers (expects B, N_q, H, N_kv or compatible)
+    attn_bias = None
+    if attn_mask is not None:
+        if attn_mask.ndim == 2:
+            # (B, N_kv) padding mask -> expand to (B, N_q, H, N_kv)
+            attn_mask = repeat(attn_mask, "b m -> b n h m", h=num_heads, n=query.size(1))
+        elif attn_mask.ndim == 3:
+            # (B, N_q, N_kv) causal mask -> expand heads
+            attn_mask = repeat(attn_mask, "b n m -> b n h m", h=num_heads)
+        elif attn_mask.ndim == 4:
+            # (B, H, N_q, N_kv) -> rearrange to (B, N_q, H, N_kv) for xformers
+            attn_mask = rearrange(attn_mask, "b h n m -> b n h m")
+        attn_bias = attn_mask.to(query.dtype).masked_fill(attn_mask.logical_not(), float("-inf"))
 
     out = xops.memory_efficient_attention(
         query,
