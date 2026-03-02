@@ -216,7 +216,7 @@ Y = MLP_out(Z_out)                                         # 输出投影 → �
 其中 Q ∈ ℝ^(B×W) 是 learnable query matrix，B = 行为维度；cross-attention 聚合所有 N_s 个 unit 的信息。
 
 **关键创新 — Dynamic Channel Dropout**：
-- 与经典 dropout（固定比例）不同，每个 training iteration 随机采样 dropout rate（0~1 之间均匀采样）
+- 与经典 dropout（固定比例）不同，每个 training iteration 随机采样 dropout rate（0–1 之间均匀采样）
 - 以该 rate 随机移除 neural units（整个 channel 置零）
 - 模拟不同 session 间 population 组成的变化，是实现跨 session 鲁棒性的关键正则化手段
 
@@ -932,7 +932,7 @@ Phase 1 改造只涉及 `RotarySelfAttention`（用于 decoder self-attn），`R
 
 #### 4.5 Decoder block 数量
 
-POYOPlus 的 decoder 只有 1 层。NeuroHorizon 推荐 **N_dec = 2~4** 层的 AR decoder block（消融在 Phase 5 中进行）：
+POYOPlus 的 decoder 只有 1 层。NeuroHorizon 推荐 **N_dec = 2–4** 层的 AR decoder block（消融在 Phase 5 中进行）：
 
 - Small 配置（Phase 1 调试用）：N_dec = 2
 - Base 配置（Phase 1 完整验证用）：N_dec = 4

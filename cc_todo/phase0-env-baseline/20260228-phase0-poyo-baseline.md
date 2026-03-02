@@ -21,7 +21,7 @@
 - 训练配置：`examples/poyo_plus/configs/train_baseline_10sessions.yaml`
 
 #### 训练参数
-- 模型：POYOPlus，dim=128，depth=12，cross_heads=2，self_heads=8，~8M params
+- 模型：POYOPlus，dim=128，depth=12，cross_heads=2，self_heads=8，约8M params
 - epochs：500，batch_size=64，BF16，lr=3.125e-5（scaled by batch_size）
 - UnitDropout：min_units=30，max_units=200，mode_units=80
 - Wandb：禁用

@@ -138,7 +138,7 @@
 **1. 新建并重写 `cc_core_files/proposal_review.md`（735 行）**
 - 定位：proposal.md 的技术补充，面向 plan.md 各阶段执行，提供代码级改造指南
 - 整合来源：原 plan.md 第1-4节（项目目标/POYO差异/合理性/架构）+ 原 plan.md 附录A/B（文件清单/风险）+ code_research.md + 三份审查报告（code-research-review / plan-review / proposal-review）
-- 按十大章节组织：架构速览 → POYO接口参考 → Phase 0~4 各节执行参考（含代码级方案、设计隐患、验收标准）→ 关键文件清单 → 风险汇总 → 合理性评估
+- 按十大章节组织：架构速览 → POYO接口参考 → Phase 0–4 各节执行参考（含代码级方案、设计隐患、验收标准）→ 关键文件清单 → 风险汇总 → 合理性评估
 - 关键技术内容：POYO-MP heads 勘误（cross=2/self=8）、GEGLU激活说明、causal mask修改方案、解码器信息瓶颈分析（4种方案对比）、IDEncoder vs InfiniteVocabEmbedding替换注意事项、优化器分组策略（SparseLamb vs AdamW）、DINOv2 灰度图处理方案
 
 **2. 重写 `cc_core_files/plan.md`（367 行）**
@@ -226,7 +226,7 @@
 - 通过 `temporaldata.Data.from_hdf5()` 验证单文件加载：结构完整，字段正确
 - 通过 `torch_brain.data.Dataset` + `RandomFixedWindowSampler` 验证 pipeline：
   - 10 sessions 正常加载，6372 个训练窗口（1s each）
-  - 单样本读取正常（~350 spikes/window，41 units）
+  - 单样本读取正常（约350 spikes/window，41 units）
   - PASSED
 
 **0.2.3 数据深度探索分析**
@@ -265,7 +265,7 @@
 
 **0.3.1 在 Perich-Miller 数据上运行 POYO+ 行为解码，验证 R² > 0.3**
 - 新建训练配置：`examples/poyo_plus/configs/train_baseline_10sessions.yaml`
-  - 模型：dim=128, depth=12（~8M params）；BF16；500 epochs；batch_size=64
+  - 模型：dim=128, depth=12（约8M params）；BF16；500 epochs；batch_size=64
   - 数据集：已有的 10 sessions（`perich_miller_10sessions.yaml`）
 - 训练历时约 85 分钟（RTX 4090 D，GPU 利用率 57%，显存 4GB/24GB）
 - **最佳平均 R² = 0.8065**（epoch 429），最终 R² = 0.8046（epoch 499）
@@ -434,7 +434,7 @@
 **唯一异议**：审查建议修正 forward pass 行号（200→166），选择直接移除精确行号改为引用方法名——行号随代码演进极易过时。
 
 **执行结果**：
-- code_research.md 从 ~350 行调整为 327 行（删除 §8§9 约 -71 行，新增内容 +77 行）
+- code_research.md 从 约350 行调整为 327 行（删除 §8§9 约 -71 行，新增内容 +77 行）
 - 已 git commit + push（commit 17da576）
 
 **遇到的问题**：无
@@ -592,8 +592,8 @@
 
 **1.2.1 Teacher Forcing 训练（250ms, 300 epochs）**：
 - 训练正常收敛，无 NaN/Inf
-- 验证 R² 从 0.207 (ep10) 上升至 ~0.26 (ep140)，val_loss 从 0.328→0.314
-- Per-bin NLL: bins 0-10 ~0.31 均匀，bin 11 ~0.39 偏高（远期预测更难）
+- 验证 R² 从 0.207 (ep10) 上升至 约0.26 (ep140)，val_loss 从 0.328→0.314
+- Per-bin NLL: bins 0-10 约0.31 均匀，bin 11 约0.39 偏高（远期预测更难）
 - mean_pred_rate ≈ mean_target_count（模型学到了合理的发放率）
 
 **1.2.2 自回归推理验证**：

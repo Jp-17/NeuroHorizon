@@ -91,7 +91,7 @@
 
 ### 1.4 POYO+ 基线结果锚点
 
-在 10 sessions 上训练 POYOPlus（dim=128, depth=12, ~8M params），500 epochs：
+在 10 sessions 上训练 POYOPlus（dim=128, depth=12, 约8M params），500 epochs：
 
 | 指标 | 数值 | 备注 |
 |------|------|------|
@@ -561,7 +561,7 @@ def forward(self, ..., task="spike_prediction"):
 | 500ms | 25 | 方案 A + 方案 B 对比 | 视 250ms 结果决定是否引入 scheduled sampling |
 | 1000ms | 50 | 方案 B（滑动窗口） | 引入 scheduled sampling；非自回归并行预测作为对照 |
 
-**Scheduled sampling 策略**（1000ms 窗口）：从 100% teacher forcing 线性衰减至 ~10%，持续 20-50 epoch。
+**Scheduled sampling 策略**（1000ms 窗口）：从 100% teacher forcing 线性衰减至 约10%，持续 20-50 epoch。
 
 **非自回归基线**（plan.md 1.3.3）：并行预测所有 bins（去掉 causal mask），作为消融对比，验证自回归的必要性。
 
@@ -613,7 +613,7 @@ E_i = MLP₂( mean_pool_M( MLP₁(X_i^ref) ) )
 | 对比维度 | 方案 A (Binned, 基础) | 方案 B (Spike Event, 创新) |
 |---------|----------------------|--------------------------|
 | 输入表示 | binned spike counts（固定长度 T_ref） | raw spike event timestamps（变长） |
-| 时间分辨率 | 20ms bin（离散化） | spike-level（连续，~0.1ms） |
+| 时间分辨率 | 20ms bin（离散化） | spike-level（连续，约0.1ms） |
 | 网络结构 | 纯 MLP（SPINT 风格） | Rotary time emb + attention pooling + MLP |
 | 与主模型一致性 | 不一致 | **一致**（主模型也用 spike events + rotary） |
 | 信息损失 | binning + 插值丢失精确 timing | 无信息损失 |
@@ -931,7 +931,7 @@ python scripts/data/allen_to_hdf5.py \
     --output_dir data/processed/allen_neuropixels/
 ```
 
-**存储需求**：~146.5 GB（NWB 原始） + ~50 GB（预处理 HDF5）。下载前确认 `/root/autodl-tmp` 剩余 > 200GB。
+**存储需求**：约146.5 GB（NWB 原始） + 约50 GB（预处理 HDF5）。下载前确认 `/root/autodl-tmp` 剩余 > 200GB。
 
 #### Allen Dataset 类
 
@@ -968,7 +968,7 @@ class AllenMultimodalDataset(torch.utils.data.Dataset):
 
 **刺激类型选择**：
 - **Natural Movies**（首选）：30s 连续无间隔，完全支持任意预测窗口
-- **Natural Scenes**：每张图片 250ms + ~500ms 灰屏，预测窗口建议 ≤250ms
+- **Natural Scenes**：每张图片 250ms + 约500ms 灰屏，预测窗口建议 ≤250ms
 
 ### 5.2 DINOv2 离线特征提取
 
@@ -1170,9 +1170,9 @@ def compute_conditional_delta_m(model, test_data, modality, condition_var):
 
 | 配置 | enc_depth | dec_depth | dim | heads | cross_heads | 估计参数量 |
 |------|-----------|-----------|-----|-------|-------------|-----------|
-| **Small** | 2 | 2 | 128 | 4 | 1 | ~2M |
-| **Base** | 8 | 4 | 512 | 8 | 2 | ~30M |
-| **Large** | 12 | 6 | 768 | 12 | 2 | ~100M |
+| **Small** | 2 | 2 | 128 | 4 | 1 | 约2M |
+| **Base** | 8 | 4 | 512 | 8 | 2 | 约30M |
+| **Large** | 12 | 6 | 768 | 12 | 2 | 约100M |
 
 **建议路径**：Small 验证正确性 → Base 正式实验 → Large 仅在资源允许时使用。
 
@@ -1183,9 +1183,9 @@ def compute_conditional_delta_m(model, test_data, modality, condition_var):
 - `dim=512`, `enc_depth=8`, `dec_depth=4`, `cross_heads=2`（非 4）, `self_heads=8`
 
 **4090 D 显存估算**（BF16）：
-- Small（batch=64）：~4 GB → 余量充足
-- Base（batch=32）：~12 GB → 可行
-- Large（batch=16）：~20 GB → 接近极限，需 gradient checkpointing
+- Small（batch=64）：约4 GB → 余量充足
+- Base（batch=32）：约12 GB → 可行
+- Large（batch=16）：约20 GB → 接近极限，需 gradient checkpointing
 
 
 ---
@@ -1203,7 +1203,7 @@ def compute_conditional_delta_m(model, test_data, modality, condition_var):
 | 跨数据集 | 单数据集微调 | Brainsets + IBL + Allen 联合训练 |
 | 多模态 | 无 | DINOv2 视觉特征（Phase 4） |
 | 损失函数 | MSE / NLL | Poisson NLL |
-| 模型规模 | POYO-MP（~33M） | Small(~2M) / Base(~30M) / Large(~100M) |
+| 模型规模 | POYO-MP（约33M） | Small(约2M) / Base(约30M) / Large(约100M) |
 
 **核心改造点（按 Phase 顺序）**：
 1. **Phase 1**：PoissonNLLLoss + spike_counts 模态 + causal mask + 自回归 decoder + PerNeuronMLPHead

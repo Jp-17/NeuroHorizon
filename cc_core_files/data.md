@@ -69,7 +69,7 @@ data/
   - sub-C（猴 C）：4 sessions（center_out_reaching，2013年）
   - sub-J（猴 J）：3 sessions（center_out_reaching，2016年，全部）
   - sub-M（猴 M）：3 sessions（center_out_reaching，2015年）
-  - 完整数据集共 111 sessions（C:68 / J:3 / M:28 / T:12），总 ~12.3GB，按需扩展
+  - 完整数据集共 111 sessions（C:68 / J:3 / M:28 / T:12），总 约12.3GB，按需扩展
 - **数据内容**：
   - 神经数据：spike times（Utah Array，M1/PMd 皮层，手动 spike sorting）
   - 行为数据：cursor position / velocity / acceleration（2D，连续时间序列）

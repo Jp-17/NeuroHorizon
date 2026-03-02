@@ -89,7 +89,7 @@ results/
 - **产生方式**：`examples/poyo_plus/train.py`，配置 `train_baseline_10sessions.yaml`
 - **实验目的**：验证 POYO+ 在 Perich-Miller 数据上的行为解码基线性能（Phase 0.3.1 验收）
 - **实验配置**：
-  - 模型：POYOPlus，dim=128，depth=12，cross_heads=2，self_heads=8（~8M params）
+  - 模型：POYOPlus，dim=128，depth=12，cross_heads=2，self_heads=8（约8M params）
   - 数据：10 sessions（C:4, J:3, M:3），center_out_reaching，BF16
   - 训练：500 epochs，batch_size=64，OneCycleLR（max_lr=2e-3，LR 衰减从 epoch 250 开始）
   - UnitDropout：min_units=30，mode_units=80
@@ -113,7 +113,7 @@ results/
   | **平均** | **0.807** |
 
 - **结果分析**：
-  - C 和 M animal 的 R² 均在 0.85-0.92，接近论文原始报告（POYO+ 在 Perich-Miller 上 ~0.8-0.9）
+  - C 和 M animal 的 R² 均在 0.85-0.92，接近论文原始报告（POYO+ 在 Perich-Miller 上 约0.8-0.9）
   - J animal 较低（0.57-0.76），原因是训练集中 J 只有 3 sessions，样本量不足
   - **0.3.1 验收标准 R² > 0.3 大幅满足**（实际达 0.807）
   - 收敛曲线：epoch 9=0.321 → epoch 89=0.784 → epoch 229=0.803 → epoch 429=0.807（收敛稳定）
@@ -215,7 +215,7 @@ results/
      - 每个 bin 的预测仅通过 encoder latent 的 cross-attention 和自身的 positional embedding 获得信息
      - causal mask 只限制了 self-attention 中的信息流，但 cross-attention 仍然提供了来自编码器的完整上下文
   3. **Val loss 收敛区间**：所有实验的 val_loss 收敛在 0.312-0.316 区间，差异微小
-  4. **Poisson noise floor 限制**：在 20ms bin 粒度下，平均 spike count 仅 ~0.14/bin，理论 R² 上限受限于 Poisson 噪声
+  4. **Poisson noise floor 限制**：在 20ms bin 粒度下，平均 spike count 仅 约0.14/bin，理论 R² 上限受限于 Poisson 噪声
 
 #### 关键发现与决策
 

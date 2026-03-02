@@ -25,7 +25,7 @@
 
 | 数据集 | 物种/脑区 | Sessions 数量 | 接入方式 | NeuroHorizon 主要用途 | 引入阶段 |
 |--------|---------|-------------|--------|-------------------|--------|
-| **Brainsets 原生（4+1集）** | 猕猴，运动皮层 | 100+ sessions（Perich-Miller 最多：~70+） | brainsets API，零配置 | 阶段一：自回归改造验证 + 长时程生成验证；阶段二：跨 session 初期测试；阶段三：scaling 初期测试 | **阶段一～三** |
+| **Brainsets 原生（4+1集）** | 猕猴，运动皮层 | 100+ sessions（Perich-Miller 最多：约70+） | brainsets API，零配置 | 阶段一：自回归改造验证 + 长时程生成验证；阶段二：跨 session 初期测试；阶段三：scaling 初期测试 | **阶段一～三** |
 | **IBL Brain-wide Map** | 小鼠，全脑 241 脑区 | 459 sessions，12 labs | ONE API（AWS 公开） | 阶段二可选扩展：跨 session 大规模泛化；阶段三可选扩展：大规模 scaling law | **阶段二可选 / 阶段三可选** |
 | **Allen Visual Coding Neuropixels** | 小鼠，视觉皮层 8 个区 | 58 sessions | AllenSDK（AWS 公开） | 阶段四：多模态（neural + 视觉图像）融合实验 | **阶段四** |
 | **FALCON Benchmark** | 猕猴/人，运动皮层 | 多 sub-task，跨日记录 | 官方 challenge API | 标准化跨 session 泛化 benchmark 验证（可选补充） | **补充/可选** |
@@ -65,8 +65,8 @@
 - **brainsets ID**：`churchland_shenoy_neural_2012`
 - **物种/脑区**：猕猴，运动皮层（M1/PMd）
 - **任务**：To-target reaching，含 preparatory period（运动准备期）和 execution period（运动执行期）
-- **规模**：数个 session，每 session ~100-200 个神经元
-- **trial 时间结构**：preparatory period ~500ms，execution period ~300-500ms
+- **规模**：数个 session，每 session 约100-200 个神经元
+- **trial 时间结构**：preparatory period 约500ms，execution period 约300-500ms
 - **预测窗口支持**：250ms / 500ms ✅，1s ⚠️（需跨期）
 - **特点**：包含明确的运动准备→执行时间结构，预测窗口设计较为自然（输入=准备期，预测=执行期）
 
@@ -75,7 +75,7 @@
 - **brainsets ID**：`odoherty_sabes_nonhuman_2017`
 - **物种/脑区**：猕猴，M1 + 体感皮层（Area 2）
 - **任务**：BCI-controlled reaching（2D）
-- **规模**：多个 session，每 session ~100-200 个神经元
+- **规模**：多个 session，每 session 约100-200 个神经元
 - **预测窗口支持**：250ms / 500ms ✅，1s ⚠️
 - **特点**：包含体感皮层同步记录，是唯一包含非运动皮层的 brainsets 数据集，有助于测试跨脑区泛化能力
 
@@ -91,7 +91,7 @@
 #### （5）Pei-Pandarinath NLB 2021（brainsets 内的 NLB 子集）
 - **brainsets ID**：`pei_pandarinath_nlb_2021`
 - **内容**：NLB MC_Maze 数据集（Jenkins 迷宫任务），来自 `jenkins_maze_train`
-- **规模**：1 只猴子（Jenkins），~180 个神经元，单一 session
+- **规模**：1 只猴子（Jenkins），约180 个神经元，单一 session
 - **特点**：brainsets 内只包含 NLB 的部分数据，主要用于 POYO 与 NLB benchmark 的对接（完整 NLB 见第 2.4 节）
 
 ---
@@ -127,7 +127,7 @@
 - **物种/脑区**：小鼠，同步记录最多 **8 个视觉相关脑区**（V1/VISp、LM、AL、PM、AM、RL、LGN、LP）
 - **规模**：**58 sessions**，约 100,000 total units
 - **刺激类型**：
-  - Natural Scenes：118 张自然图像，每张呈现 250ms + ~500ms 灰屏间隔
+  - Natural Scenes：118 张自然图像，每张呈现 250ms + 约500ms 灰屏间隔
   - Natural Movies：约 **30 秒连续**自然视频（无帧间间隔）
   - Drifting Gratings / Static Gratings / Locally Sparse Noise
 - **数据格式**：NWB 格式，通过 AllenSDK 访问，AWS 公开
@@ -151,11 +151,11 @@
 
 | 子数据集 | 脑区 | 任务 | Sessions |
 |---------|------|------|---------|
-| MC_Maze | M1/PMd，猕猴 | 迷宫导航 reaching | ~3 sessions |
-| MC_RTT | M1，猕猴 | Random target reaching | ~3 sessions |
-| Area2_Bump | 体感皮层 Area2，猕猴 | 扰动抵抗 reaching | ~5 sessions |
-| DMFC_RSG | 背内侧前额叶，猕猴 | Ready-Set-Go 时间任务 | ~5 sessions |
-| MC_Cycle | M1，猕猴 | 手腕循环运动 | ~3 sessions |
+| MC_Maze | M1/PMd，猕猴 | 迷宫导航 reaching | 约3 sessions |
+| MC_RTT | M1，猕猴 | Random target reaching | 约3 sessions |
+| Area2_Bump | 体感皮层 Area2，猕猴 | 扰动抵抗 reaching | 约5 sessions |
+| DMFC_RSG | 背内侧前额叶，猕猴 | Ready-Set-Go 时间任务 | 约5 sessions |
+| MC_Cycle | M1，猕猴 | 手腕循环运动 | 约3 sessions |
 
 - **数据获取**：通过 `nlb_tools` 或 brainsets（部分）下载
 - **对 NeuroHorizon 的价值**：
@@ -219,7 +219,7 @@
 | NLB sanity check（可选） | NLB MC_Maze（brainsets 内） | 验证改造后的模型不破坏原有 POYO 行为解码功能 |
 
 **数据需求**：
-- 下载：通过 brainsets API 获取 `perich_miller_population_2018`（~5-10GB），无需额外安装
+- 下载：通过 brainsets API 获取 `perich_miller_population_2018`（约5-10GB），无需额外安装
 - 无需下载 IBL / Allen
 
 ---
@@ -249,7 +249,7 @@
 
 **IBL 数据需求（如扩展）**：
 - 安装 ONE API + ibllib（约 1-2 天工程调试）
-- 先下载 10-20 sessions（~5-10GB）调试，验证管线后扩展
+- 先下载 10-20 sessions（约5-10GB）调试，验证管线后扩展
 - 完整 459 sessions 约 100-200GB，需提前规划存储
 
 ---
@@ -369,10 +369,10 @@
 
 | 步骤 | Session 数量 | 说明 |
 |------|------------|------|
-| 调试阶段 | 10-20 sessions（~5-10GB） | 验证数据管线、检查格式兼容性 |
-| 初步实验 | 30 sessions（~15-20GB） | 首次跨 session / scaling 实验基准 |
-| 中期扩展 | 50 → 100 sessions（~30-60GB） | 视结果是否出现明显增益决定是否继续 |
-| 大规模实验 | 200 → 459 sessions（~100-200GB） | 最终 scaling law 曲线，论文核心数据 |
+| 调试阶段 | 10-20 sessions（约5-10GB） | 验证数据管线、检查格式兼容性 |
+| 初步实验 | 30 sessions（约15-20GB） | 首次跨 session / scaling 实验基准 |
+| 中期扩展 | 50 → 100 sessions（约30-60GB） | 视结果是否出现明显增益决定是否继续 |
+| 大规模实验 | 200 → 459 sessions（约100-200GB） | 最终 scaling law 曲线，论文核心数据 |
 
 > 每次扩展前先分析现有结果：若曲线已经趋于平坦，则不必再增加。
 
@@ -386,7 +386,7 @@
 
 **刺激类型选择**：
 - **Natural Movies**（优先）：30s 连续无间隔，✅ 完全支持 250ms / 500ms / 1s 等任意预测窗口；是长时程预测实验的首选
-- **Natural Scenes**：每张图片 250ms + ~500ms 灰屏；**建议预测窗口 ≤250ms**，或在分析时明确说明跨刺激边界；若做 DINOv2 图像-神经对齐实验，使用 Natural Scenes 是必要的
+- **Natural Scenes**：每张图片 250ms + 约500ms 灰屏；**建议预测窗口 ≤250ms**，或在分析时明确说明跨刺激边界；若做 DINOv2 图像-神经对齐实验，使用 Natural Scenes 是必要的
 
 **预测窗口选择（Allen 各刺激类型）**：
 
@@ -449,18 +449,18 @@
 
 | 数据集 | 阶段 | 下载内容 | 预估空间 |
 |--------|------|---------|---------|
-| Brainsets 原生（全部子集） | 阶段一 | spike times + behavior | ~10-30 GB |
-| IBL（调试，10-20 sessions） | 阶段二入口 | spike times + behavior | ~5-10 GB |
-| IBL（中等规模，100 sessions） | 阶段二/三扩展 | spike times + behavior | ~30-60 GB |
-| IBL（完整，459 sessions，不含 LFP） | 阶段三完整实验 | spike times + behavior | ~100-200 GB |
-| IBL（预处理后，HDF5） | 阶段二/三 | 转换后格式 | ~50-100 GB |
-| Allen Neuropixels（58 sessions NWB） | 阶段四 | spike times + behavior，不含 LFP | ~146.5 GB |
+| Brainsets 原生（全部子集） | 阶段一 | spike times + behavior | 约10-30 GB |
+| IBL（调试，10-20 sessions） | 阶段二入口 | spike times + behavior | 约5-10 GB |
+| IBL（中等规模，100 sessions） | 阶段二/三扩展 | spike times + behavior | 约30-60 GB |
+| IBL（完整，459 sessions，不含 LFP） | 阶段三完整实验 | spike times + behavior | 约100-200 GB |
+| IBL（预处理后，HDF5） | 阶段二/三 | 转换后格式 | 约50-100 GB |
+| Allen Neuropixels（58 sessions NWB） | 阶段四 | spike times + behavior，不含 LFP | 约146.5 GB |
 | Allen DINOv2 embeddings（预提取） | 阶段四 | 118 张图像 × ViT-B/L | <1 GB |
-| FALCON（所有 sub-tasks） | 补充/可选 | spike times | ~5-20 GB |
-| **合计（完整实验，四阶段）** | | | **~350-450 GB** |
+| FALCON（所有 sub-tasks） | 补充/可选 | spike times | 约5-20 GB |
+| **合计（完整实验，四阶段）** | | | **约350-450 GB** |
 
 > **分阶段存储计划**：
-> - 阶段一：仅需 ~30GB（Brainsets），当前服务器空间足够
+> - 阶段一：仅需 约30GB（Brainsets），当前服务器空间足够
 > - 阶段二前：确认 `/root/autodl-tmp` 剩余 > 60GB（IBL 调试 + 中等规模）
 > - 阶段三前：确认剩余 > 200GB（IBL 完整下载）
 > - 阶段四前：确认剩余 > 150GB（Allen NWB + 预处理缓存）

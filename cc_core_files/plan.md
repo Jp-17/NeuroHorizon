@@ -194,8 +194,8 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
   - 视 250ms 结果决定是否引入 scheduled sampling
   - 对比：500ms 下 trial 对齐方案 A vs 滑动窗口方案 B
 
-- [x] **1.3.3** 1000ms 预测窗口实验（~50 步自回归）
-  - 实现 scheduled sampling（从 100% teacher forcing 线性衰减至 ~10%，20-50 epoch）
+- [x] **1.3.3** 1000ms 预测窗口实验（约50 步自回归）
+  - 实现 scheduled sampling（从 100% teacher forcing 线性衰减至 约10%，20-50 epoch）
   - non-autoregressive parallel prediction 对照基线
 
 - [x] **1.3.4** 预测窗口汇总报告
@@ -223,7 +223,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - [ ] **2.1.2** 实现 IDEncoder 网络（方案 A，参考 SPINT 架构）
   - 新建 `torch_brain/nn/id_encoder.py`
   - 网络结构：MLP1(T_ref -> H) -> mean pool -> MLP2(H -> d_model)，每个 MLP 为 3 层 FC
-  - 参数参考 SPINT：hidden_dim=512~1024，output_dim=d_model
+  - 参数参考 SPINT：hidden_dim=512–1024，output_dim=d_model
   - 输入为原始 binned spike counts（非手工统计特征），端到端学习
 
 - [ ] **2.1.2b**（Phase 2 后期）实现方案 B: Spike Event Tokenization IDEncoder
@@ -267,7 +267,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 > **前提**：Phase 2.3 结果令人满意，需更大规模验证跨 session 泛化
 
-- [ ] **2.4.1** 安装 ONE API + ibllib，验证数据管线（下载 10-20 sessions 调试，~5-10GB）
+- [ ] **2.4.1** 安装 ONE API + ibllib，验证数据管线（下载 10-20 sessions 调试，约5-10GB）
 
 - [ ] **2.4.2** 编写 IBL Dataset 类
   - 新建 `examples/neurohorizon/datasets/ibl.py`

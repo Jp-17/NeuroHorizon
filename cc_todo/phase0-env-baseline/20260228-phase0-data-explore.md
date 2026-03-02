@@ -15,7 +15,7 @@
 - 需要新建 `data/raw/` 和 `data/processed/` 目录并下载
 
 **操作步骤**：
-1. 通过 DANDI REST API 查询 DANDI:000688 总计 111 sessions，总大小 ~12.3GB
+1. 通过 DANDI REST API 查询 DANDI:000688 总计 111 sessions，总大小 约12.3GB
    - sub-C：68 sessions，9.3GB；sub-J：3 sessions，84MB；sub-M：28 sessions，2.8GB；sub-T：12 sessions，418MB
 2. 更新 `~/.brainsets.yaml` 指向 NeuroHorizon 数据目录
 3. 在 poyo 环境安装 `dandi==0.61.2`（pipeline 依赖）
@@ -25,8 +25,8 @@
 5. 运行 `brainsets.runner` 下载并处理数据
 
 **输出**：
-- raw NWB：`data/raw/perich_miller_population_2018/sub-{C,J,M}/`（10 files，~320MB）
-- processed HDF5：`data/processed/perich_miller_population_2018/`（10 files，~100MB）
+- raw NWB：`data/raw/perich_miller_population_2018/sub-{C,J,M}/`（10 files，约320MB）
+- processed HDF5：`data/processed/perich_miller_population_2018/`（10 files，约100MB）
 
 **完整 session 列表**：
 - sub-C: c_20131003, c_20131022, c_20131101, c_20131204（center_out_reaching）
@@ -41,9 +41,9 @@
 - train/valid/test split 已预计算（38 intervals / 16 trials / 32 trials）
 
 **使用 torch_brain.data.Dataset 验证 pipeline 加载**：
-- 4 sessions 测试：Dataset 创建成功，4 sessions × ~580 windows = 2324 train windows
+- 4 sessions 测试：Dataset 创建成功，4 sessions × 约580 windows = 2324 train windows
 - 全 10 sessions：6372 train windows（1s 窗口）
-- RandomFixedWindowSampler 正常，单样本访问正常（~350 spikes/window）
+- RandomFixedWindowSampler 正常，单样本访问正常（约350 spikes/window）
 - 发现：`torch_brain.data.Dataset` 已废弃，新 API 为 `torch_brain.dataset.Dataset`
 
 ### 0.2.3 数据深度探索分析
