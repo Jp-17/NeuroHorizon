@@ -11,21 +11,9 @@
 - **执行计划**：[cc_core_files/plan.md](cc_core_files/plan.md)
 - **代码库分析**：[cc_core_files/code_research.md](cc_core_files/code_research.md)
 - **数据集规划**：[cc_core_files/dataset.md](cc_core_files/dataset.md)
+- **任务完成记录**：[cc_todo/](cc_todo/)（各阶段任务的详细执行记录）
 
 > 注：上述文档可能随项目推进持续更新，以文档最新版本为准。
-
----
-
-## 当前项目状态
-
-**Phase 1 待执行**
-
-Phase 0（环境准备与基线复现）已于 2026-02-28 全部完成。关键结论：
-- **基线锚点**：POYO+ 行为解码 R² = 0.807（Perich-Miller 10 sessions）
-- **数据支持**：Hold 676ms / Reach 1090ms，20ms bin 87.6% 零值 → Poisson NLL 适用
-- **基底选择**：基于 POYOPlus 改造（复用 encoder + processor，重写 decoder + tokenize）
-
-下一步按 `cc_core_files/plan.md` 的 Phase 1（自回归改造验证 + 长时程生成验证）执行。
 
 ---
 
@@ -42,9 +30,10 @@ Phase 0（环境准备与基线复现）已于 2026-02-28 全部完成。关键�
 | 脚本记录 | cc_core_files/scripts.md | 所有脚本的功能、使用方式、存储位置 |
 | 数据记录 | cc_core_files/data.md | 数据集的处理信息、位置、字段含义 |
 | 结果记录 | cc_core_files/results.md | 实验结果说明（产生方式、目的、分析） |
+| 任务完成记录 | cc_todo/{phase-folder}/ | 各阶段任务执行的详情记录（做了什么、结果、问题等） |
 | 工作进展 | progress.md | 每次任务的执行记录和问题沉淀 |
 
-> 项目执行计划参考 `cc_core_files/plan.md`（按照 plan.md 规划执行，完成后在 plan.md 打勾）；执行前必读 `cc_core_files/proposal_review.md` 中对应 Phase 的执行参考。
+> 项目执行计划参考 `cc_core_files/plan.md`（按照 plan.md 规划执行，完成后在 plan.md 打勾并写入 cc_todo 记录）；执行前必读 `cc_core_files/proposal_review.md` 中对应 Phase 的执行参考。
 
 ---
 
@@ -56,10 +45,14 @@ NeuroHorizon/
 ├── examples/                 # 训练示例脚本
 │   ├── poyo/                 # 原始 POYO 示例
 │   ├── poyo_plus/            # 原始 POYO+ 示例
-│   └── neurohorizon/         # NeuroHorizon 训练脚本（待建）
+│   └── neurohorizon/         # NeuroHorizon 训练脚本
 ├── scripts/                  # 数据处理 & 项目运行 & 测试脚本
 │   ├── data/                 # 数据下载、预处理脚本
-│   └── analysis/             # 分析脚本
+│   ├── analysis/             # 分析脚本
+│   │   ├── explore_brainsets.py
+│   │   ├── analyze_latents.py
+│   │   └── neurohorizon/     # NeuroHorizon 专用分析脚本
+│   └── tests/                # 测试脚本
 ├── data/                     # 数据集存储
 │   ├── raw/                  # 原始下载数据
 │   ├── processed/            # 预处理后数据（HDF5 等）
@@ -69,8 +62,15 @@ NeuroHorizon/
 │   ├── logs/                 # 训练日志
 │   └── checkpoints/          # 模型权重
 ├── cc_core_files/            # 项目核心文档
-├── cc_todo/                  # 任务工作记录（历史存档）
-│   └── 20260221-cc-1st/      # ⚠️ 已废弃任务，勿参考（见下方警告）
+├── cc_todo/                  # 任务工作记录
+│   ├── phase0-env-baseline/  # Phase 0 任务记录
+│   ├── phase1-autoregressive/# Phase 1 任务记录
+│   ├── phase2-cross-session/ # Phase 2 任务记录（待建）
+│   ├── phase3-data-scaling/  # Phase 3 任务记录（待建）
+│   ├── phase4-multimodal/    # Phase 4 任务记录（待建）
+│   ├── phase5-paper/         # Phase 5 任务记录（待建）
+│   ├── 20260221-cc-1st/      # ⚠️ 已废弃，勿参考
+│   └── 20260225-review/      # ⚠️ 已废弃，勿参考
 └── CLAUDE.md                 # 本文件
 ```
 
@@ -83,35 +83,61 @@ NeuroHorizon/
 1. **阅读 progress.md**：了解历史任务进展，借鉴已有经验，避免重复踩坑
 2. **阅读 proposal_review.md 对应章节**：执行 plan.md 中某 Phase 的任务前，查阅 `cc_core_files/proposal_review.md` 中该 Phase 对应的执行参考节（如"第四节 Phase 1 执行参考"），了解代码改造方案、关键注意事项和验收标准
 3. **确认任务范围**：明确当前任务是否对应 plan.md 中的某个阶段/步骤
+4. **确认 cc_todo 文件夹存在**：在 `cc_todo/` 下确认该阶段文件夹存在（按 plan.md 大阶段划分，如 `cc_todo/phase1-autoregressive/`）；若无则新建
 
 ### 任务执行中
 
-4. **文件命名**：
+5. **文件命名**：
    - 新建的文件夹和文件名称使用**英文**
    - 产出的 Markdown 文档名称在**最前面包含日期**（格式：`YYYYMMDD-` 或 `YYYY-MM-DD-`）
 
-5. **脚本管理**：
+6. **cc_todo 任务记录**：
+   - 在对应阶段文件夹内新建或更新任务记录文件
+   - **命名格式**：`{YYYYMMDD}-{phase}-{task_num}-{task}.md`
+     - 示例：`20260302-phase1-1.1-core-modules.md`
+   - 文件内容包括：日期、对应 plan.md 任务编号与名称、任务目标
+   - 持续记录：做了什么、怎么做的、遇到的问题及解决方法、结果如何、文件位置、未完成项
+   - 如果本次会话未完成任务，下次在**同一文件**中追加记录（注明新日期和会话）
+
+7. **脚本管理**：
    - 脚本文件放在 `scripts/` 下的合适位置
    - 脚本创建后，**必须**在 `cc_core_files/scripts.md` 中记录：功能用途、创建时间、使用方式、存储位置
 
-6. **数据管理**：
+8. **数据管理**：
    - 下载的数据集放在 `data/` 下，按类型区分（`raw/` `processed/` `generated/` 等）
    - **必须**在 `cc_core_files/data.md` 中记录：数据集名称、处理信息、存储位置、字段含义
 
-7. **结果管理**：
+9. **结果管理**：
    - 实验结果（可视化图表、分析输出等）放在 `results/` 下的合适位置
    - **必须**在 `cc_core_files/results.md` 中记录：产生方式、目的、结果分析
 
-8. **plan.md 对应任务**：
-   - 如果当前任务对应 `cc_core_files/plan.md` 中的某个任务，在 plan.md 对应位置记录执行情况（完成状态、完成程度、后续工作）
+10. **脚本与中间数据保留**：
+    - 执行 plan.md 任务时（训练、分析、数据处理等），**必须保留对应的脚本文件和中间数据文件**，不能只提供最终结果
+    - 脚本放 `scripts/` 对应目录，中间数据放 `results/` 或 `data/` 对应目录
+    - **禁止**仅在 `/tmp/` 中创建脚本而不迁移到项目目录
+
+11. **plan.md 对应任务**：
+    - 如果当前任务对应 `cc_core_files/plan.md` 中的某个任务，在 plan.md 对应位置记录执行情况（完成状态、完成程度、后续工作）
+    - 任务**完全完成**后，在 plan.md 对应任务的 checkbox 处标记：将 `- [ ]` 改为 `- [x]`，在该行末尾追加：`<!-- 记录：cc_todo/{phase-folder}/{filename}.md -->`
 
 ### 任务完成后
 
-9. **更新 progress.md**：记录任务完成时间（日期-小时-分）、完成事项、执行结果、遇到的问题及解决方法
+12. **文档检查清单**：
+    - [ ] cc_todo 任务记录已更新
+    - [ ] scripts.md 已登记新脚本（如有）
+    - [ ] results.md 已登记新结果（如有）
+    - [ ] data.md 已登记新数据（如有）
+    - [ ] plan.md 已打勾并添加 📄 引用（如有）
 
-10. **检查 CLAUDE.md**：确认本文件内容是否过时，如有需要及时更新
+13. **检查乱码**：
+    - 运行 `grep -rn '��' cc_core_files/` 检查是否有乱码字符
+    - 如有，立即修复（参见"经验沉淀"中的乱码问题条目）
 
-11. **Git 提交**：每完成一个任务或功能模块，立即执行：
+14. **更新 progress.md**：记录任务完成时间（日期-小时-分）、完成事项、执行结果、遇到的问题及解决方法
+
+15. **检查 CLAUDE.md**：确认本文件内容是否过时，如有需要及时更新
+
+16. **Git 提交**：每完成一个任务或功能模块，立即执行：
     ```bash
     git add <相关文件>
     git commit -m "中文提交信息"
@@ -135,13 +161,22 @@ NeuroHorizon/
 
 如果在代码或配置中发现与该次任务相关的内容，需检查是否需要回退到更早的状态。
 
+### ⚠️ 已废弃任务：cc_todo/20260225-review/
+
+`cc_todo/20260225-review/` 目录包含早期文档审查记录，内容已过时，**勿作为当前任务的参考依据**。
+
 ---
 
 ## 经验沉淀
 
 > 此处记录在多次任务中反复遇到的问题和解决方案，积累经验教训。
 
-*（随项目推进持续补充）*
+### 乱码问题
+
+- **现象**：文档中出现 `��`（Unicode 替换字符 U+FFFD）或类似乱码
+- **原因**：UTF-8 多字节字符被截断（如 SSH 传输中断、编辑器保存不完整、sed 操作切割了多字节序列）
+- **预防**：每次编辑文档后运行 `grep -rn '��' cc_core_files/` 检查
+- **修复方法**：根据上下文推断原始字符，用 `sed -i` 替换修复；修复后再次 grep 验证
 
 ---
 
@@ -151,39 +186,3 @@ NeuroHorizon/
 - **用户名**：Jp-17
 - **Commit 语言**：中文
 - **Push 时机**：每个任务/模块完成后立即 push
-
-## Plan 任务执行规范
-
-当收到"执行 plan.md 中某阶段某任务"的指令时，按以下规范操作：
-
-### 执行前：阅读参考文档并建立记录文件
-
-1. **读取 `cc_core_files/proposal_review.md` 中对应 Phase 的执行参考**（如 Phase 1 任务对应"第四节 Phase 1 执行参考"），作为代码改造方案和技术决策的依据
-2. 在 `cc_todo/` 下确认该阶段文件夹存在（按 plan.md 大阶段划分，如 `cc_todo/phase1-autoregressive/`）；若无则新建
-3. 在该文件夹内新建任务记录文件，命名格式：`{YYYYMMDD}-{大阶段名}-{小任务名}.md`
-   - 示例：`20260228-phase1-poisson-loss.md`
-4. 文件开头写入：日期、对应 plan.md 任务编号与名称、任务目标
-
-### 执行中：持续记录
-
-在记录文件中详细记录以下内容：
-- **做了什么**：执行的具体步骤
-- **怎么做的**：方法、命令、代码修改位置
-- **遇到的问题及解决方法**：错误信息、排查过程、解决方案
-- **结果如何**：输出、性能指标、验证结果
-- **各种文件在哪里**：创建/修改的文件路径
-- **还有什么没有做**：未完成项、后续工作
-
-如果本次会话未完成任务，下次执行时在**同一文件**中追加记录（注明新日期和会话）。
-
-### 执行中：数据 / 脚本 / 结果管理
-
-- **脚本**：放在 `scripts/` 下合适位置，并记录到 `cc_core_files/scripts.md`
-- **数据**：放在 `data/` 下（`raw/` / `processed/` / `generated/`），并记录到 `cc_core_files/data.md`
-- **实验结果**：放在 `results/` 下，并记录到 `cc_core_files/results.md`
-
-### 执行完成后：标记 plan.md
-
-任务**完全完成**后，在 plan.md 对应任务的 checkbox 处标记：
-- 将 `- [ ]` 改为 `- [x]`
-- 在该行末尾追加：`<!-- 记录：cc_todo/{phase-folder}/{filename}.md -->`
