@@ -10,6 +10,9 @@
 1. [Poisson NLL 与神经活动预测的 Loss 选择](#1-poisson-nll-与神经活动预测的-loss-选择)
 2. [Spike 稀疏性与 Loss 统计策略](#2-spike-稀疏性与-loss-统计策略)
 3. [Scheduled Sampling：概念、用途与引入时机](#3-scheduled-sampling概念用途与引入时机)
+4. [各阶段评估指标统一整理](#4-各阶段评估指标统一整理)
+5. [各阶段 Baseline 统一整理](#5-各阶段-baseline-统一整理)
+6. [数据组织考量](#6-数据组织考量)
 
 ---
 
@@ -395,6 +398,596 @@ NeuroHorizon 在 plan.md 1.3.3 中设置了非自回归并行预测作为消融�
 
 ---
 
+
+## 4. 各阶段评估指标统一整理
+
+### 4.1 指标总览表
+
+下表汇总 NeuroHorizon 各 Phase 使用的评估指标。标注说明：**T** = 训练目标（loss），**P** = 主要评估指标，**A** = 辅助参考指标，**-** = 不使用。
+
+| 指标 | Phase 0 | Phase 1 | Phase 2 | Phase 3 | Phase 4 |
+|------|---------|---------|---------|---------|---------|
+| Poisson NLL | - | **T/P** | **T/P** | T | **T/P** |
+| R²（行为解码） | **P** | A | **P** | **P** | A |
+| R²（spike 预测） | - | **P** | **P** | A | A |
+| PSTH Correlation | - | **P** | A | A | A |
+| Error Decay Curve | - | **P** | - | - | - |
+| Zero-shot R² | - | - | **P** | A | - |
+| Embedding Clustering | - | - | A | - | - |
+| Scaling Curve | - | - | - | **P** | - |
+| Transfer Gain | - | - | - | **P** | - |
+| Delta_m（模态贡献） | - | - | - | - | **P** |
+| Spike Rate 合理性 | - | A | A | - | A |
+
+### 4.2 逐指标详解
+
+#### 4.2.1 Poisson NLL（Poisson Negative Log-Likelihood）
+
+**公式**（log-rate 参数化，详见第 1 章）：
+
+```
+L_Poisson = exp(r) - k * r
+```
+
+其中 r 是模型输出的 log firing rate，k 是观测到的 binned spike count。
+
+**使用场景**：
+- **Phase 1–4 的训练目标**：自回归 decoder 输出 log-rate，用 Poisson NLL 作为 loss 函数训练
+- **Phase 1/2 的主要评估指标**：在 held-out trials 上计算平均 Poisson NLL，值越低越好
+- **跨模型可比性**：NDT1/2、LFADS、POYO 都使用 Poisson NLL，使得结果可以直接对比
+
+**注意**：Poisson NLL 的绝对值受神经元发放率影响——高发放率神经元的 NLL 天然更大。跨数据集对比时需注意归一化（如使用 bits/spike，见 4.2.6）。
+
+#### 4.2.2 R²（Coefficient of Determination）
+
+**公式**：
+
+```
+R^2 = 1 - SS_res / SS_tot = 1 - sum((y - y_hat)^2) / sum((y - y_mean)^2)
+```
+
+**两种用法**：
+
+1. **R²（行为解码）**：
+   - 预测变量：行为输出（如 cursor velocity 2D）
+   - 用途：评估模型 latent representation 对下游任务的信息量
+   - Phase 0 基线值：0.807（POYO+ 在 Perich-Miller 上的表现）
+   - 贯穿所有 Phase，作为「模型改造不应退化行为解码能力」的锚点
+
+2. **R²（spike 预测）**：
+   - 预测变量：binned spike count
+   - 用途：直接评估 spike count 预测质量
+   - Phase 1 目标：R² > 0.3（在 held-out session 上）
+   - Phase 2 zero-shot 目标：R² > 0.2
+
+**解读注意**：
+- R² 可以为负数（当模型预测比均值预测还差时）
+- 对低发放率神经元敏感——如果某神经元几乎不发放，y_mean 约 0，稍有偏差 SS_res/SS_tot 就很大
+- 建议同时报告 per-neuron R² 分布和 population-averaged R²
+
+#### 4.2.3 PSTH Correlation（Peri-Stimulus Time Histogram Correlation）
+
+**定义**：在多 trial 数据上，将同一条件（如相同 reach target）的 trials 对齐后平均，得到 trial-averaged 预测和 trial-averaged 真实 firing rate，计算两者的 Pearson 相关系数。
+
+**公式**：
+
+```
+PSTH_corr = Pearson_r(mean_trials(y_hat), mean_trials(y))
+```
+
+**为什么比 single-trial R² 更稳定**：
+- Single-trial spike count 噪声很大（Poisson 噪声），R² 会被随机波动压低
+- Trial-averaged 后噪声被平均掉，暴露的是模型是否捕捉到了真实的 firing rate 动态
+- PSTH correlation 更接近「模型是否学到了正确的 tuning」的评估
+
+**使用场景**：
+- Phase 1 主要指标：用于评估自回归生成质量
+- Phase 1 Error Decay Curve 的基础指标（见 4.2.4）
+- 不适用于 zero-shot 跨 session 场景（不同 session 的 trial 条件可能不同）
+
+#### 4.2.4 Error Decay Curve（误差随时间步衰减曲线）
+
+**定义**：在自回归生成过程中，逐步计算每一步的 PSTH correlation（或 R²），绘制「预测质量 vs 预测步数」的曲线。
+
+**计算方式**：
+1. 对 held-out trials，自回归生成 T 步（如 50 步 = 1000ms）
+2. 在每个步数 t 处，计算 PSTH correlation(step=t)
+3. 绘制 t vs correlation 曲线
+
+**用途**：
+- **Phase 1 特有指标**：诊断自回归生成的误差累积速度
+- 理想情况：曲线缓慢衰减（步数增加，质量微降）
+- 问题信号：曲线急剧下降（如 step 20 后 correlation 跌到 0）→ 需要 scheduled sampling 或其他缓解措施
+- 对比用途：TF vs AR 的 decay curve 差异、scheduled sampling 前后的 decay curve 差异
+
+#### 4.2.5 Co-smoothing
+
+**定义**：NLB（Neural Latents Benchmark）的核心指标。将神经元随机分为 held-in（75%）和 held-out（25%），模型只看 held-in 神经元的 spike 数据，推断 latent state，再从 latent 预测 held-out 神经元的 firing rate。
+
+**计算方式**：
+1. 随机划分神经元为 held-in / held-out
+2. 模型编码 held-in 神经元 → latent
+3. Linear readout 从 latent → 预测 held-out 神经元 firing rate
+4. 对 held-out 预测做 Gaussian 平滑（sigma = 50ms）
+5. 计算 R² 或 Poisson NLL
+
+**意义**：
+- 直接评估 latent representation 的质量——好的 latent 应该包含整个 population 的信息，而不仅仅是输入的那些神经元
+- 避免了「模型只是记住了每个神经元的 PSTH」的情况
+
+**NeuroHorizon 是否需要**：
+- Phase 0–1：不必须，因为还在验证基础功能
+- Phase 2+：建议作为辅助指标，特别是在跨 session 评估中，co-smoothing 可以检验 IDEncoder 推断的 embedding 是否真正捕捉了神经元的功能角色
+- Phase 5 论文：如果在 NLB benchmark 数据上评估，co-smoothing 是必须报告的
+
+#### 4.2.6 Bits/spike
+
+**定义**：信息论指标，衡量模型在每个 spike 上提供了多少比特的预测信息（相比于 baseline 的均值预测模型）。
+
+**计算方式**：
+
+```
+bits/spike = (L_baseline - L_model) / (N_spikes * log(2))
+```
+
+其中 L_baseline 是 homogeneous Poisson model（每个神经元用其平均 firing rate 作为预测）的 Poisson NLL，L_model 是待评估模型的 Poisson NLL，N_spikes 是总 spike 数。
+
+**意义**：
+- **归一化了发放率差异**：不同数据集、不同神经元的 Poisson NLL 绝对值差异很大，bits/spike 提供了一个「相对于 trivial baseline 提升了多少」的标准化度量
+- **跨论文可比**：NDT1/2、LFADS 等都报告 bits/spike，使得不同工作可以直接比较
+- 值越高越好；典型范围为 0.1–0.5 bits/spike
+
+**NeuroHorizon 建议**：在 Phase 1+ 的结果报告中增加 bits/spike，增强与文献的可比性。实现简单——只需额外计算一个 homogeneous Poisson baseline 的 NLL。
+
+#### 4.2.7 Zero-shot R²
+
+**定义**：在完全未见过的 session（训练集中不包含该 session 的任何 trial）上，通过 IDEncoder 推断神经元 embedding 后直接做预测，不进行任何梯度更新。
+
+**Phase 2 核心指标**：
+- 目标阈值：R² > 0.2（vs InfiniteVocabEmbedding lookup 的约 0）
+- 跨动物 R² degradation < 30%
+- 这是 NeuroHorizon 跨 session 泛化能力的直接证据
+
+#### 4.2.8 Scaling Curve
+
+**定义**：Phase 3 核心指标。以训练使用的 session 数量为横轴，R²（或 Poisson NLL）为纵轴，观察性能随数据规模的增长趋势。
+
+**分析方式**：
+- 至少 4 个数据点（如 5/10/20/40/70 sessions）
+- 绘制带 error bar 的曲线
+- 拟合 power law：R² = a * N^b + c，分析 scaling exponent b
+- 与 POYO+ 论文的 scaling curve 对比
+
+#### 4.2.9 Delta_m（模态贡献度）
+
+**定义**：Phase 4 核心指标。通过消融实验量化每个模态（neural / behavior / image）对预测质量的贡献。
+
+**计算方式**：
+
+```
+Delta_m = Loss(full_model) - Loss(ablate_modality_m)
+```
+
+如果 Delta_m > 0，说明去掉模态 m 后 loss 变差，即模态 m 有正贡献。
+
+**条件分解** Delta_m(v)：按脑区、刺激类型、行为状态分别计算，揭示模态贡献的空间和条件依赖性。
+
+预期：Delta_image 在视觉皮层（V1）最大，在运动皮层最小。
+
+### 4.3 主流模型的指标选择对比
+
+| 模型 | Poisson NLL | R²(行为) | R²(spike) | PSTH Corr | Co-smoothing | Bits/spike | 其他 |
+|------|-------------|----------|-----------|-----------|--------------|------------|------|
+| NDT1 | **T/P** | P | - | - | - | P | 推理延迟 |
+| NDT2 | **T/P** | P | - | - | - | P | 跨 context 泛化 |
+| NDT3 | - (用 CE) | **P** | - | - | - | - | 下游任务多样性 |
+| POYO | - | **P** | - | - | - | - | NLB 排名 |
+| POYO+ | - | **P** | - | - | - | - | Scaling curve |
+| SPINT | - | **P** | - | - | - | - | Zero-shot R², FALCON |
+| LFADS | **T/P** | P | - | - | P(NLB) | P | 单 trial 去噪 |
+| Neuroformer | P | P | - | - | - | - | 多模态 attribution |
+
+**总结**：
+- **Poisson NLL + R²（行为解码）** 是最通用的指标组合
+- **Bits/spike** 在 NDT 系列中常用，提供了跨工作可比性
+- **Co-smoothing** 是 NLB benchmark 的核心指标，但并非所有论文都报告
+- NDT3 使用 Cross-Entropy 而非 Poisson NLL，因此其 loss 值不能与其他模型直接对比
+
+### 4.4 对 NeuroHorizon 的建议
+
+1. **当前方案合理**：Poisson NLL + R² + PSTH Correlation 覆盖了训练和评估的核心需求
+2. **建议补充 bits/spike**：实现成本极低（一次额外的 baseline NLL 计算），但显著提升与 NDT1/2、LFADS 等经典工作的可比性
+3. **Phase 2+ 建议引入 co-smoothing 作为辅助指标**：用于验证 IDEncoder 推断的 embedding 是否真正捕捉了神经元的功能角色，也为后续在 NLB benchmark 上评估做准备
+4. **Phase 5 论文中建议报告完整指标矩阵**：Poisson NLL、R²、PSTH Correlation、bits/spike，覆盖与 NDT/POYO/SPINT 的可比性
+
+---
+
+## 5. 各阶段 Baseline 统一整理
+
+### 5.1 Baseline 总览表
+
+#### Phase 0 Baselines
+
+| Baseline | 方法 | 对比目的 | 指标 | 参考值 |
+|----------|------|---------|------|--------|
+| POYO+ 行为解码 | dim=128, depth=12, 约 8M 参数 | 建立行为解码锚点 | R²(velocity) | **0.807** |
+
+#### Phase 1 Baselines
+
+| Baseline | 方法 | 对比目的 | 实现复杂度 |
+|----------|------|---------|-----------|
+| PSTH Prediction | trial-averaged firing rate | 最低性能下限 | 极低 |
+| Linear Regression | history bins 线性映射 future counts | 消融非线性价值 | 低 |
+| Smoothed Firing Rate | Gaussian kernel 平滑历史 firing rate 外推 | 简单统计 baseline | 低 |
+| Non-AR Parallel Prediction | 去掉 causal mask，并行预测所有 bins | 消融自回归的必要性 | 中（修改模型配置） |
+| **Neuroformer** (外部) | 逐 spike event 自回归预测 | 方法论对比：binned vs event-level AR | 中–高 |
+| NDT1/2 (外部) | Masked modeling + Poisson NLL | 经典参照：masked vs autoregressive | 引用论文数值 |
+
+#### Phase 2 Baselines
+
+| Baseline | 方法 | 对比目的 | 实现复杂度 |
+|----------|------|---------|-----------|
+| InfiniteVocabEmbedding Lookup | Per-session 可学习 embedding（POYO 原始方式） | IDEncoder 相对于 lookup 的优势 | 已有实现 |
+| IDEncoder Scheme A | 类 SPINT 方式：binned spike count 输入 | Scheme B 的对照 | 中 |
+| IDEncoder Scheme B | NeuroHorizon 创新：spike event + RoPE pooling | 核心创新验证 | 中 |
+| Within-Session 90/10 Split | 同 session 内 train/test | 性能上界 | 低 |
+| **SPINT IDEncoder** (外部) | 原始 SPINT 的 gradient-free 方案 | 展示改进 | **必须复现** |
+| **POYO IVE** (外部) | POYO 的 InfiniteVocabEmbedding | 基础框架对比 | 已有实现 |
+
+#### Phase 3 Baselines
+
+| Baseline | 方法 | 对比目的 | 实现复杂度 |
+|----------|------|---------|-----------|
+| From-scratch 行为解码 | 随机初始化 → 行为解码 | 预训练的价值基线 | 低 |
+| Frozen Transfer | 预训练 encoder 冻结 → 新 behavior head | 预训练表征质量 | 中 |
+| Fine-tuned Transfer | 预训练 encoder 小 lr 微调 → 新 head | 微调的增量价值 | 中 |
+| Few-shot (10%/25%/50%) | 不同标注量下的 Transfer vs Scratch | 数据效率分析 | 中 |
+| **POYO+ Scaling** (外部) | POYO+ 论文报告的 scaling curve | 数据效率对比 | 引用论文数值 |
+
+#### Phase 4 Baselines（消融矩阵）
+
+| 条件 | Neural Only | +Behavior | +Image | +Both |
+|------|-------------|-----------|--------|-------|
+| Natural Movies | baseline | Delta_beh | Delta_img | Full |
+| Natural Scenes | baseline | Delta_beh | Delta_img | Full |
+| 期望：V1 | 中 | 小提升 | **大提升** | 最佳 |
+| 期望：Motor | 中 | **大提升** | 小提升 | 最佳 |
+
+### 5.2 逐 Baseline 详解
+
+#### PSTH Prediction（最简 Baseline）
+
+**方法**：对于每个 trial 条件（如 reach 到某个 target），计算训练集中同条件 trials 的平均 firing rate，将该平均值作为所有 test trials 的预测。
+
+**实现**：
+```python
+# 按条件分组，计算 trial-averaged firing rate
+for condition in conditions:
+    train_trials = get_trials(train_set, condition)
+    psth = mean(train_trials, axis=0)  # [T_bins, N_units]
+    predictions[condition] = psth
+```
+
+**意义**：如果模型不能超过 PSTH prediction，说明模型没有从 single-trial 数据中提取到有用的信息。
+
+#### Linear Regression
+
+**方法**：将历史窗口的 binned spike counts（或 population firing rate vector）作为特征，用线性回归预测未来窗口的 spike counts。
+
+**意义**：消融模型非线性建模能力的价值。如果 NeuroHorizon 只比线性回归好一点，说明 Transformer 架构的复杂度可能不值得。
+
+#### Smoothed Firing Rate（建议新增）
+
+**方法**：用 Gaussian kernel（sigma = 50–100ms）平滑历史 spike train，然后线性外推到未来窗口。
+
+**意义**：比 PSTH 更好但比 Linear Regression 更简单的 baseline，提供中间参考点。在 NLB benchmark 中也常用作 simple baseline。
+
+#### Non-AR Parallel Prediction
+
+**方法**：使用与 NeuroHorizon 相同的模型架构，但去掉 decoder 的 causal mask，允许所有 bins 互相 attend。
+
+**意义**：
+- 如果 parallel > AR：说明自回归的误差累积损害超过了因果建模的收益，可能需要更短的预测窗口或更好的误差控制
+- 如果 AR > parallel：说明时间因果结构对预测有帮助，验证了自回归设计的必要性
+
+### 5.3 主流模型的 Baseline 设计对比
+
+不同的 spike foundation model 在论文中选择的 baseline 反映了各自的 positioning：
+
+| 模型 | 论文中使用的 Baselines | 评估框架 |
+|------|----------------------|---------|
+| **NDT1** | AutoLFADS, LSTM, standard RNN | 单数据集，强调推理速度 |
+| **NDT2** | AutoLFADS, LSTM, NDT1 | 多 context pretraining，展示跨 context 泛化 |
+| **NDT3** | Linear, from-scratch NDT, NDT2 | FALCON benchmark，强调 foundation model 泛化 |
+| **POYO** | Wiener Filter, MLP, GRU, AutoLFADS+Linear, NDT+Linear, NDT-Sup, EIT | NLB benchmark 排名，全面对比 |
+| **POYO+** | POYO, single-session baselines | 展示 multi-task + scaling 的增量价值 |
+| **SPINT** | Zero-shot baselines, few-shot unsupervised, test-time alignment | FALCON benchmark，强调 gradient-free 跨 session |
+| **LFADS** | Linear models | 经典工作，定义了 baseline 层级 |
+| **NLB Benchmark** | Linear, LSTM, LFADS, Transformer (分层级) | 标准化层级 |
+| **FALCON Benchmark** | Held-in/held-out session 设计 | 标准化跨 session 评估 |
+
+**Baseline 设计的通用原则**：
+1. **层级化**：从最简单（linear）到经典模型（LFADS）到 SOTA（NDT/POYO），展示每一层的增量
+2. **消融**：去掉自己的核心组件，展示每个组件的必要性
+3. **外部 SOTA**：在共享 benchmark 上与同时期最好的模型对比
+4. **公平性**：相同数据、相同指标、相同评估协议
+
+### 5.4 外部 SOTA 模型作为 Baseline 的讨论
+
+#### 为什么仅靠自身 Ablation 不够
+
+自身消融（去掉 causal mask、去掉 IDEncoder 等）只能说明各组件的必要性——「这个模块有用」。但 reviewer 关心的另一个核心问题是：「相比现有 SOTA，你的方法总体上更好吗？」
+
+这需要与外部模型做直接对比。
+
+#### 按 Phase 的外部 Baseline 建议
+
+| Phase | 推荐外部 Baseline | 理由 | 实现方式 |
+|-------|-------------------|------|----------|
+| Phase 1 | **Neuroformer** | 同为自回归 spike prediction，但预测粒度不同（逐 event vs binned），形成方法论对比 | 在 Perich-Miller 上复现或引用论文数值 |
+| Phase 1 | NDT1/2（Poisson NLL） | 经典参照，masked modeling vs autoregressive 对比 | 引用论文在 NLB 上的数值 |
+| Phase 2 | **SPINT** | IDEncoder 直接源自 SPINT，必须展示改进（Scheme B vs SPINT 原始方案） | 在相同数据上复现 SPINT IDEncoder |
+| Phase 2 | **POYO**（IVE） | 基础框架，展示 IDEncoder 相比 lookup table 的优势 | 已有实现，直接对比 |
+| Phase 3 | POYO+ scaling curve | 展示在相同数据上 NeuroHorizon 的数据效率是否更高 | 引用论文 figure 数值 |
+| Phase 5 | NDT3, POYO+, SPINT, Neuroformer | 论文必须的全面对比表 | 论文报告数值 + 共享 benchmark |
+
+#### 操作策略
+
+**直接复现**（高优先）：
+- SPINT IDEncoder：Phase 2 核心创新点，必须在相同数据上直接对比。SPINT 的 IDEncoder 用 MLP 处理 binned reference counts，实现相对简单
+- Neuroformer：如果开源代码可用且能在 Perich-Miller 上运行
+
+**论文数值引用**（中优先）：
+- NDT1/2/3、POYO+ 在 NLB/FALCON/Perich-Miller 上的报告数值
+- 注意标注数据来源和评估条件差异
+
+**不建议完全复现**：
+- NDT3：350M 参数 + 2000h 数据预训练，算力需求不现实且量级差异太大
+- 如需数值对比，应在论文中明确说明定位差异：NeuroHorizon 侧重跨 session 泛化 + 长时程生成，NDT3 侧重大规模预训练 + 运动解码
+
+#### 关于公平对比的注意事项
+
+- **数据量级对齐**：NDT3 用 2000h 数据，NeuroHorizon 用 10 sessions（约几小时）。直接数值对比不公平，应在论文中说明
+- **任务对齐**：POYO 主要做行为解码，NeuroHorizon 主要做 spike 预测——不同任务的 R² 不能直接比较
+- **评估协议对齐**：不同论文的 train/test split、random seed、preprocessing 可能不同。最可靠的对比是在完全相同的评估协议下重新跑
+- **NLB/FALCON benchmark 的价值**：标准化的数据 + 评估协议，最大程度保证公平性
+
+### 5.5 对 NeuroHorizon 的建议
+
+1. **Phase 1 增加 smoothed firing rate baseline**：实现极简，提供有意义的中间参考
+2. **Phase 2 必须复现 SPINT IDEncoder**：这是创新核心的直接对比，无法回避
+3. **Phase 1 建议在 Perich-Miller 上与 Neuroformer 对比**：如果 Neuroformer 开源代码可用，在相同数据上运行；否则引用论文数值并标注条件差异
+4. **Phase 5 论文阶段补充 LFADS 作为经典对照**：LFADS 是神经数据建模的经典 baseline，reviewer 期望看到与其对比
+5. **考虑 NLB/FALCON benchmark**：如果有精力，在标准化 benchmark 上提交结果可显著增强论文说服力
+
+---
+
+## 6. 数据组织考量
+
+### 6.1 时间区间选择：Hold vs Reach
+
+#### Center-out Reaching 任务的时间结构
+
+Perich-Miller 2018 数据集的典型 trial 时间线：
+
+```
+|--- Hold Period ---|-- Go Cue --|--- Reach Period ---|--- Target Acquire ---|
+|     约 676ms      |            |     约 1090ms      |                      |
+|  手保持在中心不动  |   视觉信号  |  手向目标方向移动   |   到达并停在目标上    |
+```
+
+#### 为什么用 Hold 作为 Encoder Input、Reach 作为 Prediction Target
+
+1. **Hold 期间的神经活动包含准备信息**：motor planning 阶段，神经元 firing rate 反映了即将执行的运动方向。作为 encoder input 提供了丰富的上下文
+2. **Reach 期间是运动执行阶段**：firing rate 动态变化，包含速度、位置等连续变化信息，是更有意义的预测目标
+3. **时间上的因果关系**：hold 在 reach 之前，用历史预测未来是自然的因果方向
+4. **实际 BCI 应用场景**：在闭环 BCI 中，hold 期间的数据可用于预测接下来的运动意图
+
+#### 统计特性（Phase 0 分析结果）
+
+- **Hold 期间**：均值 676ms，87% 的 trials > 250ms → 支持 250ms 编码器输入窗口
+- **Reach 期间**：均值 1090ms，100% > 500ms，75% > 1s → 支持 250/500/1000ms 预测窗口
+
+#### Scheme A（Trial-aligned）vs Scheme B（Sliding Window）
+
+| 维度 | Scheme A（trial-aligned） | Scheme B（sliding window） |
+|------|--------------------------|--------------------------|
+| **输入** | hold 期间完整 spike events | 固定长度滑动窗口的 spike events |
+| **预测目标** | reach 期间前 T ms 的 binned counts | 滑动窗口后 T ms 的 binned counts |
+| **优点** | 利用任务结构（hold→reach 因果关系）；trial 间自然对齐 | 不依赖 trial 边界，泛化性更强；数据量更大（更多窗口） |
+| **缺点** | 受 trial 结构约束；不适用于无 trial 结构的自由行为数据 | 可能跨 trial 边界引入噪声；失去了 hold-reach 因果语义 |
+| **适用场景** | Phase 1 基线验证（Perich-Miller 有明确 trial 结构） | Phase 3+ 扩展到连续记录数据（如 Allen、IBL） |
+
+**项目策略**：Phase 1 以 Scheme A 为主，250ms 窗口建立基线；500ms 窗口时 A/B 对比决定后续方向；1000ms 窗口转向 Scheme B（trial 内不一定有这么长的 reach）。
+
+### 6.2 Bin Width 选择：20ms 的理由
+
+#### 主流选择范围
+
+文献中使用的 bin width 范围为 2–50ms，不同选择的权衡：
+
+| Bin Width | 1000ms 内的 bins 数 | 稀疏性（10Hz 神经元） | 典型应用 |
+|-----------|--------------------|--------------------|---------|
+| 1ms | 1000 | 99% 为零 | 精确 spike timing 分析 |
+| 5ms | 200 | 95% 为零 | 高时间精度解码 |
+| 10ms | 100 | 90% 为零 | NDT1/2 默认 |
+| **20ms** | **50** | **80% 为零** | **SPINT, LFADS, NeuroHorizon** |
+| 50ms | 20 | 50% 为零 | 粗粒度分析 |
+
+#### 20ms 的平衡点
+
+1. **时间精度 vs 序列长度**：20ms 在 1000ms 窗口内产生 50 个 bins，对 Transformer 的序列长度是可接受的（不需要特殊的长序列处理）；10ms 则 100 个 bins，计算量翻倍
+2. **稀疏性 vs 信息量**：20ms bin 下大多数 bin 的 spike count 在 0–2 之间，Poisson 近似合理；1ms bin 下几乎全是 0 或 1，退化为 Bernoulli
+3. **NDT1 的实验**：NDT1 在 2–20ms 范围内测试，结果差异很小（「similar results for bin sizes varying from 2ms to 20ms」）
+4. **与下游任务的匹配**：BCI 解码和行为分析通常不需要 < 10ms 的时间精度
+
+#### Bin Width 对 Spike Count 分布的影响
+
+```
+bin=1ms:   P(k=0) = 99%,  P(k=1) = 1%,  P(k>=2) 极少 → 接近 Bernoulli
+bin=5ms:   P(k=0) = 95%,  P(k=1) = 5%,  P(k>=2) 约 0.1%
+bin=20ms:  P(k=0) = 80%,  P(k=1) = 16%, P(k=2) = 3%, P(k>=3) = 1%
+bin=50ms:  P(k=0) = 60%,  P(k=1) = 30%, P(k=2) = 8%, P(k>=3) = 2%
+```
+
+（以 10Hz 发放率的典型皮层神经元为例）
+
+20ms bin 下分布有足够的「结构」（不是简单的 0/1 二值），使得 Poisson NLL 有意义的梯度信号。
+
+### 6.3 Previous Window（History）Length
+
+#### 编码器输入格式
+
+NeuroHorizon 继承 POYO 的设计，编码器输入是**原始 spike event 序列**（连续时间戳），而非 binned counts：
+
+```
+input = [(t1, unit_3), (t2, unit_7), (t3, unit_3), ...]
+```
+
+每个 spike event 是一个 token，通过 RoPE 编码时间戳，通过 unit embedding 编码神经元 identity。
+
+#### 典型长度选择
+
+- **Phase 1 默认**：hold period（约 250–700ms，取决于 trial）
+  - 优点：包含完整的 motor planning 信息
+  - 缺点：长度可变，需要 padding 或截断
+
+- **IDEncoder 参考窗口**（Phase 2）：2s（100 bins @ 20ms），M=20–50 个参考窗口
+  - 更长的参考窗口提供更稳定的 firing rate 估计
+  - 多窗口（M=20–50）通过平均或 attention pooling 降低单窗口噪声
+
+#### 历史窗口长度对编码质量的影响
+
+- **太短**（< 100ms）：上下文不足，encoder 难以推断当前的 population state
+- **太长**（> 2s）：
+  - 计算量增大（spike event 数量与时间成正比）
+  - 远距离的 spike 可能与当前状态关联减弱（attention 稀释）
+  - 但 RoPE 的相对位置编码在一定程度上缓解了长距离衰减
+- **最佳范围**：250ms–1s，与 trial 结构对齐
+
+### 6.4 跨 Session / 跨 Trial 数据统一使用
+
+#### 核心挑战
+
+| 挑战 | 描述 | 影响 |
+|------|------|------|
+| 神经元数量不同 | Session A 有 71 个神经元，Session B 有 45 个 | 模型需要处理可变大小的 population |
+| 神经元 identity 不同 | 不同 session 的电极可能记录到不同的神经元 | 无法使用固定的 neuron embedding lookup |
+| 发放率分布不同 | 不同 session 的 baseline firing rate 可能差异很大 | loss 权重可能不平衡 |
+| Trial 数量不同 | 有的 session 100 trials，有的 300 trials | DataLoader 需要 balanced sampling |
+
+#### 不同模型的解决方案
+
+**POYO 方案（InfiniteVocabEmbedding Lookup）**：
+- 每个（session, unit）对有一个可学习的 embedding
+- 优点：简单、per-unit 表达能力强
+- 缺点：新 session 的神经元没有 embedding → zero-shot 泛化失败
+
+**SPINT 方案（IDEncoder）**：
+- 从参考窗口的 binned spike counts 通过 MLP 推断 unit embedding
+- 优点：gradient-free，新 session 只需前向传播
+- 缺点：依赖 binned counts，丢失了 spike timing 信息
+
+**NeuroHorizon 方案（IDEncoder Scheme B）**：
+- 从参考窗口的 spike event tokens + RoPE 通过 attention pooling 推断 embedding
+- 优点：保留 spike timing 信息，可能获得更好的表征
+- 缺点：实现更复杂，计算量更大
+
+#### Trial 间数据组织
+
+每个 trial 是一个独立样本，包含：
+- 输入：该 trial 的 hold period spike events
+- 目标：该 trial 的 reach period binned spike counts
+- 元数据：session ID、trial condition（reach target direction）、trial 时间戳
+
+DataLoader 内不同 trial 混合：
+- 同一 session 的 trials 自然混合
+- 跨 session 训练时，建议 **session-balanced sampling**（每个 batch 均匀采样各 session），避免大 session 主导梯度
+
+#### Session 间混合训练的注意事项
+
+1. **Batch 构成**：建议每个 batch 包含来自多个 session 的 trials，让 IDEncoder 每步都看到多种神经元组合
+2. **Loss 归一化**：不同 session 的神经元数量不同，需要注意 loss 是 per-neuron 平均还是 per-sample 平均
+3. **数据不平衡**：如果某些 session 有更多 trials，需要通过 sampling weight 或 epoch 内循环平衡
+4. **Evaluation split**：cross-session 评估必须确保 test session 的 **所有 trials** 都在 test set 中，不能有数据泄漏
+
+### 6.5 数据组织对模型效果的影响
+
+#### Bin Width 的影响
+
+| 效应 | 太窄（如 1–5ms） | 适中（10–20ms） | 太宽（如 50–100ms） |
+|------|-----------------|----------------|-------------------|
+| 稀疏性 | 极端，>95% 为零 | 可控，70–90% 为零 | 较低，<60% 为零 |
+| 序列长度 | 很长（1000ms→200–1000 tokens） | 适中（50–100 tokens） | 很短（10–20 tokens） |
+| 时间精度 | 高（ms 级） | 中（20ms 级） | 低（50–100ms 级） |
+| Poisson 近似 | 退化为 Bernoulli | 合理 | 开始偏离（overdispersion） |
+| 计算成本 | O(T^2) attention 很贵 | 可接受 | 很低 |
+
+**建议**：Phase 1 用 20ms，Phase 1 完成后做 10ms vs 20ms vs 50ms 敏感性测试。
+
+#### History Length 的影响
+
+- **太短**（< 100ms）：encoder 上下文不足，spike count 预测 R² 下降
+- **适中**（250ms–1s）：覆盖 hold period，信息充分
+- **太长**（> 2s）：计算量增大但边际收益递减，远距离 spike 的信息量有限
+
+#### Trial Alignment 的影响
+
+- **Trial-aligned（Scheme A）**：利用任务结构，hold→reach 因果关系明确，但泛化性受限
+- **Sliding window（Scheme B）**：不依赖 trial 结构，数据量更大，但可能跨 trial 边界引入不连续性
+- **实际影响**：对于有明确 trial 结构的数据（Perich-Miller），两者差异可能不大；对于连续记录数据（Allen、IBL），Scheme B 是必须的
+
+#### Cross-Session Mixing 的影响
+
+- **正面**：增加数据多样性，提高模型泛化能力
+- **负面**：引入 neuron identity 问题，如果 IDEncoder 不够好，混合训练可能比单 session 训练更差
+- **关键**：cross-session mixing 的收益取决于 IDEncoder 的质量——这也是为什么 Phase 2 的 IDEncoder 实验是整个项目的关键节点
+
+### 6.6 主流模型的数据组织对比
+
+| 模型 | Bin Width | Time Window | Cross-Session 策略 | Trial 处理 |
+|------|-----------|-------------|-------------------|-----------|
+| **NDT1** | 10ms | 250ms pre → 450ms post movement | 单 session | Trial-aligned（运动任务） |
+| **NDT2** | 10ms | 类似 NDT1 | Multi-context pretraining（共享 encoder） | Trial-aligned |
+| **NDT3** | 20ms | 连续序列 | Foundation model pretraining（2000h） | 连续 token stream |
+| **POYO** | N/A（spike event） | 连续时间戳 | IVE per-session | Spike event tokenization |
+| **POYO+** | N/A（spike event） | 连续时间戳 | IVE + multi-task | 同 POYO |
+| **SPINT** | 20ms | 参考窗口 2s | IDEncoder gradient-free | FALCON 协议 |
+| **LFADS** | 20ms | Trial duration | 单 session（或 stitching） | Trial-aligned |
+| **Neuroformer** | N/A（逐 spike） | 连续时间戳 | Multi-session pretraining | 逐 spike autoregressive |
+
+**关键观察**：
+
+1. **Bin width 趋势**：早期工作（NDT1）用 10ms，近期工作（NDT3、SPINT、LFADS）倾向 20ms。POYO/Neuroformer 直接在 spike event 层面操作，跳过了 binning
+2. **Cross-session 策略演化**：单 session → multi-session pretraining（NDT2）→ foundation model（NDT3）→ gradient-free（SPINT）
+3. **Trial 处理趋势**：从 trial-aligned 向连续序列 / spike event 序列演化，更通用
+
+#### NLB Benchmark 标准化格式
+
+NLB 提供了 7 个标准化数据集，统一的数据格式包括：
+- Spike trains（原始 spike timestamps）
+- Binned spike counts（5ms bins）
+- 行为数据（与 neural data 时间对齐）
+- 标准化的 train/valid/test split（按 trial 和 neuron 两个维度划分）
+
+#### FALCON Benchmark 设计
+
+FALCON 专门评估跨 session 泛化，设计包括：
+- **Held-in sessions**：完整数据发布，用于训练和 within-session 评估
+- **Held-out sessions**：只发布 calibration splits（少量标注数据），用于 zero-shot / few-shot 评估
+- 评估指标：R²（variance-weighted），报告 mean +/- std across sessions
+
+### 6.7 对 NeuroHorizon 的建议
+
+1. **当前方案合理**：20ms bin + hold/reach 分离是主流选择，与 SPINT、LFADS 一致
+2. **Phase 1 完成后建议做 bin width 敏感性测试**：10ms vs 20ms vs 50ms，验证结果是否对 bin width 鲁棒
+3. **Scheme A/B 对比是关键决策点**：500ms 窗口的 A/B 对比结果将决定 Phase 2+ 的数据组织方向
+4. **跨 session 训练时使用 session-balanced sampling**：避免大 session 主导训练，确保 IDEncoder 看到均衡的神经元组合
+5. **考虑向 NLB/FALCON 格式对齐**：如果后续计划在 benchmark 上评估，早期就按其格式组织数据可以减少后续工作量
+6. **注意 Allen 数据的特殊性**：Allen Visual Coding 是连续记录（非 trial-based），必须用 Scheme B（sliding window），且刺激时间对齐需要特殊处理
+
+---
+
 ## 参考文献
 
 - Bengio, S., Vinyals, O., Jaitly, N., & Shazeer, N. (2015). Scheduled Sampling for Sequence Prediction with Recurrent Neural Networks. *NeurIPS 2015*.
@@ -410,6 +1003,13 @@ NeuroHorizon 在 plan.md 1.3.3 中设置了非自回归并行预测作为消融�
 - Huszar, F. (2015). How (not) to train your generative model: Scheduled sampling, likelihood, adversary? *arXiv*.
 
 ---
+
+- Karpowicz, B., et al. (2024). NEDS: Neural Embedding for Data Sharing. *NeurIPS 2024*.
+- Antoniades, A., et al. (2024). Neuroformer: Multimodal and Multitask Generative Pretraining for Brain Data. *ICLR 2024*.
+- Pei, F., et al. (2021). Neural Latents Benchmark (NLB). *NeurIPS 2021 Datasets and Benchmarks*.
+- Karpowicz, B., et al. (2024). FALCON Benchmark: Standardized Cross-Session Neural Decoding. *NeurIPS 2024 Datasets and Benchmarks*.
+- Hurwitz, C., et al. (2024). LDNS: Latent Diffusion for Neural Spike Data. *NeurIPS 2024*.
+- Williams, R. J. & Zipser, D. (1989). A Learning Algorithm for Continually Running Fully Recurrent Neural Networks. *Neural Computation*.
 
 *文档创建时间：2026-03-02*
 *最后更新：2026-03-02*
