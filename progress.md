@@ -552,3 +552,63 @@
 **遇到的问题**：Python 脚本中 LaTeX 反斜杠（\mathbf 等）在字符串匹配时转义不一致，导致首次 proposal.md 替换失败
 
 **解决方法**：改用行号定位（grep -n 找到 §4.5 起止行）+ 逐行替换方式，避免 LaTeX 特殊字符匹配问题
+
+---
+
+## 2026-03-02 | jp-video-1 | Phase 1 核心模块实现 + 基础验证 + 预测窗口实验
+
+**任务内容**：
+执行 plan.md Phase 1（自回归改造验证 + 长时程生成验证），包括核心模块实现、训练验证、自回归推理验证和多窗口实验。
+
+### Phase 1.1 核心模块实现（全部完成）
+
+1. **1.1.1 PoissonNLLLoss** — `torch_brain/nn/loss.py`
+   - 实现 `PoissonNLLLoss`：loss = exp(log_rate) - target * log_rate
+   - log_rate clamp[-10, 10] 保证数值稳定性
+
+2. **1.1.2 注册 spike_counts 模态** — `torch_brain/registry.py`
+   - 新增 spike_counts modality（id=20, dim=1, CONTINUOUS, PoissonNLLLoss）
+
+3. **1.1.3 Causal Mask 支持** — `torch_brain/nn/rotary_attention.py`
+   - 新增 `create_causal_mask()` 函数
+   - 修改 pytorch/xformers 后端支持 2D/3D/4D mask
+   - 单元测试验证因果性
+
+4. **1.1.4 AutoregressiveDecoder + PerNeuronMLPHead** — `torch_brain/nn/autoregressive_decoder.py`
+   - T-token decoder: cross-attn → causal self-attn → FFN
+   - PerNeuronMLPHead: concat(bin_repr, unit_emb) → MLP → log_rate
+   - rotate_value=False for decoder
+
+5. **1.1.5 NeuroHorizon 模型** — `torch_brain/models/neurohorizon.py`
+   - 384 行完整模型：encoder + processor (复用 POYO) + AR decoder + per-neuron head
+   - forward() (teacher forcing) + generate() (逐步自回归) + tokenize()
+   - Bug fix: pad8→pad 修复 target_unit_index 维度不匹配问题
+
+6. **1.1.6 训练脚本** — `examples/neurohorizon/train.py` + configs
+   - Lightning training wrapper, PoissonNLL loss, R² + per-bin NLL metrics
+   - Small 配置: dim=128, enc_depth=6, dec_depth=2, 4.2M params
+
+### Phase 1.2 基础功能验证
+
+**1.2.1 Teacher Forcing 训练（250ms, 300 epochs）**：
+- 训练正常收敛，无 NaN/Inf
+- 验证 R² 从 0.207 (ep10) 上升至 ~0.26 (ep140)，val_loss 从 0.328→0.314
+- Per-bin NLL: bins 0-10 ~0.31 均匀，bin 11 ~0.39 偏高（远期预测更难）
+- mean_pred_rate ≈ mean_target_count（模型学到了合理的发放率）
+
+**1.2.2 自回归推理验证**：
+- TF vs AR 输出完全一致（max_diff=3e-6，数值精度级）
+- Causal mask 验证通过：修改 bins 8-11 不影响 bins 0-7（diff=0.0）
+- AR/TF R² ratio = 1.0000
+
+### Phase 1.3 预测窗口实验（进行中）
+
+- 250ms 训练完成中（~epoch 140/300, R²≈0.26）
+- 已创建 500ms、1000ms 配置文件
+- 待 250ms 完成后依次启动
+
+**遇到的问题与解决**：
+1. pad8 vs pad2d 维度不匹配 → 改用 pad/track_mask
+2. PyTorch 2.6 weights_only=True 默认 → 添加 weights_only=False
+3. InfiniteVocabEmbedding LazyModule → 先初始化 vocab 再计数参数
+4. checkpoint 加载后 vocab 已初始化 → 跳过 initialize_vocab

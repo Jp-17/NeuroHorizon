@@ -45,7 +45,7 @@ results/
 
 ---
 
-## Perich-Miller 数据集探索结果
+## Phase 0.2 数据探索结果
 
 ### 01_dataset_overview.png
 
@@ -156,7 +156,7 @@ results/
 
 - **存储路径**：`results/logs/phase1_small_250ms/`
 - **产生时间**：2026-03-02
-- **产生方式**：`examples/neurohorizon/train.py`，inline args（epochs=300, batch_size=64, precision=bf16-mixed）
+- **产生方式**：`examples/neurohorizon/train.py --config-name=train_small
 - **实验目的**：验证 NeuroHorizon 模型在 250ms 预测窗口下的基本训练收敛性
 - **实验配置**：
   - 模型：NeuroHorizon Small（dim=128, enc_depth=6, dec_depth=2, 12 time bins）
@@ -173,7 +173,7 @@ results/
 
 - **存储路径**：`results/logs/phase1_small_250ms/ar_verify_results.json`
 - **产生时间**：2026-03-02
-- **产生方式**：`/tmp/nh_ar_verify.py`（验证脚本）
+- **产生方式**：`scripts/analysis/neurohorizon/ar_verify.py`（验证脚本）
 - **实验目的**：验证 causal mask 正确性，对比 TF 与 AR 推理一致性
 - **主要结果**：
   - TF vs AR max diff：**3e-6**（数值精度级别，完全一致）

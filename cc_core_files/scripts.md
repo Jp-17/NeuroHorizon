@@ -2,6 +2,7 @@
 
 > 记录项目中所有脚本（数据处理 / 分析 / 项目运行 / 测试等）的信息。
 > 每新建一个脚本，必须在此处更新记录。
+> **按 Phase + task_num 顺序排列**，便于追溯。
 
 ---
 
@@ -25,10 +26,20 @@
 
 ---
 
-## 脚本列表
+## POYO 框架原有脚本
 
+### calculate_normalization_scales.py
 
-### perich_miller_pipeline.py
+- **路径**：scripts/calculate_normalization_scales.py
+- **功能用途**：计算数据集归一化参数（POYO 框架原有脚本）
+- **创建时间**：（POYO 框架原有）
+- **备注**：POYO 框架自带，非 NeuroHorizon 新增
+
+---
+
+## Phase 0：环境准备与基线复现
+
+### perich_miller_pipeline.py（0.2.1 数据准备）
 
 - **路径**：`scripts/data/perich_miller_pipeline.py`
 - **功能用途**：下载并处理 Perich-Miller Population 2018 数据集的子集（10 sessions）
@@ -38,7 +49,6 @@
 - **创建时间**：2026-02-28
 - **使用方式**：
   ```bash
-  # 激活 poyo 环境后运行
   conda activate poyo
   python -m brainsets.runner scripts/data/perich_miller_pipeline.py \
       --raw-dir=data/raw --processed-dir=data/processed -c4
@@ -53,22 +63,7 @@
   - 如需下载更多 sessions，修改 `SELECTED_PATHS` 集合或直接用 `brainsets prepare`
   - 运行需要 `brainsets` 配置（`~/.brainsets.yaml`）或通过 `--raw-dir/--processed-dir` 覆盖
 
----
-
-
-
----
-
-## 现有脚本（POYO 框架原有）
-
-### calculate_normalization_scales.py
-
-- **路径**：scripts/calculate_normalization_scales.py
-- **功能用途**：计算数据集归一化参数（POYO 框架原有脚本）
-- **创建时间**：（POYO 框架原有）
-- **备注**：POYO 框架自带，非 NeuroHorizon 新增
-
-### explore_brainsets.py
+### explore_brainsets.py（0.2.3 数据探索）
 
 - **路径**：`scripts/analysis/explore_brainsets.py`
 - **功能用途**：Perich-Miller 2018 数据集深度探索分析
@@ -92,12 +87,26 @@
 - **依赖**：poyo conda 环境（temporaldata, h5py, matplotlib, numpy）
 - **备注**：对应 plan.md 任务 0.2.3
 
+### analyze_latents.py（0.3.2 Latent 质量分析）
+
+- **路径**：`scripts/analysis/analyze_latents.py`
+- **功能用途**：POYO encoder latent 提取 + PCA 可视化 + 线性探针评估
+- **创建时间**：2026-02-28
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/analyze_latents.py
+  ```
+- **输出**：`results/figures/baseline/`
+- **依赖**：poyo conda 环境
+- **备注**：对应 plan.md 任务 0.3.2
 
 ---
 
-## NeuroHorizon 脚本
+## Phase 1：自回归改造验证 + 长时程生成验证
 
-### train.py (NeuroHorizon)
+### train.py — NeuroHorizon 训练脚本（1.1.6）
 
 - **路径**：`examples/neurohorizon/train.py`
 - **功能用途**：NeuroHorizon 模型训练（PyTorch Lightning + Hydra 配置）
@@ -109,102 +118,25 @@
   ```bash
   conda activate poyo
   cd /root/autodl-tmp/NeuroHorizon
-  python examples/neurohorizon/train.py --config-name=train_small_250ms
+  # 250ms（默认）
+  python examples/neurohorizon/train.py --config-name=train_small
+  # 500ms
+  python examples/neurohorizon/train.py --config-name=train_small_500ms
+  # 1000ms AR
+  python examples/neurohorizon/train.py --config-name=train_small_1000ms
+  # 1000ms non-AR
+  python examples/neurohorizon/train.py --config-name=train_small_1000ms_noar
   ```
 - **配置文件**：
-  - `examples/neurohorizon/configs/train_small.yaml` — Small 配置基础版
-  - `examples/neurohorizon/configs/train_small_250ms.yaml` — 250ms 预测窗口
-  - `examples/neurohorizon/configs/train_small_500ms.yaml` — 500ms 预测窗口
-  - `examples/neurohorizon/configs/train_small_1000ms.yaml` — 1000ms 预测窗口
-  - `examples/neurohorizon/configs/train_small_1000ms_noar.yaml` — 1000ms 非自回归对照
+  - `examples/neurohorizon/configs/train_small.yaml` — Small 配置（250ms，12 bins）
+  - `examples/neurohorizon/configs/train_small_500ms.yaml` — 500ms（25 bins）
+  - `examples/neurohorizon/configs/train_small_1000ms.yaml` — 1000ms AR（50 bins）
+  - `examples/neurohorizon/configs/train_small_1000ms_noar.yaml` — 1000ms non-AR 对照
 - **输出**：`results/logs/phase1_small_*/`（训练日志 + 检查点）
 - **依赖**：poyo conda 环境（PyTorch, PyTorch Lightning, Hydra, wandb）
 - **备注**：对应 plan.md 任务 1.1.6
 
-### analyze_latents.py
-
-- **路径**：`scripts/analysis/analyze_latents.py`
-- **功能用途**：POYO encoder latent 提取 + PCA 可视化 + 线性探针评估
-- **创建时间**：2026-02-28
-- **使用方式**：
-  ```bash
-  conda activate poyo
-  python scripts/analysis/analyze_latents.py
-  ```
-- **输出**：`results/figures/baseline/`
-- **依赖**：poyo conda 环境
-- **备注**：对应 plan.md 任务 0.3.2
-
-### ar_verify.py
-
-- **路径**：`scripts/analysis/neurohorizon/ar_verify.py`
-- **功能用途**：AR 推理验证（Teacher Forcing vs Autoregressive 对比 + causal mask 检验）
-  - 加载训练好的模型，同一数据分别用 TF 和 AR 推理
-  - 逐 bin 对比 R² 和 NLL，验证两者等价性
-  - 检验 causal mask 正确阻止未来信息泄露
-- **创建时间**：2026-03-02
-- **使用方式**：
-  ```bash
-  conda activate poyo
-  python scripts/analysis/neurohorizon/ar_verify.py
-  ```
-- **输出**：`results/logs/phase1_small_250ms/ar_verify_results.json`
-- **依赖**：poyo conda 环境
-- **备注**：对应 plan.md 任务 1.2.2；从 `/tmp/nh_ar_verify.py` 迁移
-
-### noise_floor.py
-
-- **路径**：`scripts/analysis/neurohorizon/noise_floor.py`
-- **功能用途**：Poisson noise floor 分析
-  - 计算 spike count 数据的理论 Poisson noise floor
-  - 评估模型性能相对 noise floor 的位置
-- **创建时间**：2026-03-02
-- **使用方式**：
-  ```bash
-  conda activate poyo
-  python scripts/analysis/neurohorizon/noise_floor.py
-  ```
-- **依赖**：poyo conda 环境
-- **备注**：从 `/tmp/nh_noise_floor.py` 迁移
-
-### full_report.py
-
-- **路径**：`scripts/analysis/neurohorizon/full_report.py`
-- **功能用途**：完整实验报告生成
-  - 遍历所有 Phase 1 实验的 TensorBoard 日志
-  - 提取每个实验的 val_loss、R² 随 epoch 变化的完整数据
-  - 输出 JSON 格式的完整报告
-- **创建时间**：2026-03-02
-- **使用方式**：
-  ```bash
-  conda activate poyo
-  python scripts/analysis/neurohorizon/full_report.py
-  ```
-- **输出**：`results/logs/phase1_full_report.json`
-- **依赖**：poyo conda 环境（tensorboard）
-- **备注**：从 `/tmp/nh_full_report.py` 迁移
-
-### summary.py
-
-- **路径**：`scripts/analysis/neurohorizon/summary.py`
-- **功能用途**：快速实验汇总
-  - 提取各实验的关键指标（best R²、best epoch、final val loss）
-  - 输出简洁的 JSON 汇总
-- **创建时间**：2026-03-02
-- **使用方式**：
-  ```bash
-  conda activate poyo
-  python scripts/analysis/neurohorizon/summary.py
-  ```
-- **输出**：`results/logs/phase1_summary.json`
-- **依赖**：poyo conda 环境（tensorboard）
-- **备注**：从 `/tmp/nh_summary.py` 迁移
-
----
-
-## 测试脚本
-
-### test_causal_mask.py
+### test_causal_mask.py（1.1.3 单元测试）
 
 - **路径**：`scripts/tests/test_causal_mask.py`
 - **功能用途**：Causal mask 单元测试
@@ -214,12 +146,13 @@
 - **使用方式**：
   ```bash
   conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
   python scripts/tests/test_causal_mask.py
   ```
 - **依赖**：poyo conda 环境
 - **备注**：对应 plan.md 任务 1.1.3；从 `/tmp/neurohorizon_test_causal.py` 迁移
 
-### test_decoder.py
+### test_decoder.py（1.1.4 单元测试）
 
 - **路径**：`scripts/tests/test_decoder.py`
 - **功能用途**：Decoder 单元测试
@@ -229,12 +162,13 @@
 - **使用方式**：
   ```bash
   conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
   python scripts/tests/test_decoder.py
   ```
 - **依赖**：poyo conda 环境
 - **备注**：对应 plan.md 任务 1.1.4；从 `/tmp/neurohorizon_test_decoder.py` 迁移
 
-### test_model.py
+### test_model.py（1.1.5 端到端测试）
 
 - **路径**：`scripts/tests/test_model.py`
 - **功能用途**：模型端到端测试
@@ -245,7 +179,77 @@
 - **使用方式**：
   ```bash
   conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
   python scripts/tests/test_model.py
   ```
 - **依赖**：poyo conda 环境
 - **备注**：对应 plan.md 任务 1.1.5；从 `/tmp/neurohorizon_test_model.py` 迁移
+
+### ar_verify.py（1.2.2 AR 推理验证）
+
+- **路径**：`scripts/analysis/neurohorizon/ar_verify.py`
+- **功能用途**：AR 推理验证（Teacher Forcing vs Autoregressive 对比 + causal mask 检验）
+  - 加载训练好的模型，同一数据分别用 TF 和 AR 推理
+  - 逐 bin 对比 R² 和 NLL，验证两者等价性
+  - 检验 causal mask 正确阻止未来信息泄露
+- **创建时间**：2026-03-02
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/neurohorizon/ar_verify.py
+  ```
+- **输出**：`results/logs/phase1_small_250ms/ar_verify_results.json`
+- **依赖**：poyo conda 环境
+- **备注**：对应 plan.md 任务 1.2.2；从 `/tmp/nh_ar_verify.py` 迁移
+
+### full_report.py（1.3.4 实验报告生成）
+
+- **路径**：`scripts/analysis/neurohorizon/full_report.py`
+- **功能用途**：完整实验报告生成
+  - 遍历所有 Phase 1 实验的 TensorBoard 日志
+  - 提取每个实验的 val_loss、R² 随 epoch 变化的完整数据
+  - 输出 JSON 格式的完整报告
+- **创建时间**：2026-03-02
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/neurohorizon/full_report.py
+  ```
+- **输出**：`results/logs/phase1_full_report.json`
+- **依赖**：poyo conda 环境（tensorboard）
+- **备注**：对应 plan.md 任务 1.3.4；从 `/tmp/nh_full_report.py` 迁移
+
+### summary.py（1.3.4 快速汇总）
+
+- **路径**：`scripts/analysis/neurohorizon/summary.py`
+- **功能用途**：快速实验汇总
+  - 提取各实验的关键指标（best R²、best epoch、final val loss）
+  - 输出简洁的 JSON 汇总
+- **创建时间**：2026-03-02
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/neurohorizon/summary.py
+  ```
+- **输出**：`results/logs/phase1_summary.json`
+- **依赖**：poyo conda 环境（tensorboard）
+- **备注**：对应 plan.md 任务 1.3.4；从 `/tmp/nh_summary.py` 迁移
+
+### noise_floor.py（1.3.4 Noise floor 分析）
+
+- **路径**：`scripts/analysis/neurohorizon/noise_floor.py`
+- **功能用途**：Poisson noise floor 分析
+  - 计算 spike count 数据的理论 Poisson noise floor
+  - 评估模型性能相对 noise floor 的位置
+- **创建时间**：2026-03-02
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/neurohorizon/noise_floor.py
+  ```
+- **依赖**：poyo conda 环境
+- **备注**：对应 plan.md 任务 1.3.4；从 `/tmp/nh_noise_floor.py` 迁移
