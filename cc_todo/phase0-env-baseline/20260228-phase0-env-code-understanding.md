@@ -408,7 +408,7 @@ def create_causal_mask(seq_len: int, device) -> Tensor["seq_len seq_len"]:
 
 #### 4. 新建 `torch_brain/nn/autoregressive_decoder.py`
 
-**核心设计**（方案 D，参考 proposal_review.md 第四节）：
+**核心设计**（方案 D，参考 proposal_review.md §二 Phase 1 执行参考 §2.5）：
 - 输入：`bin_queries [B, T, dim//2]` + `unit_embs [B, N, dim//2]` + `encoder_latents [B, L, dim]`
 - concat → `[B, T*N, dim]` → cross-attn(encoder_latents) + causal self-attn（时间维度因果）+ FFN
 - 注意：causal mask 需要在 T 维度上应用，N 维度全连接（mask shape = `(T*N, T*N)` 的块对角形式）
@@ -445,7 +445,7 @@ T=3, N=2 时：每个时间步包含 N 个 neuron token，因此 causal mask 以
 - `dim=128`, `depth=2`, `cross_heads=1`, `self_heads=4`, `latent_step=0.05`
 - Base 配置：`dim=512`, `depth=4`, `cross_heads=2`, `self_heads=8`
 
-**重要**：Base 配置 `cross_heads=2`（非 4），参见 proposal_review.md 勘误。
+**重要**：Base 配置 `cross_heads=2`（非 4），参见 proposal_review.md 附录 B.4（已验证的代码细节）。
 
 #### 7. 新建 `torch_brain/utils/neurohorizon_metrics.py`
 
