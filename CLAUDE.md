@@ -30,6 +30,7 @@
 | 脚本记录 | cc_core_files/scripts.md | 所有脚本的功能、使用方式、存储位置 |
 | 数据记录 | cc_core_files/data.md | 数据集的处理信息、位置、字段含义 |
 | 结果记录 | cc_core_files/results.md | 实验结果说明（产生方式、目的、分析） |
+| 知识库 | cc_core_files/knowledge.md | 核心概念、技术讨论与设计决策的深度分析 |
 | 任务完成记录 | cc_todo/{phase-folder}/ | 各阶段任务执行的详情记录（做了什么、结果、问题等） |
 | 工作进展 | progress.md | 每次任务的执行记录和问题沉淀 |
 
