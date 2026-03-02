@@ -60,17 +60,17 @@ results/
 
 - **逐子图解读**（2x3 布局）：
 
-  **子图 (0,0) Session Duration by Subject**：各 session 录制时长柱状图，按 subject 着色。C 录制 22-34 分钟，J 15-22 分钟，M 28-35 分钟。所有 session 录制时长充足，满足训练数据需求。
+  - **子图 (0,0) Session Duration by Subject**：各 session 录制时长柱状图，按 subject 着色。C 录制 22-34 分钟，J 15-22 分钟，M 28-35 分钟。所有 session 录制时长充足，满足训练数据需求。
 
-  **子图 (0,1) Unit Count Distribution**：各 session 神经元数量柱状图。C: 41-71 units/session，J: 18-38 units（最少），M: 37-49 units。J 的 unit 数最少，解释了后续基线训练中 J sessions R² 偏低的原因。
+  - **子图 (0,1) Unit Count Distribution**：各 session 神经元数量柱状图。C: 41-71 units/session，J: 18-38 units（最少），M: 37-49 units。J 的 unit 数最少，解释了后续基线训练中 J sessions R² 偏低的原因。
 
-  **子图 (0,2) Valid Trials per Session**：各 session 有效 trial 数。多数 session 有 100-200+ 个有效 trial，足够划分 train/val/test 集。
+  - **子图 (0,2) Valid Trials per Session**：各 session 有效 trial 数。多数 session 有 100-200+ 个有效 trial，足够划分 train/val/test 集。
 
-  **子图 (1,0) Per-Unit Firing Rate Distribution**：407 个 unit 的平均发放率直方图。中位数 3.5 Hz，均值 6.9 Hz，呈右偏分布，符合皮层神经元的典型特征。
+  - **子图 (1,0) Per-Unit Firing Rate Distribution**：407 个 unit 的平均发放率直方图。中位数 3.5 Hz，均值 6.9 Hz，呈右偏分布，符合皮层神经元的典型特征。
 
-  **子图 (1,1) Hold Period Duration (Input Window)**：hold period 时长分布。均值 676ms，87% trials > 250ms，确认 250ms 输入窗口对大部分 trial 可行。
+  - **子图 (1,1) Hold Period Duration (Input Window)**：hold period 时长分布。均值 676ms，87% trials > 250ms，确认 250ms 输入窗口对大部分 trial 可行。
 
-  **子图 (1,2) Reach Period Duration (Prediction Window)**：reach period 时长分布。均值 1090ms，100% > 250ms，100% > 500ms，75% > 1000ms，验证了三种预测窗口长度均可行。
+  - **子图 (1,2) Reach Period Duration (Prediction Window)**：reach period 时长分布。均值 1090ms，100% > 250ms，100% > 500ms，75% > 1000ms，验证了三种预测窗口长度均可行。
 
 - **交叉引用**：
   - 脚本：`scripts/analysis/explore_brainsets.py`
@@ -93,17 +93,17 @@ results/
 
 - **逐子图解读**（2x3 布局）：
 
-  **子图 (0,0) Spike Count Distribution by Bin Width**：分别以 10ms/20ms/50ms bin 宽统计 spike count 分布。20ms bin 下 87.6% 为零，均值 0.133 spikes/bin；50ms bin 下均值升至 约0.33，零比例降低。说明 20ms bin 下数据极度稀疏，Poisson NLL 是合适的损失函数。
+  - **子图 (0,0) Spike Count Distribution by Bin Width**：分别以 10ms/20ms/50ms bin 宽统计 spike count 分布。20ms bin 下 87.6% 为零，均值 0.133 spikes/bin；50ms bin 下均值升至 约0.33，零比例降低。说明 20ms bin 下数据极度稀疏，Poisson NLL 是合适的损失函数。
 
-  **子图 (0,1) Population PSTH Aligned to Go Cue**：10 个 session 的群体 PSTH（时间对齐至 go cue，time=0）。所有 session 在 go cue 处显示明显的发放率调制，hold period 内存在稳定的预运动活动，为 encoder 提供有效上下文。
+  - **子图 (0,1) Population PSTH Aligned to Go Cue**：10 个 session 的群体 PSTH（时间对齐至 go cue，time=0）。所有 session 在 go cue 处显示明显的发放率调制，hold period 内存在稳定的预运动活动，为 encoder 提供有效上下文。
 
-  **子图 (0,2) Average Firing Rate per Session**：各 session 平均发放率水平柱状图。群体水平发放率从 约4 到 约11 Hz/unit 不等，发放率越高的 session 可能预测效果越好。
+  - **子图 (0,2) Average Firing Rate per Session**：各 session 平均发放率水平柱状图。群体水平发放率从 约4 到 约11 Hz/unit 不等，发放率越高的 session 可能预测效果越好。
 
-  **子图 (1,0) Mean-Variance Relationship (Poisson check)**：各 unit 的 50ms bin 下 mean vs variance 散点图。数据点聚集在 var=mean 的 Poisson 参考线附近，确认 Poisson 分布假设成立，验证了 PoissonNLLLoss 的适用性。
+  - **子图 (1,0) Mean-Variance Relationship (Poisson check)**：各 unit 的 50ms bin 下 mean vs variance 散点图。数据点聚集在 var=mean 的 Poisson 参考线附近，确认 Poisson 分布假设成立，验证了 PoissonNLLLoss 的适用性。
 
-  **子图 (1,1) Raster Plot**：示例 session（c_20131003）的 5 个 unit、10 个 trial 的 raster plot。展示了围绕 go cue 的 spike timing 模式，可见清晰的时序结构。
+  - **子图 (1,1) Raster Plot**：示例 session（c_20131003）的 5 个 unit、10 个 trial 的 raster plot。展示了围绕 go cue 的 spike timing 模式，可见清晰的时序结构。
 
-  **子图 (1,2) Autoregressive Window Feasibility**：汇总表格，列出 250ms/500ms/1000ms 三种预测窗口对应的 bins 数和 trial 可行比例（分别为 87%/100%/75%），直观展示各窗口长度的可行性。
+  - **子图 (1,2) Autoregressive Window Feasibility**：汇总表格，列出 250ms/500ms/1000ms 三种预测窗口对应的 bins 数和 trial 可行比例（分别为 87%/100%/75%），直观展示各窗口长度的可行性。
 
 - **交叉引用**：
   - 脚本：`scripts/analysis/explore_brainsets.py`
@@ -186,7 +186,7 @@ results/
 
 - **latent_pca.png 子图解读**（单图）：
 
-  **PCA 2D 散点图**：横轴 PC1（53.8% 方差），纵轴 PC2（7.4%）。每个点代表一个 1s 时间窗口的 mean-pooled latent，按 session 着色。各 session 形成部分重叠但可区分的 cluster。PC1 的高方差占比说明 encoder 学到了一个强主特征（可能对应运动方向或运动强度）。Session 间的 clustering 表明 latent 空间存在 session-specific 表征，这正是 Phase 2 引入 IDEncoder 的动机：使跨 session 的 latent 表征更加统一。
+  - **PCA 2D 散点图**：横轴 PC1（53.8% 方差），纵轴 PC2（7.4%）。每个点代表一个 1s 时间窗口的 mean-pooled latent，按 session 着色。各 session 形成部分重叠但可区分的 cluster。PC1 的高方差占比说明 encoder 学到了一个强主特征（可能对应运动方向或运动强度）。Session 间的 clustering 表明 latent 空间存在 session-specific 表征，这正是 Phase 2 引入 IDEncoder 的动机：使跨 session 的 latent 表征更加统一。
 
 - **交叉引用**：
   - 脚本：`scripts/analysis/analyze_latents.py`
@@ -204,13 +204,13 @@ results/
 
 - **逐子图解读**（2x2 布局）：
 
-  **子图 (0,0) Training & Validation Loss vs Epoch**：训练/验证损失随 epoch 变化。训练损失平稳下降，验证损失在 epoch 约100 后趋于平稳。Best epoch 429 处以垂直虚线标注。两条曲线间无明显 gap，说明模型未过拟合。
+  - **子图 (0,0) Training & Validation Loss vs Epoch**：训练/验证损失随 epoch 变化。训练损失平稳下降，验证损失在 epoch 约100 后趋于平稳。Best epoch 429 处以垂直虚线标注。两条曲线间无明显 gap，说明模型未过拟合。
 
-  **子图 (0,1) Average Validation R² vs Epoch**：10 sessions 平均 R² 曲线。从 epoch 9 的 0.321 快速上升至 epoch 89 的 0.784，随后缓慢增长至 epoch 429 的最佳值 0.807。红色虚线标注 Phase 0.3.1 验收阈值 R²=0.3（大幅超越）。收敛曲线表明模型在 epoch 约100 后进入精细优化阶段。
+  - **子图 (0,1) Average Validation R² vs Epoch**：10 sessions 平均 R² 曲线。从 epoch 9 的 0.321 快速上升至 epoch 89 的 0.784，随后缓慢增长至 epoch 429 的最佳值 0.807。红色虚线标注 Phase 0.3.1 验收阈值 R²=0.3（大幅超越）。收敛曲线表明模型在 epoch 约100 后进入精细优化阶段。
 
-  **子图 (1,0) Per-Session R² vs Epoch**：10 条曲线按 subject 着色（C=蓝, J=橙, M=绿）。C 和 M sessions 的 R² 在 0.85-0.92 区间，J sessions 明显偏低（0.57-0.76）。J 的低 R² 与其 unit 数最少（18-38）相关。所有 session 收敛轨迹一致，无异常波动。
+  - **子图 (1,0) Per-Session R² vs Epoch**：10 条曲线按 subject 着色（C=蓝, J=橙, M=绿）。C 和 M sessions 的 R² 在 0.85-0.92 区间，J sessions 明显偏低（0.57-0.76）。J 的低 R² 与其 unit 数最少（18-38）相关。所有 session 收敛轨迹一致，无异常波动。
 
-  **子图 (1,1) Per-Session R² Bar Chart (epoch 429)**：最佳 epoch 各 session R² 水平柱状图。m_20150610 最高（0.922），j_20160405 最低（0.569）。灰色虚线标注平均 R²=0.807。柱状图直观展示了跨 session 性能差异，为 Phase 2 跨 session 泛化提供基线参考。
+  - **子图 (1,1) Per-Session R² Bar Chart (epoch 429)**：最佳 epoch 各 session R² 水平柱状图。m_20150610 最高（0.922），j_20160405 最低（0.569）。灰色虚线标注平均 R²=0.807。柱状图直观展示了跨 session 性能差异，为 Phase 2 跨 session 泛化提供基线参考。
 
 - **交叉引用**：
   - 脚本：`scripts/analysis/phase0_baseline_plots.py`
@@ -312,9 +312,9 @@ results/
 
 - **逐子图解读**（1x2 布局）：
 
-  **左图（Val Loss vs Epoch）**：四条曲线展示验证损失随训练轮数的变化。所有实验在约 100 epochs 后收敛至 0.31–0.32 区间，收敛区间差异极小。250ms 和 500ms 实验收敛最快（约 80 epochs 进入平台期），1000ms 实验收敛稍慢但最终损失值与短窗口实验相当。说明 PoissonNLL 损失函数在不同窗口长度下表现一致，模型训练稳定。
+  - **左图（Val Loss vs Epoch）**：四条曲线展示验证损失随训练轮数的变化。所有实验在约 100 epochs 后收敛至 0.31–0.32 区间，收敛区间差异极小。250ms 和 500ms 实验收敛最快（约 80 epochs 进入平台期），1000ms 实验收敛稍慢但最终损失值与短窗口实验相当。说明 PoissonNLL 损失函数在不同窗口长度下表现一致，模型训练稳定。
 
-  **右图（R² vs Epoch）**：250ms AR 达到最高 R²=0.266（epoch 229），明显优于其他窗口。500ms AR 最高 R²=0.242（epoch 229），衰减约 9%。1000ms AR/non-AR 最高 R² 约 0.234–0.235，衰减趋势放缓。灰色参考线 R²=0.3 为 Phase 0 验收阈值——Phase 1 spike 预测任务难度更高（Poisson noise floor 限制），R² 在 0.24–0.27 区间合理。所有曲线在 epoch 120 后进入平台期。
+  - **右图（R² vs Epoch）**：250ms AR 达到最高 R²=0.266（epoch 229），明显优于其他窗口。500ms AR 最高 R²=0.242（epoch 229），衰减约 9%。1000ms AR/non-AR 最高 R² 约 0.234–0.235，衰减趋势放缓。灰色参考线 R²=0.3 为 Phase 0 验收阈值——Phase 1 spike 预测任务难度更高（Poisson noise floor 限制），R² 在 0.24–0.27 区间合理。所有曲线在 epoch 120 后进入平台期。
 
 - **交叉引用**：
   - 脚本：`scripts/analysis/neurohorizon/phase1_visualize.py`
@@ -333,9 +333,9 @@ results/
 
 - **逐子图解读**（1x2 布局）：
 
-  **左图（Best R² vs Prediction Window）**：3 个 AR 数据点（250ms=0.2658, 500ms=0.2417, 1000ms=0.2343）连线，展示 R² 随窗口增长的衰减趋势。250ms→0.500ms 衰减 -9.1%，500ms→1000ms 衰减 -3.1%，呈**亚线性衰减**模式——窗口翻倍但性能衰减放缓。1000ms non-AR（方块标记，R²=0.2354）与 AR 几乎重合，验证了 causal mask 对当前架构影响可忽略。
+  - **左图（Best R² vs Prediction Window）**：3 个 AR 数据点（250ms=0.2658, 500ms=0.2417, 1000ms=0.2343）连线，展示 R² 随窗口增长的衰减趋势。250ms→0.500ms 衰减 -9.1%，500ms→1000ms 衰减 -3.1%，呈**亚线性衰减**模式——窗口翻倍但性能衰减放缓。1000ms non-AR（方块标记，R²=0.2354）与 AR 几乎重合，验证了 causal mask 对当前架构影响可忽略。
 
-  **右图（Final Val Loss vs Prediction Window）**：三种窗口的最终验证损失均在 0.312–0.316 区间，差异极小。说明模型在不同窗口长度下的损失收敛一致，性能差异主要体现在 R² 指标上（R² 对预测精度更敏感）。
+  - **右图（Final Val Loss vs Prediction Window）**：三种窗口的最终验证损失均在 0.312–0.316 区间，差异极小。说明模型在不同窗口长度下的损失收敛一致，性能差异主要体现在 R² 指标上（R² 对预测精度更敏感）。
 
 - **交叉引用**：
   - 脚本：`scripts/analysis/neurohorizon/phase1_visualize.py`
@@ -352,9 +352,9 @@ results/
 
 - **逐子图解读**（1x2 布局）：
 
-  **左图（Per-Bin R² Bar Chart）**：12 个 bin 的 R² 柱状图，颜色从蓝（早期 bin）渐变到红（晚期 bin）。R² 值在 0.168–0.347 间波动，均值 0.263。Bin 0（0–20ms）R²=0.347 最高，bin 9（180–200ms）R²=0.169 最低。R² 并非单调递减，而是呈波动模式——说明预测难度与时间位置相关，但不严格随距离增大而增大（因为使用固定位置编码，每个 bin 独立预测）。
+  - **左图（Per-Bin R² Bar Chart）**：12 个 bin 的 R² 柱状图，颜色从蓝（早期 bin）渐变到红（晚期 bin）。R² 值在 0.168–0.347 间波动，均值 0.263。Bin 0（0–20ms）R²=0.347 最高，bin 9（180–200ms）R²=0.169 最低。R² 并非单调递减，而是呈波动模式——说明预测难度与时间位置相关，但不严格随距离增大而增大（因为使用固定位置编码，每个 bin 独立预测）。
 
-  **右图（Per-Bin Poisson NLL Bar Chart）**：12 个 bin 的 Poisson NLL 柱状图。NLL 值在 0.265–0.388 间波动，均值约 0.305。最后一个 bin（bin 11, 220–240ms）NLL=0.388 最高（预测最难）。NLL 的分布与 R² 大体互补——NLL 高的 bin 通常 R² 低。
+  - **右图（Per-Bin Poisson NLL Bar Chart）**：12 个 bin 的 Poisson NLL 柱状图。NLL 值在 0.265–0.388 间波动，均值约 0.305。最后一个 bin（bin 11, 220–240ms）NLL=0.388 最高（预测最难）。NLL 的分布与 R² 大体互补——NLL 高的 bin 通常 R² 低。
 
 - **交叉引用**：
   - 脚本：`scripts/analysis/neurohorizon/phase1_visualize.py`
@@ -372,9 +372,9 @@ results/
 
 - **逐子图解读**（1x2 布局）：
 
-  **左图（R² Training Curves）**：1000ms AR（绿色实线）与 non-AR（红色虚线）的 R² 随 epoch 变化。两条曲线几乎完全重叠，灰色阴影区域展示两者差异区间，肉眼几乎不可见。non-AR 最佳 R²=0.2354（epoch 259），AR 最佳 R²=0.2343（epoch 299），差异仅 0.0011。说明 causal mask 在当前架构下对性能无实质影响。
+  - **左图（R² Training Curves）**：1000ms AR（绿色实线）与 non-AR（红色虚线）的 R² 随 epoch 变化。两条曲线几乎完全重叠，灰色阴影区域展示两者差异区间，肉眼几乎不可见。non-AR 最佳 R²=0.2354（epoch 259），AR 最佳 R²=0.2343（epoch 299），差异仅 0.0011。说明 causal mask 在当前架构下对性能无实质影响。
 
-  **右图（R² Difference）**：逐 epoch 的 R² 差值（non-AR − AR）柱状图。蓝色虚线标注平均差值。所有差值绝对值 < 0.002，在数值波动范围内。正/负差值交替出现，无系统性偏向。原因分析：当前 decoder 使用固定位置编码作为 query（而非前步输出），使 TF 和 AR 推理数学等价，causal mask 仅限制 self-attention 信息流但 cross-attention 仍提供完整编码器上下文。
+  - **右图（R² Difference）**：逐 epoch 的 R² 差值（non-AR − AR）柱状图。蓝色虚线标注平均差值。所有差值绝对值 < 0.002，在数值波动范围内。正/负差值交替出现，无系统性偏向。原因分析：当前 decoder 使用固定位置编码作为 query（而非前步输出），使 TF 和 AR 推理数学等价，causal mask 仅限制 self-attention 信息流但 cross-attention 仍提供完整编码器上下文。
 
 - **交叉引用**：
   - 脚本：`scripts/analysis/neurohorizon/phase1_visualize.py`
