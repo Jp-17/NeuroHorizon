@@ -169,7 +169,7 @@ def forward(self, *, input_unit_index, input_timestamps, input_token_type, input
 
 **POYO 与 POYOPlus 的关键差异**：
 - **输出查询构建**：POYO 版本中无 `task_emb`，output_queries 仅由 `session_emb` 构成
-- **���出层**：POYO 使用 `nn.Linear` 直接投影；POYOPlus 使用 `MultitaskReadout` 按 `readout_index` 分发到不同 Linear 层
+- **输出层**：POYO 使用 `nn.Linear` 直接投影；POYOPlus 使用 `MultitaskReadout` 按 `readout_index` 分发到不同 Linear 层
 - **返回值**：POYO 返回 `Tensor` 或 `List[Tensor]`（取决于 `unpack_output`）；POYOPlus 返回 `Tuple[List[Dict[str, Tensor]]]`（每个样本的每个任务的预测字典）
 
 **Variable-Length Forward**：所有 attention 模块均实现了 `forward_varlen()` 方法，支持将变长序列 chain 后通过 xformers 的 `BlockDiagonalMask` 高效处理，减少 padding 计算浪费。

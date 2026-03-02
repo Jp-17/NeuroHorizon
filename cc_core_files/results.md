@@ -140,7 +140,7 @@ results/
   | 汇总文件 | `results/figures/baseline/latent_analysis_summary.json` |
 
 - **结果分析**：
-  - PC1 占 53.8% 方差，说�� latent 空间具有强主成分结构，并非随机——encoder 学到了系统性的神经活动特征
+  - PC1 占 53.8% 方差，说明 latent 空间具有强主成分结构，并非随机——encoder 学到了系统性的神经活动特征
   - Linear probe R²=0.286 是从**均值池化的窗口 latent**预测 cursor velocity 的结果，显著低于模型的 R²=0.807
     - 原因：均值池化丢失了时序信息；decoder 使用的是每时间步的 per-latent 特征
     - 意义：latent 空间编码的并非简单的运动方向信息，而是包含了复杂的时序模式
@@ -222,6 +222,6 @@ results/
 1. **当前 causal mask 设计可保留但不是关键**：后续 Phase 如需减少计算开销，可安全移除
 2. **预测窗口推荐**：Phase 2/3 实验建议使用 **500ms** 作为主窗口（R² 衰减温和，计算开销适中）
 3. **模型改进方向**：要提升长时程预测质量，应考虑：
-   - 真正的自回归生成（decoder query 使用前步��出而非固定位置编码）
+   - 真正的自回归生成（decoder query 使用前步输出而非固定位置编码）
    - 更大的模型规模（从 Small 升级到 Base）
    - 更多训练数据（增加 sessions 数量）

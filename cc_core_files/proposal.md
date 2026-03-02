@@ -385,7 +385,7 @@ DINOv2 为冻结的预训练视觉模型（ViT-B），仅训练线性投影层�
 ### 6.4 评估指标
 
 - **spike count 预测**：Poisson log-likelihood、PSTH correlation（trial-averaged）、$R^2$
-- **行为解���**（下游任务）：$R^2$、velocity MSE
+- **行为解码**（下游任务）：$R^2$、velocity MSE
 - **跨session泛化**：gradient-free 性能 vs per-session fine-tuning upperbound
 - **多模态贡献**：$\Delta_m$ 和条件分解 $\Delta_m(v)$
 

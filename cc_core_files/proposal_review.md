@@ -1154,7 +1154,7 @@ def compute_conditional_delta_m(model, test_data, modality, condition_var):
 | 自回归 50 步误差累积 | 1 | 高 | 高 | Scheduled sampling；并行预测作为 ablation；可选 coarse-to-fine 策略（先 100ms bin 预测粗粒度，再 20ms bin 细化） |
 | causal mask 维度错误 | 1 | 中 | 高 | 单元测试：修改 t+1 输入，验证 t 输出不变 |
 | Poisson NLL 数值不稳定 | 1 | 中 | 中 | log_rate clamp(-10, 10)；监控梯度范数 |
-| IDEncoder 输入表示能力不足 | 2 | 中 | 中 | 方案 A/B 对比；���加参考窗口长度；混合方案 |
+| IDEncoder 输入表示能力不足 | 2 | 中 | 中 | 方案 A/B 对比；增加参考窗口长度；混合方案 |
 | 跨数据集格式不统一 | 3 | 高 | 高 | 统一数据格式规范（§4.1）；早期集成测试 |
 | IBL 数据适配工作量低估 | 2/3 | 高 | 中 | 预留额外 1 周；优先 Brainsets 验证 |
 | 4090 显存不足（T×N×dim） | 1-4 | 中 | 高 | gradient checkpointing；BF16；Small 配置先行 |

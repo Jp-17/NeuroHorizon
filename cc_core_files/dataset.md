@@ -28,7 +28,7 @@
 | **Brainsets 原生（4+1集）** | 猕猴，运动皮层 | 100+ sessions（Perich-Miller 最多：~70+） | brainsets API，零配置 | 阶段一：自回归改造验证 + 长时程生成验证；阶段二：跨 session 初期测试；阶段三：scaling 初期测试 | **阶段一～三** |
 | **IBL Brain-wide Map** | 小鼠，全脑 241 脑区 | 459 sessions，12 labs | ONE API（AWS 公开） | 阶段二可选扩展：跨 session 大规模泛化；阶段三可选扩展：大规模 scaling law | **阶段二可选 / 阶段三可选** |
 | **Allen Visual Coding Neuropixels** | 小鼠，视觉皮层 8 个区 | 58 sessions | AllenSDK（AWS 公开） | 阶段四：多模态（neural + 视觉图像）融合实验 | **阶段四** |
-| **FALCON Benchmark** | 猕猴/人，运动皮层 | 多 sub-task，跨日记录 | ���方 challenge API | 标准化跨 session 泛化 benchmark 验证（可选补充） | **补充/可选** |
+| **FALCON Benchmark** | 猕猴/人，运动皮层 | 多 sub-task，跨日记录 | 官方 challenge API | 标准化跨 session 泛化 benchmark 验证（可选补充） | **补充/可选** |
 | **NLB 完整版** | 猕猴，多脑区 | 5 个子数据集 | nlb_tools / brainsets | 与社区 benchmark 对比，标准化评估（可选） | **补充/可选** |
 
 > **已排除**：Allen Visual Coding Ophys 2016（钙成像，非 spike 数据，与 NeuroHorizon 输入不兼容）；Kemp Sleep（与项目目标无关）。
@@ -162,7 +162,7 @@
   - 提供**标准化 train/val/test 分割**，便于与社区方法对比
   - 包含多个脑区（M1、PMd、体感、前额叶），比其他 brainsets 子集脑区更多样
   - 可作为改造后模型的 sanity check：在 NLB 上同时验证自回归预测和行为解码性能
-- **定位**：主要作为 benchmark 验证��具，而非主要训练数据扩展
+- **定位**：主要作为 benchmark 验证工具，而非主要训练数据扩展
 
 ---
 
@@ -212,7 +212,7 @@
 
 **具体安排**：
 
-| 实验 | 使用数据 | 目��� |
+| 实验 | 使用数据 | 目的 |
 |------|---------|------|
 | 自回归改造功能验证 | Perich-Miller（选 5-10 个 session） | causal mask 正确、训练损失下降、预测 spike counts 合理 |
 | 预测窗口梯度测试 | Perich-Miller（10-20 sessions） | 从 250ms 起步，评估 500ms、1s 的预测质量，视结果决定后续重点窗口 |
