@@ -104,6 +104,25 @@
 
 ---
 
+
+### phase0_baseline_plots.py (0.3 可视化补充)
+
+- **路径**：`scripts/analysis/phase0_baseline_plots.py`
+- **功能用途**：POYO+ 基线训练过程可视化
+  - 解析 Lightning metrics.csv（处理混合行格式）
+  - 绘制 2x2 子图：Train/Val Loss、Average R²、Per-Session R² 曲线、Per-Session R² 柱状图
+- **创建时间**：2026-03-02
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/phase0_baseline_plots.py
+  ```
+- **输入**：`results/logs/phase0_baseline/lightning_logs/version_0/metrics.csv`
+- **输出**：`results/figures/baseline/03_baseline_training_curves.png`
+- **依赖**：poyo conda 环境（matplotlib, numpy）
+- **备注**：对应 plan.md 任务 0.3 可视化补充
+
 ## Phase 1：自回归改造验证 + 长时程生成验证
 
 ### train.py — NeuroHorizon 训练脚本（1.1.6）
@@ -253,3 +272,29 @@
   ```
 - **依赖**：poyo conda 环境
 - **备注**：对应 plan.md 任务 1.3.4；从 `/tmp/nh_noise_floor.py` 迁移
+### phase1_visualize.py (1.2/1.3 可视化补充)
+
+- **路径**：`scripts/analysis/neurohorizon/phase1_visualize.py`
+- **功能用途**：Phase 1 全部实验可视化（4 张图）
+  - 01: 4 组实验训练曲线（Val Loss + R² vs Epoch）
+  - 02: R² 随预测窗口长度衰减（+ AR vs non-AR 对比）
+  - 03: 逐 bin R² 和 NLL 分析（250ms，12 bins）
+  - 04: AR vs non-AR 详细对比（1000ms 窗口）
+- **创建时间**：2026-03-02
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/neurohorizon/phase1_visualize.py
+  ```
+- **输入**：
+  - `results/logs/phase1_full_report.json`
+  - `results/logs/phase1_small_250ms/ar_verify_results.json`
+- **输出**：
+  - `results/figures/phase1/01_training_curves.png`
+  - `results/figures/phase1/02_r2_vs_window.png`
+  - `results/figures/phase1/03_per_bin_r2.png`
+  - `results/figures/phase1/04_ar_vs_noar.png`
+- **依赖**：poyo conda 环境（matplotlib, numpy）
+- **备注**：对应 plan.md 任务 1.2/1.3 可视化补充
+
