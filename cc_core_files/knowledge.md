@@ -13,6 +13,7 @@
 4. [各阶段评估指标统一整理](#4-各阶段评估指标统一整理)
 5. [各阶段 Baseline 统一整理](#5-各阶段-baseline-统一整理)
 6. [数据组织考量](#6-数据组织考量)
+7. [结果呈现与 Figure 规划](#7-结果呈现与-figure-规划)
 
 ---
 
@@ -985,6 +986,322 @@ FALCON 专门评估跨 session 泛化，设计包括：
 4. **跨 session 训练时使用 session-balanced sampling**：避免大 session 主导训练，确保 IDEncoder 看到均衡的神经元组合
 5. **考虑向 NLB/FALCON 格式对齐**：如果后续计划在 benchmark 上评估，早期就按其格式组织数据可以减少后续工作量
 6. **注意 Allen 数据的特殊性**：Allen Visual Coding 是连续记录（非 trial-based），必须用 Scheme B（sliding window），且刺激时间对齐需要特殊处理
+
+---
+
+---
+
+## 7. 结果呈现与 Figure 规划
+
+### 7.1 主流 Spike Foundation Model 论文的结果呈现方式
+
+通过系统调研 NDT1/2/3、POYO/+、SPINT、Neuroformer、LFADS、MTM 共 9 篇核心论文，归纳出以下 figure 类型和呈现规律。
+
+#### 7.1.1 各论文 Figure 概览
+
+**NDT1**（Ye et al., 2021, 5 figures）：
+- Fig 1：架构示意 + firing rate 线图
+- Fig 4：predicted vs ground truth 线图对比（NDT vs AutoLFADS）；超参数扫描散点（likelihood vs R²）
+- Fig 5：trial-averaged inferred rates；2D 轨迹预测图；kinematic R² vs 训练集大小（data efficiency 曲线）
+
+**NDT2**（Ye et al., 2023, 5+ figures）：
+- Fig 3：Bar chart + SEM error bar——多预训练条件下 NLL 和 R² 对比
+- Fig 4：**Scaling curves**——R² 和 NLL vs 预训练数据量；pretrained vs from-scratch 收敛对比
+- Fig 5：Offline 解码对比（0-shot / supervised / from-scratch）；online BCI 到达时间对比
+
+**NDT3**（Ye et al., 2025, 5+ figures）：
+- Fig 1B：**Crossover line plot**——pretrained vs from-scratch 随数据量交叉（约 1.5h 处）
+- Fig 3：多尺度评估，**p-value heatmap**（FDR 校正的 pairwise t-test）；模型规模对比（45M vs 350M）
+- Fig 4：跨 session/subject 泛化失败分析；PCA-LDA 可视化
+- Fig 5：分布偏移鲁棒性（temporal / posture / spring load）的散点图 + 边际直方图
+
+**POYO**（Azabou et al., 2023, 5 figures）：
+- Fig 2：true vs predicted 轨迹叠加；scatter plot（单 session vs POYO-mp R²）
+- Fig 3：**Scaling curves**——R² vs 模型深度（L=6/14/26）和数据量
+- Fig 4：sample/compute efficiency 曲线（held-out session 和 new animal）
+- Fig 5：PCA of session embeddings（按数据来源和任务着色）
+
+**POYO+**（Azabou et al., 2025, 4+ figures）：
+- Fig 2：Scaling curve——性能 vs session 数
+- Fig 3：多任务收益 bar chart（POYO+ vs baselines）
+- Fig 4：**UMAP/PCA latent embeddings** 按 stimulus/Cre-line 着色；**confusion matrix**（脑区/细胞类型解码）；层次聚类树状图
+
+**SPINT**（Le et al., 2025, 4 figures）：
+- Fig 3：**Bar chart + error bar**——跨 session R² vs 校准 trial 数/训练天数/population 减少比例（FALCON M1/M2/H1）
+- Fig 4：消融实验 bar chart——位置编码策略和 dynamic channel dropout 贡献
+
+**Neuroformer**（Antoniades et al., 2024, 13 figures）：
+- Fig 2：**Raster plot**（predicted vs true spikes）+ 连接性热力图（attention-derived vs ground truth）
+- Fig 4：速度预测 scatter plot
+- Fig 5：Few-shot 学习曲线（pretrained vs non-pretrained）
+- Fig 6：Progressive ablation scatter——逐步添加组件后性能提升
+- Fig 9：连接性矩阵对比（attention vs partial correlation vs Granger causality vs ground truth）
+
+**LFADS**（Pandarinath et al., 2018, 6 figures）：
+- Fig 2：condition-averaged + single-trial rates 线图；**t-SNE** of initial conditions（按 target angle 着色）；kinematic trajectory 叠加；R² 对比
+- Fig 3：**jPCA** 旋转动力学可视化
+- Fig 4：44-session dynamic neural stitching——跨 session factor trajectory 一致性
+- Fig 5：推断输入（inferred inputs）捕捉 perturbation 时间和方向
+
+**MTM**（Multi-Task-Masking, 2024, 9 figures）：
+- Fig 2：trial-averaged raster map + scatter（bps 和 behavior decoding 对比）
+- Fig 4：**Scaling curves**——co-smoothing/forward prediction 等指标 vs 预训练 session 数
+- Fig 5：脑区级别 heatmap——choice accuracy 和 whisker motion 按脑区着色
+- Fig 7：单神经元分析 scatter——bps / PSTH R² / trial-average R² 按 firing rate 着色
+
+#### 7.1.2 跨论文通用 Figure 类型（出现频率排序）
+
+| 排名 | Figure 类型 | 出现论文数 | 代表示例 | 必要性 |
+|------|-----------|-----------|---------|--------|
+| 1 | 架构示意图 | **9/9** | 所有论文 Fig 1 | **必须** |
+| 2 | Bar chart + error bar（方法对比） | **7/9** | NDT2 Fig 3, SPINT Fig 3 | **必须** |
+| 3 | Scaling curves（线图） | **7/9** | NDT3 Fig 3, POYO Fig 3, MTM Fig 4 | **必须**（对 foundation model） |
+| 4 | Scatter plot（pairwise 方法对比） | **6/9** | NDT1 Fig 4b, MTM Fig 3 | **推荐** |
+| 5 | 预测 vs 真实轨迹叠加 | **5/9** | POYO Fig 2, LFADS Fig 2 | **推荐**（解码任务） |
+| 6 | Firing rate 时间序列线图 | **5/9** | NDT1 Fig 5a, LFADS Fig 2 | **推荐** |
+| 7 | Latent embedding 可视化（t-SNE/PCA/UMAP） | **4/9** | LFADS Fig 2, POYO+ Fig 4 | **推荐** |
+| 8 | Raster plot（spike activity） | **3/9** | LFADS Fig 1, Neuroformer Fig 2 | 可选 |
+| 9 | 消融实验 bar chart | **3/9** | SPINT Fig 4, Neuroformer Fig 6 | **推荐** |
+| 10 | 统计显著性矩阵/热力图 | **2/9** | NDT3 Fig 3E, POYO+ Fig 4B | 可选但加分 |
+| 11 | Few-shot / data efficiency 曲线 | **3/9** | NDT3 Fig 1B, Neuroformer Fig 5 | **推荐** |
+| 12 | Confusion matrix | **2/9** | POYO+ Fig 4F | 可选 |
+
+#### 7.1.3 论文中特别有效的可视化手法
+
+1. **NDT3 Crossover Plot（Fig 1B）**：一条简洁的线图，展示 pretrained 与 from-scratch 在约 1.5h 数据处交叉——直观传达 foundation model 的价值主张。NeuroHorizon 可借鉴此手法展示 IDEncoder 预训练 vs 从头训练的交叉点。
+
+2. **NDT3 p-value Heatmap（Fig 3E）**：FDR 校正的 pairwise t-test 热力图，比单纯的 error bar 更严谨。NeuroHorizon 在 Phase 5 论文中应考虑类似的统计检验矩阵。
+
+3. **POYO+ Confusion Matrix + Dendrogram（Fig 4）**：展示 latent space 自动捕获脑区和细胞类型层级结构——说明 representation 不仅能解码，还蕴含生物学语义。NeuroHorizon 在 Phase 4 可类比展示 latent 是否区分视觉/运动皮层。
+
+4. **Neuroformer 连接性推断（Fig 9）**：将 attention 权重与已知连接性对比——独特的可解释性分析。NeuroHorizon 可考虑类似的 attention pattern 分析。
+
+5. **LFADS jPCA 旋转动力学（Fig 3）**：在 jPCA 空间展示单 trial 动力学——计算神经科学领域的标志性可视化，适合 NeuroHorizon 的 latent dynamics 展示。
+
+6. **MTM 脑区级 Heatmap（Fig 5）**：按脑区着色的解码性能 scatter——NeuroHorizon Phase 4 的 Delta_m 条件分解可参考此风格。
+
+---
+
+### 7.2 NeuroHorizon 当前的 Figure 规划现状
+
+根据 proposal_review.md 和 plan.md 的梳理，当前各 Phase 已规划/隐含的分析输出如下：
+
+#### Phase 0（已完成）
+
+| 已规划 | 类型 | 状态 |
+|--------|------|------|
+| 数据集概览统计图 | Multi-panel（神经元数、trial 时长、发放率分布） | 已完成 |
+| 神经统计 + 自回归可行性图 | Multi-panel（spike count 分布、hold/reach 统计） | 已完成 |
+| Latent PCA 图 | PCA scatter | 已完成 |
+| **输出位置** | `results/figures/data_exploration/` | |
+
+#### Phase 1
+
+| 已规划 | 类型 | 来源 |
+|--------|------|------|
+| Poisson NLL 训练曲线 | Line plot（loss vs epoch） | proposal_review §二 |
+| Error Decay Curve | Line plot（PSTH correlation vs AR step） | proposal_review §二, plan 1.3.4 |
+| Spike count 分布验证 | Histogram（predicted vs GT） | proposal_review §二 |
+| 预测窗口性能衰减曲线 | Line plot（指标 vs 窗口长度 250/500/1000ms） | plan 1.3.4 |
+
+#### Phase 2
+
+| 已规划 | 类型 | 来源 |
+|--------|------|------|
+| IDEncoder embedding t-SNE/PCA | Scatter/cluster plot | proposal_review §三 |
+| Zero-shot R² 对比 | Bar chart（IDEncoder vs IVE lookup） | proposal_review §三 |
+
+#### Phase 3
+
+| 已规划 | 类型 | 来源 |
+|--------|------|------|
+| Scaling Curve | Line plot + error bar（session 数 vs R²） | proposal_review §四, plan 3.1.3 |
+| Transfer Learning 对比 | Multi-line（from-scratch vs frozen vs fine-tuned） | proposal_review §四 |
+| Few-shot 曲线 | Line plot（% 标注数据 vs R²） | proposal_review §四 |
+
+#### Phase 4
+
+| 已规划 | 类型 | 来源 |
+|--------|------|------|
+| 模态贡献消融矩阵 | Heatmap（Δ_m） | proposal_review §五 |
+| 条件分解 Δ_m(v) | Bar/heatmap（按脑区/刺激类型/行为状态） | proposal_review §五 |
+
+#### Phase 5（论文）
+
+| 已规划 | 类型 | 来源 |
+|--------|------|------|
+| 完整预测窗口矩阵 | 表格/multi-bar | plan 5.1 |
+| 跨 Session 泛化核心图 | 综合对比图 | plan 5.1 |
+| Scaling Law 图 | Line plot | plan 5.1 |
+| 消融实验矩阵 | Bar chart 组 | plan 5.2 |
+| 模态归因图 | Heatmap/bar | plan 5.1 |
+
+---
+
+### 7.3 Gap 分析：当前规划与论文级标准的差距
+
+将 §7.1 中的"标准 figure 集"与 §7.2 中的当前规划对比，识别以下缺口：
+
+#### 已覆盖（无需新增）
+
+| 标准 Figure | 当前覆盖情况 |
+|-------------|-------------|
+| 架构示意图 | Phase 5 论文阶段会绘制 |
+| Scaling curve | Phase 3 已规划 |
+| 消融实验 bar chart | Phase 5 已规划（decoder 深度、IDEncoder、causal mask 等） |
+| Latent embedding 可视化 | Phase 2 IDEncoder t-SNE 已规划 |
+
+#### 缺失或不足（建议补充）
+
+| # | 缺失 Figure | 重要性 | 对应 Phase | 建议 |
+|---|------------|--------|-----------|------|
+| 1 | **方法对比 bar chart（vs 外部 baseline）** | **必须** | Phase 1/2/5 | 当前只有自身消融，缺少与 NDT/POYO/SPINT/Neuroformer 的直接 bar chart 对比。Phase 5 论文必须有一张综合性 bar chart，横轴为各方法，纵轴为 R²/Poisson NLL/bits per spike |
+| 2 | **Predicted vs actual firing rate 时间序列** | **推荐** | Phase 1 | 展示 2-3 个代表性神经元的预测 vs 真实 firing rate 对比线图（trial-averaged）。直观展示自回归生成的时序质量。5/9 论文包含此类图 |
+| 3 | **Predicted vs actual behavior trajectory** | **推荐** | Phase 3 | 2D 轨迹叠加图（解码的手臂速度/位置 vs 真实），5/9 论文使用此类图提供直观证据 |
+| 4 | **Data efficiency / crossover 曲线** | **推荐** | Phase 3 | 类似 NDT3 Fig 1B 的 pretrained vs from-scratch crossover 图。当前 few-shot 曲线部分覆盖，但缺少明确的 crossover 分析 |
+| 5 | **统计显著性检验可视化** | **可选但加分** | Phase 5 | p-value heatmap 或显著性标注。当前验收标准只要求"3 seeds, variance < 0.05"，但论文级呈现应包含 FDR 校正的统计检验 |
+| 6 | **Raster plot（predicted vs true spikes）** | **可选** | Phase 1 | 类似 Neuroformer Fig 2 的 raster 对比，展示单 trial 预测精度。当前只有 spike count 分布验证，缺少时序层面的视觉证据 |
+| 7 | **Attention pattern / 连接性分析** | **可选但创新** | Phase 4 | 类似 Neuroformer Fig 9，分析自回归 decoder 的 cross-attention 权重是否捕捉了神经元间的功能连接 |
+| 8 | **Error distribution 分析** | **可选** | Phase 1 | 预测误差的时空分布——哪些神经元预测更准/更差，是否与 firing rate 相关（类似 MTM Fig 7 的单神经元分析） |
+| 9 | **跨 session embedding 一致性** | **推荐** | Phase 2 | 类似 POYO Fig 5D 的 session embedding PCA——展示不同 session 在 embedding 空间的组织方式（按动物/任务着色） |
+| 10 | **Confusion matrix（跨 session）** | **可选** | Phase 2/4 | 类似 POYO+ Fig 4F，展示 IDEncoder 推断的 embedding 是否能正确区分不同功能类型的神经元 |
+
+---
+
+### 7.4 各 Phase 建议的完整 Figure 清单
+
+基于当前规划和 gap 分析，以下是各 Phase 建议的 figure 清单。标注 **[已规划]** / **[建议新增]** / **[论文必须]**。
+
+#### Phase 1：自回归改造验证
+
+| # | Figure | 类型 | 目的 | 状态 |
+|---|--------|------|------|------|
+| 1.1 | 训练收敛曲线 | Line plot（train/val loss vs epoch） | 验证 Poisson NLL 收敛 | [已规划] |
+| 1.2 | Error Decay Curve | Line plot（PSTH corr vs AR step, 多窗口叠加） | 诊断自回归误差累积 | [已规划] |
+| 1.3 | 预测窗口对比 | Grouped bar chart（250/500/1000ms × R²/NLL/PSTH corr） | 确定最优预测窗口 | [已规划] |
+| 1.4 | TF vs AR 性能对比 | Bar chart（Teacher Forcing vs Autoregressive） | 量化 exposure bias | [已规划，隐含] |
+| 1.5 | **Predicted vs true firing rate 时间序列** | Multi-panel line plot（3-5 个代表性神经元） | 直观展示预测质量 | **[建议新增]** |
+| 1.6 | **Predicted vs true spike raster** | Raster plot（selected trials, 对比面板） | 展示单 trial 时序精度 | **[建议新增]** |
+| 1.7 | Spike count 分布验证 | Histogram（predicted vs GT 的 count 分布） | 验证分布合理性 | [已规划] |
+| 1.8 | AR vs Non-AR 消融 | Bar chart（causal vs parallel decoder） | 验证自回归必要性 | [已规划] |
+| 1.9 | **Per-neuron R² 分布** | Histogram / violin plot | 分析哪些神经元预测好/差 | **[建议新增]** |
+| 1.10 | **Baseline 对比 bar chart** | Bar chart（PSTH / Linear / Smoothed / NeuroHorizon） | 展示模型相对 baseline 的增量 | **[建议新增]** |
+
+**Phase 1 Figure 呈现建议**：
+
+- **Fig 1.5 的具体做法**：选 3-5 个不同 firing rate 的神经元（高/中/低活跃），trial-averaged 后画 predicted rate（红线）vs ground truth rate（黑线）± trial-to-trial std（灰色 shaded band），x 轴为时间（0-1000ms），y 轴为 firing rate。LFADS Fig 2 和 NDT1 Fig 5a 是此类图的经典范例。
+- **Fig 1.2 Error Decay Curve 的增强**：建议在同一图中叠加多条曲线——250ms/500ms/1000ms 窗口，以及 TF baseline（水平虚线），和 Non-AR parallel 的 decay（用于对比）。NDT3 的 multi-condition 叠加风格可借鉴。
+- **Fig 1.6 的具体做法**：左列为 ground truth raster，右列为 model-generated raster，每列 10 个 trials，y 轴为 neuron index（按 peak activity 时间排序），x 轴为时间。LFADS Fig 1 和 Neuroformer Fig 2 的 raster 对比是参考范例。
+
+#### Phase 2：跨 Session 泛化
+
+| # | Figure | 类型 | 目的 | 状态 |
+|---|--------|------|------|------|
+| 2.1 | IDEncoder embedding t-SNE/PCA | Scatter plot（按 session/animal/function 着色） | 验证 embedding 质量 | [已规划] |
+| 2.2 | Zero-shot R² 对比 | Bar chart（IDEncoder vs IVE lookup vs SPINT） | IDEncoder 核心验证 | [已规划] |
+| 2.3 | **跨 session pairwise scatter** | Scatter plot（x=within-session R², y=zero-shot R²） | 量化 zero-shot 泛化 gap | **[建议新增]** |
+| 2.4 | **Session embedding 空间** | PCA scatter（每个 session 一个点，按 animal 着色） | 类似 POYO Fig 5D | **[建议新增]** |
+| 2.5 | Scheme A vs Scheme B 对比 | Bar chart | 决定 IDEncoder tokenization | [已规划] |
+| 2.6 | **Per-session R² bar chart** | Grouped bar chart（每个 session 一组，IDEncoder vs IVE） | 展示逐 session 泛化稳定性 | **[建议新增]** |
+| 2.7 | 跨动物泛化 | Bar chart（同动物 vs 跨动物 R²） | 量化跨动物 degradation | [已规划] |
+
+**Phase 2 Figure 呈现建议**：
+
+- **Fig 2.1 t-SNE 的着色策略**：建议制作 2 个版本——(a) 按 session ID 着色（验证同 session 神经元 clustering）；(b) 按功能属性着色（如 preferred direction），验证跨 session 功能相似的神经元确实靠近。POYO+ Fig 4 的多着色策略是良好范例。
+- **Fig 2.3 Pairwise scatter**：类似 MTM Fig 3 的风格，x 轴为 within-session baseline R²，y 轴为 IDEncoder zero-shot R²，每个点是一个 held-out session，对角线为等效线。点在对角线以下的程度直观展示 zero-shot gap。
+- **Fig 2.6 重要性**：SPINT Fig 3 通过逐 dataset（M1/M2/H1）展示结果，POYO Fig 2 通过逐 dataset scatter 展示结果——reviewer 期望看到逐 session 而非仅平均值的结果。
+
+#### Phase 3：数据 Scaling + 迁移学习
+
+| # | Figure | 类型 | 目的 | 状态 |
+|---|--------|------|------|------|
+| 3.1 | **Scaling Curve（核心）** | Line plot + error bar（log-x, session 数 vs R²） | Foundation model 核心论证 | [已规划] |
+| 3.2 | Transfer Learning 三级对比 | Multi-line plot（from-scratch / frozen / fine-tuned） | 预训练价值 | [已规划] |
+| 3.3 | Few-shot 曲线 | Line plot（% 标注 vs R², 多条线） | 数据效率 | [已规划] |
+| 3.4 | **Crossover 分析** | Line plot（pretrained vs from-scratch vs session 数交叉） | 类似 NDT3 Fig 1B | **[建议新增]** |
+| 3.5 | **Power-law 拟合** | Log-log plot + 拟合线 | 量化 scaling exponent | **[建议新增]** |
+| 3.6 | **Predicted vs actual trajectory** | 2D trajectory overlay | 直观解码质量 | **[建议新增]** |
+
+**Phase 3 Figure 呈现建议**：
+
+- **Fig 3.1 Scaling Curve 规范**：建议使用 semi-log 或 log-log 坐标，至少 5 个数据点（5/10/20/40/70 sessions），每个点 3 seeds 的 mean ± std。POYO Fig 3 和 NDT2 Fig 4 是经典参考。如果同时有 Brainsets 和 IBL 数据，建议在同一图中用不同颜色/标记展示。
+- **Fig 3.4 Crossover 分析**：NDT3 Fig 1B 是最有影响力的 foundation model figure 之一——一条线展示 pretrained 在小数据时大幅领先 from-scratch，随数据增加差距缩小。建议 NeuroHorizon 在此图中同时画 frozen transfer 和 fine-tuned transfer 两条线，与 from-scratch 交叉。
+- **Fig 3.5 Power-law**：fitting R² = a * N^b + c，报告 scaling exponent b 及其置信区间，与 POYO+ 报告的 scaling exponent 对比。
+
+#### Phase 4：多模态融合
+
+| # | Figure | 类型 | 目的 | 状态 |
+|---|--------|------|------|------|
+| 4.1 | 模态贡献消融矩阵 | Heatmap（Neural/+Beh/+Img/+Both × 指标） | 量化各模态贡献 | [已规划] |
+| 4.2 | 条件分解 Δ_m(v)——按脑区 | Grouped bar chart（V1/LM/AM × Δ_image/Δ_beh） | 脑区特异性 | [已规划] |
+| 4.3 | 条件分解 Δ_m(v)——按刺激 | Bar chart（Natural Movies vs Gratings） | 刺激依赖性 | [已规划] |
+| 4.4 | **Predicted vs true firing rate（视觉区域）** | Multi-panel line plot | 展示多模态预测质量 | **[建议新增]** |
+| 4.5 | **脑区级 heatmap** | Brain region × metric 热力图 | 类似 MTM Fig 5 | **[建议新增]** |
+| 4.6 | **Cross-attention pattern 分析** | Attention weight 可视化 | 可解释性创新 | **[建议新增]** |
+| 4.7 | **DINOv2 stimulus embedding PCA** | Scatter plot + 样本图像 | 验证视觉特征质量 | **[建议新增]** |
+
+**Phase 4 Figure 呈现建议**：
+
+- **Fig 4.1 消融矩阵的呈现方式**：建议用 grouped bar chart 而非纯 heatmap——横轴为 4 种条件（Neural only / +Behavior / +Image / +Both），每组内 2-3 个指标（R²/NLL/PSTH corr），附 error bar。Neuroformer Fig 6 的 progressive addition scatter 也可参考。
+- **Fig 4.5 脑区级 heatmap**：类似 MTM Fig 5，每行一个脑区（V1/LM/AM 等），每列一个模态条件，颜色深浅表示 Δ_m 大小。预期 V1 行的 Δ_image 列颜色最深。
+- **Fig 4.6 Attention 分析**：这是潜在的创新亮点。分析自回归 decoder 的 cross-attention 权重：当加入视觉刺激后，V1 神经元是否更多地 attend 到 image tokens？这种分析在 Neuroformer 中已有先例（Fig 3 spatial attention overlaid on stimulus），NeuroHorizon 可做类似的模态-attention 归因。
+- **Fig 4.7 DINOv2 PCA**：在 PCA 空间展示 118 张 natural scene 的 embedding，每个点标注缩略图，验证语义相近的图像在 embedding 空间也相近。这为后续分析（Δ_image 与图像语义的关联）提供基础。
+
+#### Phase 5：论文级 Figure 总览
+
+综合以上各 Phase 的 figure，Phase 5 论文需要的核心 figure 集：
+
+| 优先级 | Figure | 对应 Phase 结果 | 论文位置 |
+|--------|--------|---------------|---------|
+| **必须** | 架构示意图 | 全局 | Main Fig 1 |
+| **必须** | Scaling curve | Phase 3 Fig 3.1 | Main Fig 2 or 3 |
+| **必须** | 方法对比 bar chart（vs 外部 SOTA） | Phase 1/2 综合 | Main Fig 3 or 4 |
+| **必须** | 消融实验总图 | Phase 1/5 消融汇总 | Main Fig 4 or 5 |
+| **必须** | IDEncoder embedding 可视化 | Phase 2 Fig 2.1 | Main Fig |
+| **推荐** | Error Decay Curve | Phase 1 Fig 1.2 | Main or Supp |
+| **推荐** | Predicted vs actual firing rate | Phase 1 Fig 1.5 | Main or Supp |
+| **推荐** | Transfer learning / few-shot 曲线 | Phase 3 Fig 3.2-3.3 | Main Fig |
+| **推荐** | Predicted vs actual trajectory | Phase 3 Fig 3.6 | Main or Supp |
+| **推荐** | 模态贡献分析 | Phase 4 Fig 4.1-4.3 | Main Fig（如论文包含 Phase 4） |
+| **可选** | p-value heatmap | Phase 5 统计检验 | Supp |
+| **可选** | Raster plot 对比 | Phase 1 Fig 1.6 | Supp |
+| **可选** | Per-neuron R² 分析 | Phase 1 Fig 1.9 | Supp |
+| **可选** | Attention pattern 分析 | Phase 4 Fig 4.6 | Supp 或创新亮点 |
+
+---
+
+### 7.5 对 NeuroHorizon 的建议
+
+#### 7.5.1 最高优先级补充
+
+1. **Phase 1 新增 predicted vs true firing rate 时间序列图（Fig 1.5）**：这是 5/9 论文使用的标准可视化，实现简单（trial-averaged 后画线图），但提供了 bar chart/数值无法传达的时序质量直观感受。建议在每次预测窗口实验完成后都生成此图。
+
+2. **Phase 1 新增 baseline 对比 bar chart（Fig 1.10）**：当前 Phase 1 的验收标准只有"收敛 + R²"，缺少与内部 baseline（PSTH prediction / linear regression）的对比图。这是几乎所有论文的标配。
+
+3. **Phase 2 新增 per-session R² bar chart（Fig 2.6）**：reviewer 期望看到逐 session 结果，而非仅平均值。SPINT 和 POYO 都按 dataset/session 展示结果。
+
+#### 7.5.2 中等优先级补充
+
+4. **Phase 3 新增 crossover 分析（Fig 3.4）**：NDT3 Fig 1B 是近年最有影响力的 foundation model 可视化之一，建议 NeuroHorizon 也做此分析。
+
+5. **Phase 4 新增 attention 模式分析（Fig 4.6）**：如果 NeuroHorizon 声称多模态融合提供了可解释性（创新点四），那么 attention 可视化是最直接的证据。
+
+6. **Phase 5 新增统计显著性可视化**：至少在论文 supplementary 中包含 pairwise t-test 或 Wilcoxon signed-rank test 的结果矩阵。
+
+#### 7.5.3 实施建议
+
+- **建议建立统一的绘图工具模块**：如 `scripts/analysis/plot_utils.py`，定义标准配色方案、字体大小、figure 尺寸等，保证所有 figure 风格一致。推荐使用 matplotlib + seaborn，论文投稿时考虑 Nature/NeurIPS 的排版宽度（单栏 3.25 英寸，双栏 6.75 英寸）。
+
+- **建议每个 Phase 完成时生成完整 figure 集**：不要等到 Phase 5 才开始绘图——每个 Phase 的实验结果应立即可视化，存放于 `results/figures/phase{N}/` 目录。这既有助于实时监控进展，也为论文积累素材。
+
+- **建议配色方案**：
+  - NeuroHorizon 主色：蓝色系（#1f77b4）
+  - Baseline/对照：灰色系（#7f7f7f）
+  - 外部 SOTA 对比：各自固定颜色（如 POYO=#ff7f0e, SPINT=#2ca02c, NDT=#d62728）
+  - 模态着色：Neural=蓝色, Behavior=绿色, Image=橙色
+
+- **建议统一的 error bar 策略**：所有需要 error bar 的 figure 使用 mean ± SEM（standard error of the mean），minimum 3 random seeds。如果 seed 数量足够（≥5），也可用 95% CI。在 figure caption 中明确标注 error bar 含义。
+
 
 ---
 
