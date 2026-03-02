@@ -5,7 +5,7 @@
 > - 项目背景与架构分析：`cc_core_files/proposal_review.md`（**执行前请先阅读对应 Phase 的内容**）
 > - 数据集详细规划：`cc_core_files/dataset.md`
 > - 完整研究提案：`cc_core_files/proposal.md`
-> - 任务执行记录：`cc_todo/{phase-folder}/{date}-{phase}-{task}.md`
+> - 任务执行记录：`cc_todo/{phase-folder}/{YYYYMMDD}-{phase}-{task_num}-{task}.md`
 >
 > **关键文件清单、风险与应对、架构设计细节均在 `cc_core_files/proposal_review.md` 中。**
 
@@ -138,6 +138,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 ### 1.1 核心模块实现
 
 - [x] **1.1.1** 添加 Poisson NLL Loss
+  - 📄 `cc_todo/phase1-autoregressive/20260302-phase1-1.1-core-modules.md`
   - 修改 `torch_brain/nn/loss.py`，实现 `PoissonNLLLoss`
   - 处理数值稳定性（log-sum-exp 技巧，避免 NaN；注意低发放率神经元的 log(0) 问题）
   - 实现 `forward(log_rate, spike_count, weights)` 接口（与现有 loss 接口一致）
@@ -174,6 +175,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 ### 1.2 基础功能验证
 
 - [x] **1.2.1** Teacher forcing 模式训练（5-10 sessions，Small 配置）
+  - 📄 `cc_todo/phase1-autoregressive/20260302-phase1-1.2-foundation-verify.md`
   - 验证 loss 收敛、预测 spike count 分布合理（Poisson 分布特性）
   - 与简单 baseline 对比（PSTH-based prediction、线性预测）
 
@@ -184,6 +186,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 ### 1.3 预测窗口梯度测试
 
 - [x] **1.3.1** 250ms 预测窗口实验（10-20 sessions）
+  - 📄 `cc_todo/phase1-autoregressive/20260302-phase1-1.3-prediction-window.md`
   - 作为基线，记录 PSTH 相关性 / R²
   - 方案 A（trial 对齐）：输入 = hold period，预测 = reach period 前 250ms
 
