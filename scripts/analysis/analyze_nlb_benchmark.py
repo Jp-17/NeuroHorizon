@@ -116,11 +116,23 @@ def part_a_data_structure(train_data, test_data):
             print(f"  {k}: {v}")
 
     # --- Figure 06: NLB Data Structure Visualization ---
-    fig, axes = plt.subplots(3, 2, figsize=(18, 14))
+    fig = plt.figure(figsize=(18, 18))
     fig.suptitle("NLB MC_Maze (Jenkins) Data Structure Analysis", fontsize=16, fontweight="bold")
 
-    # (0,0) Multi-track timeline
-    ax = axes[0, 0]
+    # Use GridSpec: top row (timeline) gets more height
+    gs = fig.add_gridspec(4, 2, height_ratios=[2.5, 1, 1, 1], hspace=0.35, wspace=0.3)
+
+    # Extract trial period timing
+    trial_starts = train_data["trials"]["start"]
+    trial_ends = train_data["trials"]["end"]
+    target_on_times = train_data["trials"]["target_on_time"]
+    go_cue_times = train_data["trials"]["go_cue_time"]
+    move_onset_times = train_data["trials"]["move_onset_time"]
+
+    # (0, 0:1) Full-width timeline spanning both columns
+    ax = fig.add_subplot(gs[0, :])
+
+    # --- Domain-level tracks ---
     colors_map = {
         "domain": "#2196F3",
         "train_domain": "#4CAF50",
@@ -145,14 +157,52 @@ def part_a_data_structure(train_data, test_data):
         y_labels.append(track_name)
         y_pos += 1
 
+    # --- Trial period track ---
+    period_colors = {
+        "pre-target": "#90CAF9",   # light blue
+        "delay":      "#FFE082",   # light yellow/amber
+        "RT":         "#FFAB91",   # light orange/red
+        "movement":   "#A5D6A7",   # light green
+    }
+    for i in range(n_trials):
+        ts = trial_starts[i]
+        to = target_on_times[i]
+        gc = go_cue_times[i]
+        mo = move_onset_times[i]
+        te = trial_ends[i]
+        ax.barh(y_pos, to - ts, left=ts, height=0.6, color=period_colors["pre-target"], alpha=0.85)
+        ax.barh(y_pos, gc - to, left=to, height=0.6, color=period_colors["delay"], alpha=0.85)
+        ax.barh(y_pos, mo - gc, left=gc, height=0.6, color=period_colors["RT"], alpha=0.85)
+        ax.barh(y_pos, te - mo, left=mo, height=0.6, color=period_colors["movement"], alpha=0.85)
+    y_labels.append("trial_periods")
+    y_pos += 1
+
     ax.set_yticks(range(len(y_labels)))
     ax.set_yticklabels(y_labels, fontsize=9)
     ax.set_xlabel("Time (s)")
-    ax.set_title("Timeline: All Temporal Structures")
+    ax.set_title("Timeline: All Temporal Structures (full session)")
     ax.invert_yaxis()
 
-    # (0,1) Trial duration distribution
-    ax = axes[0, 1]
+    # Add period legend
+    period_patches = [
+        mpatches.Patch(color=period_colors["pre-target"], label="pre-target"),
+        mpatches.Patch(color=period_colors["delay"], label="delay"),
+        mpatches.Patch(color=period_colors["RT"], label="RT"),
+        mpatches.Patch(color=period_colors["movement"], label="movement"),
+    ]
+    domain_patches = [
+        mpatches.Patch(color="#2196F3", label="domain"),
+        mpatches.Patch(color="#4CAF50", label="train_domain"),
+        mpatches.Patch(color="#FF9800", label="valid_domain"),
+        mpatches.Patch(color="#F44336", label="test_domain"),
+        mpatches.Patch(color="#9C27B0", label="nlb_eval_intervals"),
+    ]
+    leg1 = ax.legend(handles=domain_patches, loc="upper right", fontsize=7, title="Domains", title_fontsize=8)
+    ax.add_artist(leg1)
+    ax.legend(handles=period_patches, loc="lower right", fontsize=7, title="Trial Periods", title_fontsize=8)
+
+    # (1,0) Trial duration distribution
+    ax = fig.add_subplot(gs[1, 0])
     ax.hist(trial_durations, bins=20, color="#2196F3", alpha=0.7, edgecolor="black")
     ax.axvline(np.mean(trial_durations), color="red", linestyle="--",
                label=f"Mean: {np.mean(trial_durations):.3f}s")
@@ -161,8 +211,27 @@ def part_a_data_structure(train_data, test_data):
     ax.set_title(f"Trial Duration Distribution (n={n_trials})")
     ax.legend()
 
-    # (1,0) Spike count per unit
-    ax = axes[1, 0]
+    # (1,1) Trial period duration distributions (stacked)
+    ax = fig.add_subplot(gs[1, 1])
+    pre_target_durs = target_on_times - trial_starts
+    delay_durs = go_cue_times - target_on_times
+    rt_durs = move_onset_times - go_cue_times
+    movement_durs = trial_ends - move_onset_times
+    period_names = ["pre-target", "delay", "RT", "movement"]
+    period_data = [pre_target_durs, delay_durs, rt_durs, movement_durs]
+    bp = ax.boxplot(period_data, tick_labels=period_names, patch_artist=True, widths=0.6)
+    for patch, pname in zip(bp["boxes"], period_names):
+        patch.set_facecolor(period_colors[pname])
+        patch.set_alpha(0.8)
+    ax.set_ylabel("Duration (s)")
+    ax.set_title("Trial Period Durations")
+    # Annotate with means
+    for i, (pname, pdata) in enumerate(zip(period_names, period_data)):
+        ax.text(i + 1, np.max(pdata) + 0.02, f"{np.mean(pdata):.3f}s",
+                ha="center", fontsize=8, color="gray")
+
+    # (2,0) Spike count per unit
+    ax = fig.add_subplot(gs[2, 0])
     unit_indices = train_data["spikes"]["unit_index"]
     unit_counts = np.bincount(unit_indices, minlength=n_units_train)
     ax.bar(range(n_units_train), unit_counts, color="#4CAF50", alpha=0.7)
@@ -173,8 +242,8 @@ def part_a_data_structure(train_data, test_data):
     ax.set_title(f"Spike Count per Unit (n={n_units_train} units, {n_spikes_train} total spikes)")
     ax.legend()
 
-    # (1,1) Firing rate distribution
-    ax = axes[1, 1]
+    # (2,1) Firing rate distribution
+    ax = fig.add_subplot(gs[2, 1])
     total_dur = float(domain_end[-1] - domain_start[0])
     firing_rates = unit_counts / total_dur
     ax.hist(firing_rates, bins=30, color="#FF9800", alpha=0.7, edgecolor="black")
@@ -187,8 +256,8 @@ def part_a_data_structure(train_data, test_data):
     ax.set_title("Firing Rate Distribution (Train)")
     ax.legend()
 
-    # (2,0) Behavioral data overview: hand velocity
-    ax = axes[2, 0]
+    # (3,0) Behavioral data overview: hand velocity
+    ax = fig.add_subplot(gs[3, 0])
     hand_ts = train_data["hand"]["timestamps"]
     hand_vel = train_data["hand"]["vel"]
     speed = np.sqrt(hand_vel[:, 0]**2 + hand_vel[:, 1]**2)
@@ -198,8 +267,8 @@ def part_a_data_structure(train_data, test_data):
     ax.set_ylabel("Hand Speed (a.u.)")
     ax.set_title(f"Hand Speed (first {n_show} samples, {stats['train_file']['hand_sampling_rate_hz']} Hz)")
 
-    # (2,1) Summary stats table
-    ax = axes[2, 1]
+    # (3,1) Summary stats table
+    ax = fig.add_subplot(gs[3, 1])
     ax.axis("off")
     table_data = [
         ["Metric", "Train File", "Test File"],
@@ -225,7 +294,6 @@ def part_a_data_structure(train_data, test_data):
         table[0, j].set_text_props(fontweight="bold")
     ax.set_title("Summary Statistics", fontsize=12, fontweight="bold", pad=20)
 
-    plt.tight_layout()
     fig_path = OUTPUT_DIR / "06_nlb_data_structure.png"
     fig.savefig(fig_path, dpi=150, bbox_inches="tight")
     plt.close(fig)

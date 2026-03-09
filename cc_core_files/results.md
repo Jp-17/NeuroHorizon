@@ -297,19 +297,21 @@ results/
 - **产生时间**：2026-03-09
 - **目的**：NLB MC_Maze (Jenkins) 数据结构全面可视化
 
-- **逐子图解读**（3x2 布局）：
+- **逐子图解读**（GridSpec 4x2 布局，顶部 timeline 跨双列）：
 
-  - **子图 (0,0) Timeline: All Temporal Structures**：多轨道时间轴，展示 domain（100 trials）、train_domain（60）、valid_domain（15）、test_domain（25）、nlb_eval_intervals（100）的时间分布。可见 train/valid/test 在时间轴上交错分布，eval intervals 覆盖所有 trials。
+  - **子图 (0, 0:1) Timeline: All Temporal Structures**：全宽多轨道时间轴（6 轨道），展示 domain（100 trials）、train_domain（60）、valid_domain（15）、test_domain（25）、nlb_eval_intervals（100）的时间分布，以及新增的 **trial_periods** 轨道。trial_periods 以 4 种颜色区分每个 trial 内的阶段：pre-target（浅蓝，mean 0.801s）→ delay（浅黄，mean 0.599s）→ RT（浅橙，mean 0.336s）→ movement（浅绿，mean 1.142s）。可直观看到 delay period 变异最大（0.014-0.999s），movement period 最稳定。
 
-  - **子图 (0,1) Trial Duration Distribution**：100 个 trial 的时长分布直方图。均值 2.877s，标准差 0.336s。所有 trial 时长在 2.0-3.5s 范围内，比 Perich-Miller 的 trial 更短更标准化。
+  - **子图 (1,0) Trial Duration Distribution**：100 个 trial 的总时长分布直方图。均值 2.877s，标准差 0.336s。所有 trial 时长在 2.0-3.5s 范围内，比 Perich-Miller 的 trial 更短更标准化。
 
-  - **子图 (1,0) Spike Count per Unit**：142 个 unit 的 spike 数量柱状图。均值约 927 spikes/unit（131,669 总 spikes / 142 units）。存在较大的单元间差异。
+  - **子图 (1,1) Trial Period Durations**：4 个 trial period 的 boxplot 对比。movement（mean 1.142s）时长最长且最稳定；delay（mean 0.599s）变异最大（涵盖 14ms 到 999ms）；RT（mean 0.336s）和 pre-target（mean 0.801s）相对稳定。boxplot 上方标注各 period 均值。
 
-  - **子图 (1,1) Firing Rate Distribution**：142 个 unit 的发放率分布。均值和中位数标注，呈右偏分布，与 Perich-Miller 类似。
+  - **子图 (2,0) Spike Count per Unit**：142 个 unit 的 spike 数量柱状图。均值约 927 spikes/unit（131,669 总 spikes / 142 units）。存在较大的单元间差异。
 
-  - **子图 (2,0) Hand Speed**：前 2000 个样本的手速时间序列（1000 Hz 采样率）。展示典型的 reach-hold-return 运动模式。
+  - **子图 (2,1) Firing Rate Distribution**：142 个 unit 的发放率分布。均值和中位数标注，呈右偏分布，与 Perich-Miller 类似。
 
-  - **子图 (2,1) Summary Statistics**：汇总表格，对比 train/test 文件的关键统计量：trials, units, spikes, held-in/out, 行为数据可用性, domain 划分。
+  - **子图 (3,0) Hand Speed**：前 2000 个样本的手速时间序列（1000 Hz 采样率）。展示典型的 reach-hold-return 运动模式。
+
+  - **子图 (3,1) Summary Statistics**：汇总表格，对比 train/test 文件的关键统计量：trials, units, spikes, held-in/out, 行为数据可用性, domain 划分。
 
 - **交叉引用**：
   - 脚本：`scripts/analysis/analyze_nlb_benchmark.py`
