@@ -123,6 +123,30 @@
 - **依赖**：poyo conda 环境（matplotlib, numpy）
 - **备注**：对应 plan.md 任务 0.3 可视化补充
 
+
+### analyze_data_flow.py（0.3.4 数据流分析）
+
+- **路径**：`scripts/analysis/analyze_data_flow.py`
+- **功能用途**：Perich-Miller 数据在 POYO+ 中的数据流分析与可视化
+  - 加载单个 session HDF5，提取所有时间尺度属性
+  - 可视化时间轴上 domain、trials、movement_phases、train/valid/test_domain 的关系
+  - 模拟训练/评估采样窗口的叠加效果
+  - 分析 loss weights 和 eval_mask 的分配
+- **创建时间**：2026-03-09
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/analyze_data_flow.py
+  ```
+- **输入**：`data/processed/perich_miller_population_2018/*.h5`
+- **输出**：
+  - `results/figures/data_exploration/03_timescale_relationships.png`
+  - `results/figures/data_exploration/04_sampling_windows_overlay.png`
+  - `results/figures/data_exploration/05_eval_pipeline_flow.png`
+  - `results/figures/data_exploration/data_flow_summary.json`
+- **依赖**：poyo conda 环境（temporaldata, h5py, matplotlib, numpy）
+- **备注**：对应 plan.md 任务 0.3.4
 ## Phase 1：自回归改造验证 + 长时程生成验证
 
 ### train.py — NeuroHorizon 训练脚本（1.1.6）

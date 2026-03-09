@@ -218,6 +218,71 @@ results/
   - 训练脚本：`examples/poyo_plus/train.py`，配置 `train_baseline_10sessions.yaml`
   - Checkpoint：`results/logs/phase0_baseline/lightning_logs/version_0/checkpoints/epoch=429-step=42570.ckpt`
 
+
+### 0.3.4 数据流分析
+
+#### 03_timescale_relationships.png -- 时间尺度属性关系图
+
+- **存储路径**：`results/figures/data_exploration/03_timescale_relationships.png`
+- **产生时间**：2026-03-09
+- **产生方式**：`scripts/analysis/analyze_data_flow.py`
+- **数据来源**：`data/processed/perich_miller_population_2018/c_20131003_center_out_reaching.h5`
+- **实验目的**：可视化单个 session 中所有时间尺度属性的关系
+
+- **逐子图解读**（2x1 布局）：
+
+  - **Panel A（Full Timeline）**：10 条轨道展示 domain、trials（valid/invalid）、movement_phases（hold/reach/return/random）、outlier_segments、train/valid/test_domain。全局视图清晰展示 train_domain（38 intervals, 433.4s）如何被 valid/test trials 的 dilate(1.0) 安全间距分割成不连续片段。valid_domain（16 intervals, 49.8s）和 test_domain（32 intervals, 104.8s）散布在时间轴各处。
+
+  - **Panel B（Zoomed View）**：局部放大约 50-100s，可清晰看到每个 trial 内的 hold（蓝色, 约0.25s）→ reach（橙色, 约1.0s）→ return（绿色, 约2.0s）结构。trial 间的间隙中可能出现被标记为 test/valid_domain 的区段。虚线标注 valid trial 边界。
+
+- **交叉引用**：
+  - 脚本：`scripts/analysis/analyze_data_flow.py`
+  - 数据：`data/processed/perich_miller_population_2018/c_20131003_center_out_reaching.h5`
+  - 数据处理管线：`scripts/data/perich_miller_pipeline.py`
+
+#### 04_sampling_windows_overlay.png -- 采样窗口叠加图
+
+- **存储路径**：`results/figures/data_exploration/04_sampling_windows_overlay.png`
+- **产生时间**：2026-03-09
+- **产生方式**：`scripts/analysis/analyze_data_flow.py`
+- **数据来源**：同上
+- **实验目的**：展示训练/评估采样窗口如何叠加在 movement phases 上，以及 loss weights 和 eval_mask 的分配
+
+- **逐子图解读**（3x1 布局）：
+
+  - **主面板（Sampling Windows）**：movement phase 着色背景（hold=蓝, reach=橙, return=绿）上叠加训练窗口（实线矩形, 1.0s）和评估窗口（虚线矩形, 1.0s, step=0.5s 重叠）。关键发现：训练窗口可跨越 trial 边界——单个窗口可包含前一个 trial 的 return_period 和下一个 trial 的 hold_period。
+
+  - **中间面板（Loss Weights）**：per-timestamp 损失权重曲线。reach_period 内为 5.0（高权重，重点学习），hold_period 内为 0.1（低权重），return_period 为 1.0。权重在 phase 边界处阶跃变化，outlier 区段权重为 0.0。
+
+  - **底部面板（Eval Mask）**：二值 eval_mask，reach_period 内为 1，其余为 0。这是 YAML 配置的意图，但实际代码中 eval_mask 默认为全 True（见 eval_mask 发现）。
+
+- **交叉引用**：
+  - 脚本：`scripts/analysis/analyze_data_flow.py`
+  - 权重逻辑：`torch_brain/utils/weights.py`
+  - 采样器：`torch_brain/data/sampler.py`
+
+#### 05_eval_pipeline_flow.png -- 评估流水线示意图
+
+- **存储路径**：`results/figures/data_exploration/05_eval_pipeline_flow.png`
+- **产生时间**：2026-03-09
+- **产生方式**：`scripts/analysis/analyze_data_flow.py`
+- **实验目的**：以流程图形式展示数据从 HDF5 到最终 R² 指标的完整评估流水线
+
+- **解读**：流程图展示 Session HDF5 → get_sampling_intervals(valid_domain) → DistributedStitchingFixedWindowSampler (重叠窗口) → model.forward() → eval_mask 过滤 → stitch (mean-pool) → per-session R² → 平均。底部注释框标注了 eval_mask 实现发现：`data.config.get("eval_interval")` 从顶层 config 读取返回 None，eval_mask 实际为全 True。
+
+- **交叉引用**：
+  - 脚本：`scripts/analysis/analyze_data_flow.py`
+  - Stitcher：`torch_brain/utils/stitcher.py`
+  - Eval mask：`torch_brain/nn/multitask_readout.py:237`
+  - 训练脚本：`examples/poyo_plus/train.py`
+
+#### data_flow_summary.json -- 统计摘要
+
+- **存储路径**：`results/figures/data_exploration/data_flow_summary.json`
+- **产生时间**：2026-03-09
+- **产生方式**：`scripts/analysis/analyze_data_flow.py`
+- **内容**：domain/trials/movement_phases/outlier/train_domain/valid_domain/test_domain 的完整统计量（n_intervals, total_seconds, mean/min/max_duration），采样模拟估算，eval_mask 分析发现。
+
 ---
 
 ## Phase 1: 自回归改造验证 + 预测窗口梯度测试

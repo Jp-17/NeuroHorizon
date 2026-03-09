@@ -1,0 +1,109 @@
+{
+  "domain": {
+    "name": "domain",
+    "n_intervals": 1,
+    "total_seconds": 663.2,
+    "mean_duration": 663.2,
+    "min_duration": 663.2,
+    "max_duration": 663.2
+  },
+  "trials": {
+    "total": 193,
+    "valid": 157,
+    "invalid": 36
+  },
+  "trials_valid": {
+    "name": "trials_valid",
+    "n_intervals": 157,
+    "total_seconds": 517.9974000000001,
+    "mean_duration": 3.299346496815287,
+    "min_duration": 2.0955666666666275,
+    "max_duration": 5.490633333333335
+  },
+  "trials_invalid": {
+    "name": "trials_invalid",
+    "n_intervals": 36,
+    "total_seconds": 137.4263333333333,
+    "mean_duration": 3.8173981481481474,
+    "min_duration": 0.5510000000000019,
+    "max_duration": 19.168133333333344
+  },
+  "hold_period": {
+    "name": "hold_period",
+    "n_intervals": 157,
+    "total_seconds": 38.753533333333024,
+    "mean_duration": 0.2468377919320575,
+    "min_duration": 0.20149999999995316,
+    "max_duration": 0.2977333333333405
+  },
+  "reach_period": {
+    "name": "reach_period",
+    "n_intervals": 157,
+    "total_seconds": 160.4841,
+    "mean_duration": 1.022191719745223,
+    "min_duration": 0.5509333333333188,
+    "max_duration": 1.444466666666667
+  },
+  "return_period": {
+    "name": "return_period",
+    "n_intervals": 156,
+    "total_seconds": 314.08973333333364,
+    "mean_duration": 2.0133957264957285,
+    "min_duration": 0.9209999999999923,
+    "max_duration": 3.3582666666666654
+  },
+  "random_period": {
+    "name": "random_period",
+    "n_intervals": 3,
+    "total_seconds": 5.836266666666673,
+    "mean_duration": 1.9454222222222244,
+    "min_duration": 0.49,
+    "max_duration": 2.6920000000000073
+  },
+  "outlier": {
+    "name": "cursor_outlier_segments",
+    "n_intervals": 7,
+    "total_seconds": 57.140000000000015,
+    "mean_duration": 8.162857142857145,
+    "min_duration": 1.9400000000000002,
+    "max_duration": 16.50999999999999
+  },
+  "train_domain": {
+    "name": "train_domain",
+    "n_intervals": 38,
+    "total_seconds": 433.40550000000025,
+    "mean_duration": 11.405407894736848,
+    "min_duration": 0.5182333333332849,
+    "max_duration": 52.45726666666667
+  },
+  "valid_domain": {
+    "name": "valid_domain",
+    "n_intervals": 16,
+    "total_seconds": 49.82033333333324,
+    "mean_duration": 3.1137708333333274,
+    "min_duration": 2.1949333333333243,
+    "max_duration": 4.0089666666667085
+  },
+  "test_domain": {
+    "name": "test_domain",
+    "n_intervals": 32,
+    "total_seconds": 104.79069999999993,
+    "mean_duration": 3.274709374999998,
+    "min_duration": 2.207933333333358,
+    "max_duration": 4.4651
+  },
+  "sampling": {
+    "window_length": 1.0,
+    "train_windows_estimate": 417,
+    "eval_windows_estimate": 76,
+    "eval_step": 0.5,
+    "trial_boundary_awareness": "None - pure temporal domain sampling"
+  },
+  "eval_mask_analysis": {
+    "intended_eval_interval": "movement_phases.reach_period",
+    "config_read_method": "data.config.get(\"eval_interval\") -- reads top-level config",
+    "yaml_location": "nested inside multitask_readout list items",
+    "effective_result": "None (eval_mask defaults to all-True)",
+    "impact": "R^2 computed on ALL timestamps, not just reach_period"
+  }
+}

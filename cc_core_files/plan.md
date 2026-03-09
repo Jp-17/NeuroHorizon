@@ -125,6 +125,8 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
   - 📄 `cc_todo/phase0-env-baseline/20260228-phase0-poyo-baseline.md`
 - [x] **0.3.3** 记录基线性能报告，作为后续改造前后的对比锚点
   - 📄 `cc_todo/phase0-env-baseline/20260228-phase0-poyo-baseline.md`
+- [x] **0.3.4** 分析 Perich-Miller 数据在 POYO+ 训练/评估中的完整数据流（时间尺度关系 + 采样/损失/评估机制可视化）
+  - 📄 `cc_todo/phase0-env-baseline/20260309-phase0-0.3.4-data-flow-analysis.md`
 
 ---
 
