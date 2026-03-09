@@ -115,7 +115,8 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
     - 推荐的 input window / prediction window 长度
     - 潜在问题记录（trial 过短、某些 session 神经元数量不足等）
 
-- [ ] **0.2.4** （可选）下载 NLB MC_Maze 数据（brainsets 内）作为改造后的 sanity check 基准
+- [x] **0.2.4** （可选）下载 NLB MC_Maze 数据（brainsets 内）作为改造后的 sanity check 基准
+  - 📄 数据已存在于 `data/nlb/processed/pei_pandarinath_nlb_2021/`（jenkins_maze_train.h5 + jenkins_maze_test.h5）
 
 ### 0.3 POYO 基线复现
 
@@ -127,6 +128,30 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
   - 📄 `cc_todo/phase0-env-baseline/20260228-phase0-poyo-baseline.md`
 - [x] **0.3.4** 分析 Perich-Miller 数据在 POYO+ 训练/评估中的完整数据流（时间尺度关系 + 采样/损失/评估机制可视化）
   - 📄 `cc_todo/phase0-env-baseline/20260309-phase0-0.3.4-data-flow-analysis.md`
+
+### 0.4 Benchmark 探究
+
+- [x] **0.4.1** NLB Benchmark 数据分析与适配性调查
+  - 📄 `cc_todo/phase0-env-baseline/20260309-phase0-0.4-benchmark-analysis.md`
+  - **Part A**: 分析 brainsets 中 NLB MC_Maze 数据的结构（类似 0.3.4 对 Perich-Miller 的分析）
+    - 数据属性：domain, trials, train/valid/test_domain, nlb_eval_intervals, hand/eye 行为数据
+    - 可视化时间轴 + 统计摘要
+    - 与 Perich-Miller 数据结构的对比
+  - **Part B**: NLB 数据适配性调查
+    - brainsets 的 train/valid/test_domain 与 NLB 原始 split（train_mask_nwb/test_mask_nwb）是否一致
+    - NLB 其他子数据集（MC_RTT, Area2_Bump, DMFC_RSG, MC_Cycle）能否方便地适配到当前 POYO 框架
+    - test 文件 units 数量 (107) 与 train (142) 的差异（held-in/held-out 机制）对评估的影响
+    - 结论：基于 brainsets 数据的评估结果是否与 NLB 平台的数值具有可比性
+  - **Part C**: NLB 指标对齐
+    - 调查 NLB 的核心指标：co-bps, fp-bps, PSTH R² 的计算方式
+    - 评估 NeuroHorizon 中实现这些指标的可行性和所需改动
+    - 检查 nlb_tools 包的评估 API
+
+- [x] **0.4.2** 对比模型可行性分析（ndt2, neuroformer, ndt-mtm 等）
+  - 📄 `cc_todo/phase0-env-baseline/20260309-phase0-0.4-benchmark-analysis.md`
+  - 评估在 Perich-Miller 和 NLB MC_Maze 数据上与 ndt2, neuroformer, ndt-mtm 对比的可行性
+  - 分析各模型的数据输入要求、是否支持当前数据组织方式
+  - 评估适配难度和所需工作量
 
 ---
 

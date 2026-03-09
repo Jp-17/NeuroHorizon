@@ -147,6 +147,31 @@
   - `results/figures/data_exploration/data_flow_summary.json`
 - **依赖**：poyo conda 环境（temporaldata, h5py, matplotlib, numpy）
 - **备注**：对应 plan.md 任务 0.3.4
+
+
+### analyze_nlb_benchmark.py（0.4.1 NLB 数据分析）
+
+- **路径**：`scripts/analysis/analyze_nlb_benchmark.py`
+- **功能用途**：NLB Benchmark 数据分析与适配性调查
+  - Part A: NLB MC_Maze 数据结构分析（trial/unit/spike 统计、时间轴可视化）
+  - Part B: 适配性调查（split 一致性检查、held-in/held-out 机制分析、其他子数据集评估）
+  - Part C: NLB 指标对齐（co-bps, fp-bps, PSTH R² 实现难度评估）
+- **创建时间**：2026-03-09
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/analyze_nlb_benchmark.py
+  ```
+- **输入**：
+  - `data/nlb/processed/pei_pandarinath_nlb_2021/jenkins_maze_train.h5`
+  - `data/nlb/processed/pei_pandarinath_nlb_2021/jenkins_maze_test.h5`
+- **输出**：
+  - `results/figures/data_exploration/06_nlb_data_structure.png`
+  - `results/figures/data_exploration/07_nlb_split_comparison.png`
+  - `results/figures/data_exploration/nlb_analysis_summary.json`
+- **依赖**：poyo conda 环境（h5py, matplotlib, numpy）
+- **备注**：对应 plan.md 任务 0.4.1
 ## Phase 1：自回归改造验证 + 长时程生成验证
 
 ### train.py — NeuroHorizon 训练脚本（1.1.6）

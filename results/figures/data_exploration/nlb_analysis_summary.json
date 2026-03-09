@@ -1,0 +1,154 @@
+{
+  "stats": {
+    "dataset": "NLB MC_Maze (jenkins_maze, small subset)",
+    "train_file": {
+      "n_trials": 100,
+      "n_units": 142,
+      "n_spikes": 131669,
+      "train_domain_trials": 60,
+      "valid_domain_trials": 15,
+      "test_domain_trials": 25,
+      "n_hand_samples": 287710,
+      "hand_sampling_rate_hz": 1000.0,
+      "n_eye_samples": 287710,
+      "eye_sampling_rate_hz": 1000.0,
+      "n_eval_intervals": 100,
+      "total_duration_s": 293.67,
+      "trial_duration_mean_s": 2.877,
+      "trial_duration_std_s": 0.336
+    },
+    "test_file": {
+      "n_trials": 100,
+      "n_units": 107,
+      "n_spikes": 32897
+    },
+    "held_in_units": 107,
+    "held_out_units": 35
+  },
+  "adaptability": {
+    "split_consistency": {
+      "nlb_original": {
+        "train": 75,
+        "test": 25
+      },
+      "brainsets": {
+        "train": 60,
+        "valid": 15,
+        "test": 25
+      },
+      "cross_mapping": {
+        "bs_train_in_nwb_train": 60,
+        "bs_train_in_nwb_test": 0,
+        "bs_valid_in_nwb_train": 15,
+        "bs_valid_in_nwb_test": 0,
+        "bs_test_in_nwb_train": 0,
+        "bs_test_in_nwb_test": 25
+      },
+      "split_indicator_values": [
+        "val",
+        "train"
+      ],
+      "conclusion": [
+        "All 100 trials are assigned to exactly one brainsets domain.",
+        "brainsets train_domain (60 trials): 60 from NLB-train, 0 from NLB-test",
+        "brainsets valid_domain (15 trials): 15 from NLB-train",
+        "brainsets test_domain (25 trials): 0 from NLB-train, 25 from NLB-test",
+        "OK: brainsets train_domain does not contain NLB test trials."
+      ]
+    },
+    "held_in_out": {
+      "train_units": 142,
+      "test_units": 107,
+      "held_in_units": 107,
+      "held_out_units": 35,
+      "explanation": "NLB uses a held-in/held-out neuron design: train file has 142 units (all neurons), test file has 107 units (held-in only, 35 held-out neurons removed). The primary NLB task (co-smoothing, co-bps) requires predicting held-out neuron activity given only held-in neuron observations. This is NOT the same as behavior decoding.",
+      "impact_on_neurohorizon": "NeuroHorizon currently trains on ALL neurons and evaluates behavior decoding (R-squared). To properly compare with NLB co-bps, would need to: (1) train only on held-in neurons, (2) predict held-out neuron firing rates, (3) compute bits-per-spike metric. This requires significant pipeline changes."
+    },
+    "nlb_eval_intervals": {
+      "n_intervals": 100,
+      "duration_mean_s": 0.7,
+      "duration_std_s": 0.0,
+      "duration_min_s": 0.7,
+      "duration_max_s": 0.7,
+      "n_train_eval": 60,
+      "n_valid_eval": 15,
+      "n_test_eval": 25,
+      "explanation": "nlb_eval_intervals defines 100 evaluation windows (one per trial). These correspond to specific time segments within each trial used for NLB metric computation. The train/valid/test masks on these intervals follow brainsets split."
+    },
+    "other_nlb_datasets": {
+      "MC_RTT": {
+        "description": "Random Target Task, single session, single area (M1)",
+        "brainsets_support": "Unknown - not in current brainsets datasets list",
+        "adaptation_difficulty": "Medium - similar spike format, different task structure"
+      },
+      "Area2_Bump": {
+        "description": "Bump perturbation task, somatosensory area 2",
+        "brainsets_support": "Unknown - not in current brainsets datasets list",
+        "adaptation_difficulty": "Medium-High - different brain area, different task"
+      },
+      "DMFC_RSG": {
+        "description": "Ready-Set-Go timing task, DMFC (dorsomedial frontal cortex)",
+        "brainsets_support": "Unknown - not in current brainsets datasets list",
+        "adaptation_difficulty": "High - very different task paradigm, timing-based"
+      },
+      "MC_Cycle": {
+        "description": "Cycling movement task, motor cortex",
+        "brainsets_support": "Unknown - not in current brainsets datasets list",
+        "adaptation_difficulty": "Medium - similar brain area but periodic movement"
+      }
+    }
+  },
+  "metrics_alignment": {
+    "metrics": {
+      "co_bps": {
+        "full_name": "Co-smoothing Bits Per Spike",
+        "description": "Primary NLB metric. Measures how well a model predicts held-out neuron firing rates given held-in neuron observations. Computed as: bps = (log_likelihood_model - log_likelihood_null) / (n_spikes * ln(2)). Null model uses neuron-specific mean firing rate.",
+        "implementation_difficulty": "High",
+        "required_changes": [
+          "Need held-in/held-out neuron split during training",
+          "Need to predict held-out neuron firing rates from held-in observations",
+          "Need Poisson log-likelihood computation per neuron",
+          "Need null model (mean firing rate per neuron) baseline",
+          "Requires nlb_tools.evaluation module for standardized computation"
+        ]
+      },
+      "fp_bps": {
+        "full_name": "Forward Prediction Bits Per Spike",
+        "description": "Forward prediction task. Given neural activity up to time t, predict future activity at time t+delta. Uses same bps formula as co-bps but applied to forward prediction rather than co-smoothing.",
+        "implementation_difficulty": "Medium-High",
+        "required_changes": [
+          "More aligned with NeuroHorizon autoregressive prediction",
+          "Need to adapt prediction format to NLB evaluation intervals",
+          "Need null model baseline computation",
+          "Need nlb_tools for standardized bps computation"
+        ]
+      },
+      "psth_r2": {
+        "full_name": "PSTH R-squared (Peri-Stimulus Time Histogram)",
+        "description": "Trial-averaged prediction quality. Compute R-squared between trial-averaged predicted firing rates and trial-averaged true firing rates, averaged across neurons. Less noisy than single-trial metrics.",
+        "implementation_difficulty": "Low-Medium",
+        "required_changes": [
+          "Already have R-squared computation in NeuroHorizon",
+          "Need trial-averaging logic (group by condition/trial type)",
+          "Need per-neuron R-squared computation (currently per-behavior-variable)",
+          "Most compatible with current NeuroHorizon evaluation"
+        ]
+      }
+    },
+    "nlb_tools": {
+      "installed": false,
+      "installation_command": "pip install nlb-tools",
+      "github": "https://github.com/neurallatents/nlb_tools",
+      "key_modules": [
+        "nlb_tools.evaluation: standardized metric computation",
+        "nlb_tools.nwb_interface: NWB file loading utilities",
+        "nlb_tools.make_tensors: data preprocessing for NLB format"
+      ]
+    },
+    "overall_assessment": {
+      "behavior_decoding_comparability": "NeuroHorizon's current behavior decoding (hand velocity R-squared) on NLB data CAN be compared with other models' behavior decoding results, since the POYO NLB config already uses nlb_eval_intervals for evaluation. However, this is NOT the primary NLB benchmark metric.",
+      "co_bps_comparability": "Achieving NLB leaderboard-comparable co-bps requires: (1) held-in/held-out neuron split, (2) co-smoothing prediction task, (3) nlb_tools evaluation. This is a fundamentally different task from NeuroHorizon's current autoregressive spike prediction.",
+      "recommended_path": "For paper benchmarking, recommend: (1) Report behavior decoding R-squared on NLB eval intervals (easy, already supported), (2) Implement fp-bps as closest metric to NeuroHorizon autoregressive task (medium effort), (3) co-bps only if competitive advantage is clear (high effort)."
+    }
+  }
+}

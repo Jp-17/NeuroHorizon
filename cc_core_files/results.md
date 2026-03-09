@@ -285,6 +285,65 @@ results/
 
 ---
 
+
+---
+
+## Phase 0.4 NLB Benchmark 探究
+
+### 06_nlb_data_structure.png
+
+- **存储路径**：`results/figures/data_exploration/06_nlb_data_structure.png`
+- **产生方式**：`scripts/analysis/analyze_nlb_benchmark.py`（plan 0.4.1 Part A）
+- **产生时间**：2026-03-09
+- **目的**：NLB MC_Maze (Jenkins) 数据结构全面可视化
+
+- **逐子图解读**（3x2 布局）：
+
+  - **子图 (0,0) Timeline: All Temporal Structures**：多轨道时间轴，展示 domain（100 trials）、train_domain（60）、valid_domain（15）、test_domain（25）、nlb_eval_intervals（100）的时间分布。可见 train/valid/test 在时间轴上交错分布，eval intervals 覆盖所有 trials。
+
+  - **子图 (0,1) Trial Duration Distribution**：100 个 trial 的时长分布直方图。均值 2.877s，标准差 0.336s。所有 trial 时长在 2.0-3.5s 范围内，比 Perich-Miller 的 trial 更短更标准化。
+
+  - **子图 (1,0) Spike Count per Unit**：142 个 unit 的 spike 数量柱状图。均值约 927 spikes/unit（131,669 总 spikes / 142 units）。存在较大的单元间差异。
+
+  - **子图 (1,1) Firing Rate Distribution**：142 个 unit 的发放率分布。均值和中位数标注，呈右偏分布，与 Perich-Miller 类似。
+
+  - **子图 (2,0) Hand Speed**：前 2000 个样本的手速时间序列（1000 Hz 采样率）。展示典型的 reach-hold-return 运动模式。
+
+  - **子图 (2,1) Summary Statistics**：汇总表格，对比 train/test 文件的关键统计量：trials, units, spikes, held-in/out, 行为数据可用性, domain 划分。
+
+- **交叉引用**：
+  - 脚本：`scripts/analysis/analyze_nlb_benchmark.py`
+  - 数据：`data/nlb/processed/pei_pandarinath_nlb_2021/*.h5`
+  - JSON 汇总：`results/figures/data_exploration/nlb_analysis_summary.json`
+
+### 07_nlb_split_comparison.png
+
+- **存储路径**：`results/figures/data_exploration/07_nlb_split_comparison.png`
+- **产生方式**：`scripts/analysis/analyze_nlb_benchmark.py`（plan 0.4.1 Part B）
+- **产生时间**：2026-03-09
+- **目的**：验证 brainsets split 与 NLB 原始 split 的一致性
+
+- **逐子图解读**（2x2 布局）：
+
+  - **子图 (0,0) Trial-by-Trial Split Assignment**：100 个 trial 的双列对比。左列 NLB 原始 split（75 train + 25 test），右列 brainsets split（60 train + 15 valid + 25 test）。可直观看到 brainsets 从 NLB train 中拆分出 15 个 valid trials。
+
+  - **子图 (0,1) Cross-Mapping: Brainsets vs NLB Splits**：3x3 热力图矩阵，展示 brainsets 各 split 与 NLB 各 split 的 trial 数量交叉映射。关键发现：brainsets train (60) 全部来自 NLB train，brainsets test (25) 全部来自 NLB test，无数据泄露。
+
+  - **子图 (1,0) NLB Eval Intervals**：100 个 eval intervals 在时间轴上的分布，按 train/valid/test 着色。每个 interval 固定 0.7s。train 60 个，valid 15 个，test 25 个，与 domain 划分一致。
+
+  - **子图 (1,1) Analysis Conclusions**：文字面板汇总 held-in/held-out 机制（142 vs 107 units, 35 held-out）、split 一致性结论、可比性评估。核心结论：行为解码 R² 可比较，但 NLB 核心指标 co-bps 需要单独实现。
+
+- **交叉引用**：
+  - 脚本：`scripts/analysis/analyze_nlb_benchmark.py`
+  - 数据：`data/nlb/processed/pei_pandarinath_nlb_2021/*.h5`
+  - cc_todo：`cc_todo/phase0-env-baseline/20260309-phase0-0.4-benchmark-analysis.md`
+
+### nlb_analysis_summary.json
+
+- **存储路径**：`results/figures/data_exploration/nlb_analysis_summary.json`
+- **产生方式**：`scripts/analysis/analyze_nlb_benchmark.py`
+- **目的**：机器可读的 NLB 分析汇总，包含数据统计、split 对比、held-in/held-out 分析、指标对齐评估
+
 ## Phase 1: 自回归改造验证 + 预测窗口梯度测试
 
 ### 1.2 基础功能验证
