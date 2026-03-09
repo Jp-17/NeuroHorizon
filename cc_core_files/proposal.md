@@ -423,29 +423,47 @@ DINOv2 为冻结的预训练视觉模型（ViT-B），仅训练线性投影层�
 
 ### 核心参考论文
 
-1. **NDT1**: Ye, J., & Pandarinath, C. (2021). Representation learning for neural population activity with Neural Data Transformers. *NeurIPS*.
-2. **NDT2/STNDT**: Ye, J., Collinger, J., Bhatt, S., & Pandarinath, C. (2022). Neural Data Transformers 2: Multi-context pretraining for neural spiking activity.
-3. **NDT3**: Ye, J., et al. (2024). Neural Data Transformer 3: Scaling foundation models for neural spiking activity. *NeurIPS*.
-4. **LFADS**: Pandarinath, C., et al. (2018). Inferring single-trial neural population dynamics using sequential auto-encoders. *Nature Methods*.
-5. **Neuroformer**: Antoniades, A., et al. (2024). Neuroformer: Multimodal and Multitask Generative Pretraining for Brain Data. *ICLR*.
-6. **POYO**: Azabou, M., et al. (2024). A Unified, Scalable Framework for Neural Population Decoding. *NeurIPS*.
-7. **POYO+**: Azabou, M., et al. (2024). POYO+: Scaling Neural Foundation Models with Multi-Area and Multi-Task Learning.
-8. **POSSM**: Azabou, M., et al. (2025). POSSM: State Space Models for Neural Population Spike Data.
-9. **SPINT**: Le, V., et al. (2025). SPINT: Session-invariant neural decoding via gradient-free ID encoding. *NeurIPS*.
-10. **MtM**: Ye, J., et al. (2024). Multi-task Masking for Cross-session Neural Decoding.
-11. **LDNS**: Hurwitz, C., et al. (2024). Latent Diffusion for Neural Spiking Data.
-12. **NEDS**: Karpowicz, B., et al. (2024). Neural Embedding for Data Sharing.
-13. **PopT**: Ye, J., et al. (2024). PopT: Population Transformer.
-14. **DINOv2**: Oquab, M., et al. (2024). DINOv2: Learning Robust Visual Features without Supervision. *TMLR*.
-15. **Perceiver**: Jaegle, A., et al. (2021). Perceiver: General Perception with Iterative Attention. *ICML*.
-16. **RoPE**: Su, J., et al. (2024). RoFormer: Enhanced Transformer with Rotary Position Embedding.
-17. **Mamba**: Gu, A., & Dao, T. (2024). Mamba: Linear-Time Sequence Modeling with Selective State Spaces. *ICLR*.
+1. **NDT1**: Ye, J., & Pandarinath, C. (2021). Representation learning for neural population activity with Neural Data Transformers. *Neurons, Behavior, Data Analysis, and Theory*.
+
+2. **STNDT**: Le, T., & Shlizerman, E. (2022). STNDT: Modeling Neural Population Activity with Spatiotemporal Transformers. *NeurIPS*.
+
+3. **NDT2**: Ye, J., Collinger, J. L., Wehbe, L., & Gaunt, R. (2023). Neural Data Transformer 2: Multi-context Pretraining for Neural Spiking Activity. *NeurIPS*.
+
+4. **NDT3**: Ye, J., et al. (2025). A Generalist Intracortical Motor Decoder. *NeurIPS*.
+
+5. **LFADS**: Pandarinath, C., et al. (2018). Inferring single-trial neural population dynamics using sequential auto-encoders. *Nature Methods*.
+
+6. **Neuroformer**: Antoniades, A., et al. (2024). Neuroformer: Multimodal and Multitask Generative Pretraining for Brain Data. *ICLR*.
+
+7. **POYO**: Azabou, M., et al. (2024). A Unified, Scalable Framework for Neural Population Decoding. *NeurIPS*.
+
+8. **POYO+**: Azabou, M., et al. (2024). POYO+: Scaling Neural Foundation Models with Multi-Area and Multi-Task Learning.
+
+9. **POSSM**: Azabou, M., et al. (2025). POSSM: State Space Models for Neural Population Spike Data.
+
+10. **SPINT**: Le, V., et al. (2025). SPINT: Session-invariant neural decoding via gradient-free ID encoding.
+
+11. **MtM**: Ye, J., et al. (2024). Towards a "Universal Translator" for Neural Dynamics at Single-Cell, Single-Spike Resolution. *NeurIPS*.
+
+12. **LDNS**: Kapoor, J., Schulz, A., Vetter, J., Pei, F. C., Gao, R., & Macke, J. H. (2024). Latent Diffusion for Neural Spiking Data. *NeurIPS*.
+
+13. **NEDS**: Karpowicz, B., et al. (2024). Neural Embedding for Data Sharing.
+
+14. **PopT**: Chau, G., Wang, C., Talukder, S., Subramaniam, V., Soedarmadji, S., Yue, Y., Katz, B., & Barbu, A. (2024). Population Transformer: Learning Population-level Representations of Neural Activity. *ICLR 2025*.
+
+15. **DINOv2**: Oquab, M., et al. (2024). DINOv2: Learning Robust Visual Features without Supervision. *TMLR*.
+
+16. **Perceiver**: Jaegle, A., et al. (2021). Perceiver: General Perception with Iterative Attention. *ICML*.
+
+17. **RoPE**: Su, J., Lu, Y., Pan, S., Murtadha, A., Wen, B., & Liu, Y. (2024). RoFormer: Enhanced Transformer with Rotary Position Embedding. *Neurocomputing*.
+
+18. **Mamba**: Gu, A., & Dao, T. (2023). Mamba: Linear-Time Sequence Modeling with Selective State Spaces. *arXiv preprint arXiv:2312.00752*.
 
 ### 数据集引用
 
-18. Allen Institute for Brain Science. Allen Brain Observatory — Neuropixels Visual Coding. https://allensdk.readthedocs.io/
-19. International Brain Laboratory. IBL Brain-wide Map Dataset. https://www.internationalbrainlab.com/
-20. Neural Latents Benchmark. https://neurallatents.github.io/
+1. Allen Institute for Brain Science. Allen Brain Observatory — Neuropixels Visual Coding. https://allensdk.readthedocs.io/
+2. International Brain Laboratory. IBL Brain-wide Map Dataset. https://www.internationalbrainlab.com/
+3. Neural Latents Benchmark. https://neurallatents.github.io/
 
 ---
 
