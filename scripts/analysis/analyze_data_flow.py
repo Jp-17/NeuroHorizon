@@ -72,51 +72,48 @@ def draw_intervals(ax, interval, y_center, height, color, alpha=0.7, label=None,
 
 
 def figure1_timescale_relationships(data, summary):
-    """Figure 1: Multi-track timeline showing all time-scale attributes."""
-    fig, axes = plt.subplots(2, 1, figsize=(20, 16), gridspec_kw={'height_ratios': [1, 1]})
+    """Figure 1: Multi-track timeline + behavior signals (cursor pos/vel/acc)."""
+    # 5 panels: full timeline, zoomed timeline, cursor pos X/Y, cursor speed, cursor acc
+    fig, axes = plt.subplots(5, 1, figsize=(20, 28),
+                             gridspec_kw={'height_ratios': [1.2, 1.2, 0.9, 0.9, 0.9]})
 
     track_configs = [
-        ('domain',              data.domain,                          'domain',            '#888888', None),
-        ('trials (valid)',      data.trials.select_by_mask(data.trials.is_valid),  'trials_valid',    '#4CAF50', None),
-        ('trials (invalid)',    data.trials.select_by_mask(~data.trials.is_valid), 'trials_invalid',  '#F44336', None),
-        ('hold_period',         data.movement_phases.hold_period,     'hold',              '#2196F3', None),
-        ('reach_period',        data.movement_phases.reach_period,    'reach',             '#FF9800', None),
-        ('return_period',       data.movement_phases.return_period,   'return',            '#4CAF50', None),
-        ('random_period',       data.movement_phases.random_period,   'random',            '#9E9E9E', None),
-        ('outlier_segments',    data.cursor_outlier_segments,         'outlier',           '#F44336', '///'),
-        ('train_domain',        data.train_domain,                    'train',             '#009688', None),
-        ('valid_domain',        data.valid_domain,                    'valid',             '#9C27B0', None),
-        ('test_domain',         data.test_domain,                     'test',              '#E91E63', None),
+        ('domain',            data.domain,                                          'domain',           '#888888', None),
+        ('trials (valid)',    data.trials.select_by_mask(data.trials.is_valid),     'trials_valid',     '#4CAF50', None),
+        ('trials (invalid)',  data.trials.select_by_mask(~data.trials.is_valid),    'trials_invalid',   '#F44336', None),
+        ('hold_period',       data.movement_phases.hold_period,                     'hold',             '#2196F3', None),
+        ('reach_period',      data.movement_phases.reach_period,                    'reach',            '#FF9800', None),
+        ('return_period',     data.movement_phases.return_period,                   'return',           '#4CAF50', None),
+        ('random_period',     data.movement_phases.random_period,                   'random',           '#9E9E9E', None),
+        ('outlier_segments',  data.cursor_outlier_segments,                         'outlier',          '#F44336', '///'),
+        ('train_domain',      data.train_domain,                                    'train',            '#009688', None),
+        ('valid_domain',      data.valid_domain,                                    'valid',            '#9C27B0', None),
+        ('test_domain',       data.test_domain,                                     'test',             '#E91E63', None),
     ]
-
     n_tracks = len(track_configs)
     track_labels = [tc[0] for tc in track_configs]
 
-    # Determine zoom range: find a region with several trials
+    # Zoom range: pick a window with ~12 trials
     valid_trials = data.trials.select_by_mask(data.trials.is_valid)
-    # Pick trials 10-20 for zoom
     zoom_trial_start = max(10, 0)
     zoom_trial_end = min(zoom_trial_start + 12, len(valid_trials))
     zoom_start = valid_trials.start[zoom_trial_start] - 1.0
     zoom_end = valid_trials.end[zoom_trial_end - 1] + 1.0
 
-    for panel_idx, ax in enumerate(axes):
+    # --- Panels A & B: interval tracks (unchanged logic) ---
+    for panel_idx, ax in enumerate(axes[:2]):
         for i, (label, interval, key, color, hatch) in enumerate(track_configs):
             y_pos = n_tracks - i
             draw_intervals(ax, interval, y_pos, 0.6, color, alpha=0.75, hatch=hatch)
-
-            # Add statistics annotation on the right
             stats = summary.get(key, {})
             n_int = stats.get('n_intervals', 0)
             total = stats.get('total_seconds', 0.0)
             if panel_idx == 0:
                 ax.text(data.domain.end[0] + 2, y_pos, f'n={n_int}, {total:.1f}s',
                         va='center', fontsize=8, color='gray')
-
         ax.set_yticks(range(1, n_tracks + 1))
         ax.set_yticklabels(track_labels[::-1], fontsize=9)
         ax.set_ylim(0.3, n_tracks + 0.7)
-
         if panel_idx == 0:
             ax.set_xlim(data.domain.start[0], data.domain.end[0] + 50)
             ax.set_title(f'Panel A: Full Timeline ({SESSION_ID})', fontsize=12, fontweight='bold')
@@ -124,19 +121,117 @@ def figure1_timescale_relationships(data, summary):
             ax.set_xlim(zoom_start, zoom_end)
             ax.set_title(f'Panel B: Zoomed View (t = {zoom_start:.1f}s to {zoom_end:.1f}s)',
                          fontsize=12, fontweight='bold')
-            # Add vertical lines at trial boundaries in zoom view
             for s, e in zip(valid_trials.start, valid_trials.end):
                 if zoom_start <= s <= zoom_end:
                     ax.axvline(s, color='gray', alpha=0.3, linewidth=0.5, linestyle='--')
-
         ax.set_xlabel('Time (seconds)', fontsize=10)
         ax.grid(axis='x', alpha=0.2)
+
+    # Helper: add movement-phase backgrounds to a behavior axis
+    def add_phase_bg(ax):
+        for interval, color, alpha in [
+            (data.movement_phases.hold_period,   '#2196F3', 0.15),
+            (data.movement_phases.reach_period,  '#FF9800', 0.15),
+            (data.movement_phases.return_period, '#4CAF50', 0.12),
+        ]:
+            for s, e in zip(interval.start, interval.end):
+                if e > zoom_start and s < zoom_end:
+                    ax.axvspan(max(s, zoom_start), min(e, zoom_end), color=color, alpha=alpha)
+        ax.set_xlim(zoom_start, zoom_end)
+        ax.grid(axis='x', alpha=0.2)
+        for s in valid_trials.start:
+            if zoom_start <= s <= zoom_end:
+                ax.axvline(s, color='gray', alpha=0.3, lw=0.5, ls='--')
+
+    phase_legend = [
+        mpatches.Patch(color='#2196F3', alpha=0.5, label='hold'),
+        mpatches.Patch(color='#FF9800', alpha=0.5, label='reach'),
+        mpatches.Patch(color='#4CAF50', alpha=0.5, label='return'),
+    ]
+
+    # Cursor data in zoom window
+    cursor_ts = data.cursor.timestamps
+    mask = (cursor_ts >= zoom_start) & (cursor_ts <= zoom_end)
+    ts_zoom = cursor_ts[mask]
+
+    # --- Panel C: Cursor Position X/Y ---
+    ax_pos = axes[2]
+    cursor_pos = data.cursor.pos
+    ax_pos.plot(ts_zoom, cursor_pos[mask, 0], color='royalblue', lw=0.7, label='pos_x', alpha=0.85)
+    ax_pos.plot(ts_zoom, cursor_pos[mask, 1], color='tomato', lw=0.7, label='pos_y', alpha=0.85)
+
+    # Try target position markers (trial-level, at go cue)
+    extra_legend = []
+    try:
+        valid_tr_obj = data.trials.select_by_mask(data.trials.is_valid)
+        if hasattr(valid_tr_obj, 'target_position'):
+            tgt = np.array(valid_tr_obj.target_position)
+            reach_starts = data.movement_phases.reach_period.start
+            for i_t, t_go in enumerate(reach_starts):
+                if zoom_start <= t_go <= zoom_end and i_t < len(tgt):
+                    ax_pos.scatter(t_go, tgt[i_t, 0], marker='*', s=120,
+                                   color='gold', zorder=6, edgecolors='darkorange', linewidths=0.8)
+                    ax_pos.scatter(t_go, tgt[i_t, 1], marker='*', s=120,
+                                   color='orchid', zorder=6, edgecolors='purple', linewidths=0.8)
+            extra_legend = [
+                mpatches.Patch(color='gold', label='target_x @ go'),
+                mpatches.Patch(color='orchid', label='target_y @ go'),
+            ]
+            print('  [info] target_position found and plotted on Panel C')
+        else:
+            print('  [info] trials.target_position not found (skipping target markers)')
+    except Exception as exc:
+        print(f'  [info] target_position not plotted: {exc}')
+
+    add_phase_bg(ax_pos)
+    handles_pos = phase_legend + extra_legend + [
+        plt.Line2D([0], [0], color='royalblue', lw=1.5, label='pos_x'),
+        plt.Line2D([0], [0], color='tomato', lw=1.5, label='pos_y'),
+    ]
+    ax_pos.legend(handles=handles_pos, loc='upper right', fontsize=7, ncol=2)
+    ax_pos.set_ylabel('Cursor Pos\n(au)', fontsize=9)
+    ax_pos.set_title('Panel C: Behavior - Cursor Position X/Y  (* = target pos at go cue, if available)',
+                     fontsize=11, fontweight='bold')
+
+    # --- Panel D: Cursor Speed |v| ---
+    ax_speed = axes[3]
+    cursor_vel = data.cursor.vel
+    speed = np.linalg.norm(cursor_vel, axis=1)
+    ax_speed.plot(ts_zoom, speed[mask], color='#333333', lw=0.7, alpha=0.85)
+    ax_speed.fill_between(ts_zoom, 0, speed[mask], color='#555555', alpha=0.15)
+    add_phase_bg(ax_speed)
+    ax_speed.set_ylabel('Speed\n(au/s)', fontsize=9)
+    ax_speed.legend(handles=phase_legend, loc='upper right', fontsize=7)
+    ax_speed.set_title('Panel D: Behavior - Cursor Speed |vel|', fontsize=11, fontweight='bold')
+
+    # --- Panel E: Cursor Acceleration |a| ---
+    ax_acc = axes[4]
+    try:
+        cursor_acc = data.cursor.acc
+        accel = np.linalg.norm(cursor_acc, axis=1)
+        ax_acc.plot(ts_zoom, accel[mask], color='darkorange', lw=0.7, alpha=0.85)
+        ax_acc.fill_between(ts_zoom, 0, accel[mask], color='darkorange', alpha=0.15)
+        acc_ylabel = 'Accel |a|\n(au/s^2)'
+        print('  [info] cursor.acc found and plotted on Panel E')
+    except AttributeError:
+        print('  [info] cursor.acc not found; using d|v|/dt as proxy')
+        if len(ts_zoom) > 1:
+            dt = np.diff(ts_zoom)
+            accel = np.abs(np.diff(speed[mask]) / (dt + 1e-9))
+            ax_acc.plot(ts_zoom[:-1], accel, color='darkorange', lw=0.7, alpha=0.85)
+            ax_acc.fill_between(ts_zoom[:-1], 0, accel, color='darkorange', alpha=0.15)
+        acc_ylabel = 'd|v|/dt\n(au/s^2)'
+    add_phase_bg(ax_acc)
+    ax_acc.set_ylabel(acc_ylabel, fontsize=9)
+    ax_acc.set_xlabel('Time (seconds)', fontsize=10)
+    ax_acc.legend(handles=phase_legend, loc='upper right', fontsize=7)
+    ax_acc.set_title('Panel E: Behavior - Cursor Acceleration |a|', fontsize=11, fontweight='bold')
 
     plt.tight_layout()
     out_path = OUTPUT_DIR / '03_timescale_relationships.png'
     fig.savefig(out_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
-    print(f"Saved: {out_path}")
+    print(f'Saved: {out_path}')
     return zoom_start, zoom_end
 
 

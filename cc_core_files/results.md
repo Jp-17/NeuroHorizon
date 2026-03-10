@@ -221,24 +221,57 @@ results/
 
 ### 0.3.4 数据流分析
 
-#### 03_timescale_relationships.png -- 时间尺度属性关系图
+#### 03_timescale_relationships.png -- 时间尺度属性关系图（含行为轨道）
 
 - **存储路径**：`results/figures/data_exploration/03_timescale_relationships.png`
-- **产生时间**：2026-03-09
+- **产生时间**：2026-03-09（2026-03-11 更新：新增 Panel C/D/E 行为轨道）
 - **产生方式**：`scripts/analysis/analyze_data_flow.py`
 - **数据来源**：`data/processed/perich_miller_population_2018/c_20131003_center_out_reaching.h5`
-- **实验目的**：可视化单个 session 中所有时间尺度属性的关系
+- **实验目的**：可视化单个 session 中所有时间尺度属性的关系，并与行为连续信号对齐
 
-- **逐子图解读**（2x1 布局）：
+- **逐子图解读**（5x1 布局）：
 
   - **Panel A（Full Timeline）**：10 条轨道展示 domain、trials（valid/invalid）、movement_phases（hold/reach/return/random）、outlier_segments、train/valid/test_domain。全局视图清晰展示 train_domain（38 intervals, 433.4s）如何被 valid/test trials 的 dilate(1.0) 安全间距分割成不连续片段。valid_domain（16 intervals, 49.8s）和 test_domain（32 intervals, 104.8s）散布在时间轴各处。
 
   - **Panel B（Zoomed View）**：局部放大约 50-100s，可清晰看到每个 trial 内的 hold（蓝色, 约0.25s）→ reach（橙色, 约1.0s）→ return（绿色, 约2.0s）结构。trial 间的间隙中可能出现被标记为 test/valid_domain 的区段。虚线标注 valid trial 边界。
 
+  - **Panel C（Cursor Position X/Y）**：与 Panel B 时间对齐的光标 2D 位置轨迹（pos_x 蓝色，pos_y 红色），背景色标注 hold/reach/return 阶段。可直观看到 reach 期间位置的快速变化，hold 期间位置基本静止，return 期间位置回归中心。
+
+  - **Panel D（Cursor Speed |vel|）**：光标速度大小（|vx, vy|），reach 期间有明显峰值（运动启动），hold 和 return 期间速度低。速度曲线与 movement phase 背景色的对齐验证了 reach_period 标注的准确性。
+
+  - **Panel E（Cursor Acceleration |a|）**：光标加速度大小，在运动启动和停止时出现峰值，说明运动的动力学结构。`cursor.acc` 字段在本数据集 HDF5 中确认存在（shape (66321, 2)）。
+
 - **交叉引用**：
-  - 脚本：`scripts/analysis/analyze_data_flow.py`
+  - 脚本：`scripts/analysis/analyze_data_flow.py`（`figure1_timescale_relationships()` 函数）
   - 数据：`data/processed/perich_miller_population_2018/c_20131003_center_out_reaching.h5`
   - 数据处理管线：`scripts/data/perich_miller_pipeline.py`
+
+#### 03_direction_tuning_psth.png -- 方向调谐 PSTH 图
+
+- **存储路径**：`results/figures/data_exploration/03_direction_tuning_psth.png`
+- **产生时间**：2026-03-11
+- **产生方式**：`scripts/analysis/explore_brainsets.py`（Section 8，`plot_direction_tuning_psth`）
+- **数据来源**：`data/processed/perich_miller_population_2018/c_20131003_center_out_reaching.h5`
+- **实验目的**：可视化 M1 神经元对运动方向的调谐特性（direction tuning），验证数据质量并建立 PSTH 分析基础
+
+- **逐子图解读**（2x1 布局）：
+
+  - **Panel A（Population PSTH × 8 directions）**：以 go cue 为对齐点（[-300ms, +800ms]），对 71 个神经元的发放率按 8 个运动方向（`target_id` 0–7，对应 0°/45°/90°/135°/180°/-45°/-90°/-135°）分组平均，绘制 8 条不同颜色的 PSTH 曲线。观察结果：(a) go cue 后 ~100–200ms 出现明显发放峰值，对应运动启动；(b) 不同方向下 population PSTH 形态相似但幅度有差异，反映方向调谐的群体效应；(c) hold 阶段（go cue 前）各方向发放率相近，说明等待期间无运动准备信号（符合 variable delay 设计目标）。
+
+  - **Panel B（Top-5 Units × 8 directions）**：按峰值发放率选出 top-5 神经元（Unit 61=116Hz, Unit 63=73Hz, Unit 49=62Hz, Unit 60=59Hz, Unit 62=54Hz），对每个神经元绘制 8 条方向 PSTH 曲线。可观察到典型的方向调谐特性：preferred direction（峰值最高的方向）上 PSTH 幅度显著高于 null direction，部分神经元表现出余弦调谐形态（相邻方向 PSTH 幅度递减）。
+
+- **方法细节**：
+  - 对齐事件：`trials.go_cue_time`（= `reach_period.start`，两者完全一致）
+  - 时间窗口：[-300ms, +800ms]，bin_size=20ms，N_bins=56
+  - 方向分组：`trials.target_id` 0–7（已确认字段存在于 HDF5，无需估算）
+  - 发放率归一化：counts / (n_trials × bin_size)，单位 Hz
+  - 平滑：Gaussian filter（sigma=1 bin = 20ms）
+
+- **交叉引用**：
+  - 脚本：`scripts/analysis/explore_brainsets.py`（Section 8）
+  - 数据字段：`/trials/target_id`, `/trials/target_dir`, `/trials/go_cue_time`
+  - 相关数据探索：`01_dataset_overview.png`, `02_neural_statistics.png`
+
 
 #### 04_sampling_windows_overlay.png -- 采样窗口叠加图
 

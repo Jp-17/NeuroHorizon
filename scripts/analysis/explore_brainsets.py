@@ -526,3 +526,150 @@ with open(summary_path, 'w') as f:
 print(f"\n  Summary saved: {summary_path}")
 print(f"  Figures saved: {OUTPUT_DIR}")
 print("\n[DONE] Data exploration complete.")
+
+
+# =============================================================================
+# 8. Direction-Tuning PSTH (Figure 3)
+# =============================================================================
+print("\n" + "=" * 70)
+print("8. Direction-Tuning PSTH Analysis")
+print("=" * 70)
+
+from scipy.ndimage import gaussian_filter1d
+import matplotlib.gridspec as gridspec
+
+PSTH_SESSION = 'c_20131003_center_out_reaching'
+N_DIR = 8
+PRE_T, POST_T, BIN_SIZE = 0.3, 0.8, 0.02
+bins_psth = np.arange(-PRE_T, POST_T + BIN_SIZE, BIN_SIZE)
+bin_centers_psth = (bins_psth[:-1] + bins_psth[1:]) / 2
+N_BINS = len(bin_centers_psth)
+
+# Direction labels (target_id 0-7 correspond to directions in data)
+# We'll compute the actual angle from target_dir field
+DIR_COLORS = plt.cm.hsv(np.linspace(0, 1, N_DIR, endpoint=False))
+
+print(f"  Session: {PSTH_SESSION}")
+print(f"  Time window: [{-PRE_T*1000:.0f}ms, +{POST_T*1000:.0f}ms] around go cue")
+print(f"  Bin size: {BIN_SIZE*1000:.0f}ms, N_bins={N_BINS}, N_directions={N_DIR}")
+
+with h5py.File(PROCESSED_DIR / f'{PSTH_SESSION}.h5', 'r') as _f:
+    _d = Data.from_hdf5(_f)
+
+    # Trial metadata
+    _is_valid = _d.trials.is_valid[:]                     # (N_all,) bool
+    _target_id = _d.trials.target_id[:].astype(int)       # (N_all,) int 0-7
+    _target_dir_rad = _d.trials.target_dir[:]              # (N_all,) radians
+    _go_cues = _d.trials.go_cue_time[:]                    # (N_all,) seconds
+
+    # Filter to valid trials
+    _valid_idx = np.where(_is_valid)[0]
+    _go_cues_valid = _go_cues[_valid_idx]                  # (157,)
+    _tid_valid = _target_id[_valid_idx]                    # (157,) int 0-7
+    _tdir_valid = _target_dir_rad[_valid_idx]              # (157,) radians
+
+    # direction angle label per target_id (compute mean angle per id)
+    _dir_mean_deg = {}
+    for _tid in range(N_DIR):
+        _mask_tid = _tid_valid == _tid
+        if _mask_tid.sum() > 0:
+            _dir_mean_deg[_tid] = float(np.degrees(np.mean(_tdir_valid[_mask_tid])))
+        else:
+            _dir_mean_deg[_tid] = _tid * 45.0
+
+    _spike_ts = _d.spikes.timestamps[:]
+    _unit_idx = _d.spikes.unit_index[:]
+    _n_units = len(_d.units.id)
+
+    print(f"  Valid trials: {len(_valid_idx)}, Units: {_n_units}")
+    print(f"  Trials per direction:")
+    for _tid in range(N_DIR):
+        _n = (_tid_valid == _tid).sum()
+        print(f"    target_id={_tid} ({_dir_mean_deg[_tid]:.0f}deg): {_n} trials")
+
+    # --- Compute PSTH per direction ---
+    # psth_by_dir: shape (N_DIR, n_units, N_BINS)  units: Hz
+    _psth = np.zeros((N_DIR, _n_units, N_BINS))
+    _count_dir = np.zeros(N_DIR, dtype=int)
+
+    for _i, (_gc, _tid) in enumerate(zip(_go_cues_valid, _tid_valid)):
+        _t_lo, _t_hi = _gc - PRE_T, _gc + POST_T
+        _in_win = (_spike_ts >= _t_lo) & (_spike_ts < _t_hi)
+        _t_rel = _spike_ts[_in_win] - _gc
+        _u_win = _unit_idx[_in_win]
+        for _u in range(_n_units):
+            _t_u = _t_rel[_u_win == _u]
+            _counts, _ = np.histogram(_t_u, bins=bins_psth)
+            _psth[_tid, _u] += _counts
+        _count_dir[_tid] += 1
+
+    # Normalize to Hz and Gaussian smooth
+    for _tid in range(N_DIR):
+        if _count_dir[_tid] > 0:
+            _psth[_tid] /= (_count_dir[_tid] * BIN_SIZE)
+    for _tid in range(N_DIR):
+        for _u in range(_n_units):
+            _psth[_tid, _u] = gaussian_filter1d(_psth[_tid, _u], sigma=1.0)
+
+    # Population mean PSTH per direction: (N_DIR, N_BINS)
+    _pop_psth = _psth.mean(axis=1)
+
+    # Top-5 units by peak firing rate across all directions and time bins
+    _max_fr = _psth.max(axis=(0, 2))   # (n_units,)
+    _top5 = np.argsort(_max_fr)[::-1][:5]
+    print(f"  Top-5 units by peak FR: {_top5.tolist()}")
+    print(f"  Their peak FRs: {[f'{_max_fr[u]:.1f}Hz' for u in _top5]}")
+
+# --- Figure 3: Direction-Tuning PSTH ---
+_fig3 = plt.figure(figsize=(16, 14))
+_gs_outer = gridspec.GridSpec(2, 1, figure=_fig3,
+                               height_ratios=[1.1, 1.6], hspace=0.42)
+_fig3.suptitle(
+    f'Direction-Tuning PSTH — {PSTH_SESSION}\n'
+    f'Aligned to go cue, window [{-PRE_T*1000:.0f}, +{POST_T*1000:.0f}]ms, bin={BIN_SIZE*1000:.0f}ms',
+    fontsize=12, fontweight='bold')
+
+# Panel A: Population PSTH per direction (8 colored lines)
+_ax_pop = _fig3.add_subplot(_gs_outer[0])
+for _tid in range(N_DIR):
+    _lbl = f"target_id={_tid} ({_dir_mean_deg[_tid]:.0f}deg, n={_count_dir[_tid]})"
+    _ax_pop.plot(bin_centers_psth * 1000, _pop_psth[_tid],
+                  color=DIR_COLORS[_tid], lw=1.8, label=_lbl, alpha=0.85)
+_ax_pop.axvline(0, color='red', lw=2, ls='--', label='go cue', zorder=10)
+_ax_pop.axvspan(-PRE_T * 1000, 0,   color='#2196F3', alpha=0.07, label='pre (hold)')
+_ax_pop.axvspan(0, POST_T * 1000,   color='#FF9800', alpha=0.07, label='post (reach)')
+_ax_pop.set_xlabel('Time from Go Cue (ms)', fontsize=10)
+_ax_pop.set_ylabel('Population PSTH (Hz/unit)', fontsize=10)
+_ax_pop.set_title('Panel A: Population PSTH by Reach Direction  (8 directions, all units averaged)',
+                   fontsize=11, fontweight='bold')
+_ax_pop.legend(loc='upper right', fontsize=6.5, ncol=2)
+_ax_pop.grid(True, alpha=0.25)
+
+# Panel B: Top-5 units, each subplot shows 8 direction PSTH curves
+_N_TOP = len(_top5)
+_gs_b = gridspec.GridSpecFromSubplotSpec(1, _N_TOP, subplot_spec=_gs_outer[1],
+                                          wspace=0.32)
+for _col, _u_idx in enumerate(_top5):
+    _sax = _fig3.add_subplot(_gs_b[0, _col])
+    for _tid in range(N_DIR):
+        _sax.plot(bin_centers_psth * 1000, _psth[_tid, _u_idx],
+                   color=DIR_COLORS[_tid], lw=1.1, alpha=0.85,
+                   label=f'{_dir_mean_deg[_tid]:.0f}deg')
+    _sax.axvline(0, color='red', lw=0.8, ls='--')
+    _sax.set_title(f'Unit {_u_idx}\npeak {_max_fr[_u_idx]:.1f}Hz', fontsize=8)
+    _sax.set_xlabel('Time (ms)', fontsize=7)
+    if _col == 0:
+        _sax.set_ylabel('Firing Rate (Hz)', fontsize=8)
+    _sax.grid(True, alpha=0.2)
+    _sax.tick_params(labelsize=7)
+    if _col == _N_TOP - 1:
+        _sax.legend(fontsize=5.5, ncol=2, loc='upper right')
+
+_fig3.text(0.5, 0.46, 'Panel B: Top-5 Units (by peak FR) — PSTH for each reach direction',
+            ha='center', va='center', fontsize=11, fontweight='bold')
+
+_fig3_path = OUTPUT_DIR / '03_direction_tuning_psth.png'
+_fig3.savefig(_fig3_path, dpi=120, bbox_inches='tight')
+plt.close(_fig3)
+print(f"  [OK] {_fig3_path.name}")
+print("Direction-Tuning PSTH analysis complete.")
