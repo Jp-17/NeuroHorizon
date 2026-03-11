@@ -612,3 +612,28 @@
 2. PyTorch 2.6 weights_only=True 默认 → 添加 weights_only=False
 3. InfiniteVocabEmbedding LazyModule → 先初始化 vocab 再计数参数
 4. checkpoint 加载后 vocab 已初始化 → 跳过 initialize_vocab
+
+
+---
+
+## 2026-03-11-18h09
+
+### 任务：同步 AGENTS.md 工作规范文件
+
+**完成时间**：2026-03-11-18h09
+
+**完成内容**：
+1. 检查项目根目录说明文件状态，发现缺少 AGENTS.md，但存在 CLAUDE.md
+2. 将 CLAUDE.md 原样复制为 AGENTS.md，用于后续按统一规范执行
+3. 校验 AGENTS.md 已成功生成，并准备提交到远程仓库
+
+**执行结果**：
+- 项目根目录新增 AGENTS.md
+- AGENTS.md 内容与 CLAUDE.md 保持一致
+- 说明文件已补齐，后续任务可统一按 AGENTS.md 执行
+
+**遇到的问题**：
+- 原项目仅存在大写文件名 CLAUDE.md，未直接存在 AGENTS.md
+- 解决：按现有规范将 CLAUDE.md 同步为 AGENTS.md
+
+**对应 plan.md 任务**：不直接对应 plan.md 中的代码任务，属于项目工作规范补齐
