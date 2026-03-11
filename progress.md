@@ -667,14 +667,16 @@
 
 #### 步骤 3-4：创建并执行 1.2.4 验证脚本
 - 创建 scripts/tests/test_1_2_4_metrics_verification.py（7 项测试）
-- 全部 8 项通过、0 项失败、1 项跳过（Test 5b yaml config 路径，已由 Test 5 HDF5 直接验证替代）
+- 全部 9 项通过、0 项失败、1 项跳过（Test 5b yaml config 路径，已由 Test 5 HDF5 直接验证替代）
+- 注意：本验证使用**合成数据**验证公式数学正确性，null_log_rates 从合成 target 中统计 per-neuron 均值得到（与 NLB 方式一致）；实际训练评估中 null_log_rates 应由 compute_null_rates() 从训练集统计
 
-**测试结果摘要**：
+**测试结果摘要**（合成数据，NLB 量级）：
 | 测试 | 结果 |
 |------|------|
 | fp-bps null model = 0 | PASS (0.00000000) |
-| fp-bps random < 0 | PASS (-39.56) |
-| fp-bps good model > 0 | PASS (177.49, synthetic) |
+| fp-bps random < 0 | PASS (-0.3736) |
+| fp-bps oracle > 0 | PASS (0.0677, NLB 量级) |
+| NLB 交叉验证 | PASS (diff=2.8e-7) |
 | checkpoint loadable | PASS |
 | per-bin fp-bps shape = [T] | PASS |
 | HDF5 trial structure | PASS (655 trials / 3 files) |
