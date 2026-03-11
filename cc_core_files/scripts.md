@@ -440,3 +440,59 @@
 - **输出**：`results/figures/phase1_v2/*.png`（5 张图）
 - **依赖**：poyo conda 环境, matplotlib
 - **备注**：对应 plan.md 任务 1.3.4
+
+---
+
+## Benchmark 对比实验脚本（1.8）
+
+### benchmark_train.py（1.8.3 统一训练脚本）
+
+- **路径**：`neural-benchmark/benchmark_train.py`
+- **功能用途**：统一的 benchmark 模型训练脚本，支持 NDT2/IBL-MtM/Neuroformer 三个模型
+  - 加载 Perich-Miller 10 sessions 数据（via torch_brain Dataset）
+  - 20ms bin spike events → BenchmarkDataset
+  - 训练 + 定期评估（fp-bps, R², Poisson NLL）
+  - 保存 best_model.pt + results.json
+- **创建时间**：2026-03-12
+- **使用方式**：
+  ```bash
+  conda activate benchmark-env
+  cd /root/autodl-tmp/NeuroHorizon
+  python3 neural-benchmark/benchmark_train.py --model ndt2 --pred_window 0.25 --epochs 300
+  python3 neural-benchmark/benchmark_train.py --model ibl_mtm --pred_window 0.5
+  python3 neural-benchmark/benchmark_train.py --model neuroformer --pred_window 1.0
+  ```
+- **输出**：`results/logs/phase1_benchmark_{model}_{window}ms/`（best_model.pt + results.json）
+- **依赖**：benchmark-env conda 环境, torch_brain
+- **备注**：对应 plan.md 任务 1.8.3 Part B
+
+### run_all_benchmarks.sh（1.8.3 批量训练）
+
+- **路径**：`neural-benchmark/run_all_benchmarks.sh`
+- **功能用途**：批量运行全部 9 个 benchmark 实验（3 模型 × 3 窗口）
+- **创建时间**：2026-03-12
+- **使用方式**：
+  ```bash
+  cd /root/autodl-tmp/NeuroHorizon
+  nohup bash neural-benchmark/run_all_benchmarks.sh > results/logs/benchmark_all_runs.log 2>&1 &
+  ```
+- **输出**：同 benchmark_train.py
+- **备注**：运行时间约 8-9 小时（300 epochs × 9 实验）
+
+### visualize_benchmarks.py（1.8.3 对比可视化）
+
+- **路径**：`neural-benchmark/visualize_benchmarks.py`
+- **功能用途**：训练完成后生成 4 张对比图表
+  - Figure 1：fp-bps 柱状图（3 模型 × 3 窗口）
+  - Figure 2：per-bin fp-bps 衰减曲线
+  - Figure 3：R² 柱状图
+  - Figure 4：综合对比表 + 雷达图
+- **创建时间**：2026-03-12
+- **使用方式**：
+  ```bash
+  conda activate benchmark-env
+  cd /root/autodl-tmp/NeuroHorizon
+  python3 neural-benchmark/visualize_benchmarks.py
+  ```
+- **输出**：`results/figures/phase1_benchmark/*.png`
+- **备注**：可自动检测并加载 NeuroHorizon 1.3.4 结果进行对比
