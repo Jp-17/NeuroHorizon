@@ -220,6 +220,7 @@ def evaluate_trial_aligned(model, cfg, train_dataset, null_lookup, device,
 
     logger.info(f"Trial-aligned eval: {len(sampler)} trials")
 
+    # Store per-trial masked-mean rates: [T] per trial (averaged over valid neurons)
     pred_by_target = defaultdict(list)
     true_by_target = defaultdict(list)
     trial_fp_bps = []
@@ -243,16 +244,23 @@ def evaluate_trial_aligned(model, cfg, train_dataset, null_lookup, device,
             batch_bps = fp_bps(log_rate.cpu(), target, null_log_rates, unit_mask)
             trial_fp_bps.append(batch_bps.item())
 
-            # Group by target_id
+            # Group by target_id: use masked mean over neurons -> [T] per trial
             target_ids = batch.get("trial_target_id", None)
             if target_ids is None:
                 continue
 
-            B = pred_rate.shape[0]
+            B, T, N = pred_rate.shape
             for i in range(B):
                 tid = int(target_ids[i])
-                pred_by_target[tid].append(pred_rate[i])
-                true_by_target[tid].append(target[i])
+                mask_i = unit_mask[i]  # [N]
+                n_valid = mask_i.sum().item()
+                if n_valid == 0:
+                    continue
+                # Average over valid neurons: [T, N] * [N] -> [T]
+                pred_mean = (pred_rate[i] * mask_i.unsqueeze(0)).sum(dim=1) / n_valid
+                true_mean = (target[i] * mask_i.unsqueeze(0)).sum(dim=1) / n_valid
+                pred_by_target[tid].append(pred_mean)
+                true_by_target[tid].append(true_mean)
 
     results = {
         "trial_fp_bps": float(np.mean(trial_fp_bps)) if trial_fp_bps else 0.0,
@@ -265,20 +273,34 @@ def evaluate_trial_aligned(model, cfg, train_dataset, null_lookup, device,
         per_target_r2 = {}
 
         for tid in sorted(pred_by_target.keys()):
+            # Now all tensors are [T], can safely stack -> [n_trials, T]
             pred_stacked[tid] = torch.stack(pred_by_target[tid])
             true_stacked[tid] = torch.stack(true_by_target[tid])
-            n_trials = len(pred_by_target[tid])
+            n_trials = pred_stacked[tid].shape[0]
             logger.info(f"  Target {tid}: {n_trials} trials")
 
-            # Per-target PSTH R2
-            single_pred = {tid: pred_stacked[tid]}
-            single_true = {tid: true_stacked[tid]}
-            tid_r2 = psth_r2(single_pred, single_true, sigma_bins=sigma_bins)
-            per_target_r2[str(tid)] = float(tid_r2)
+            # Per-target PSTH R2 (on population-mean rates)
+            # PSTH: mean across trials -> [T]
+            psth_pred = pred_stacked[tid].mean(dim=0)
+            psth_true = true_stacked[tid].mean(dim=0)
+            ss_res = ((psth_pred - psth_true) ** 2).sum()
+            ss_tot = ((psth_true - psth_true.mean()) ** 2).sum()
+            tid_r2 = float(1 - ss_res / (ss_tot + 1e-8))
+            per_target_r2[str(tid)] = tid_r2
 
-        # Overall PSTH R2
-        overall_r2 = psth_r2(pred_stacked, true_stacked, sigma_bins=sigma_bins)
-        results["psth_r2"] = float(overall_r2)
+        # Overall PSTH R2: concatenate all directions' PSTHs
+        all_psth_pred = []
+        all_psth_true = []
+        for tid in sorted(pred_stacked.keys()):
+            all_psth_pred.append(pred_stacked[tid].mean(dim=0))
+            all_psth_true.append(true_stacked[tid].mean(dim=0))
+        all_pred = torch.cat(all_psth_pred)
+        all_true = torch.cat(all_psth_true)
+        ss_res = ((all_pred - all_true) ** 2).sum()
+        ss_tot = ((all_true - all_true.mean()) ** 2).sum()
+        overall_r2 = float(1 - ss_res / (ss_tot + 1e-8))
+
+        results["psth_r2"] = overall_r2
         results["per_target_psth_r2"] = per_target_r2
         results["trials_per_target"] = {
             str(k): len(v) for k, v in pred_by_target.items()

@@ -401,3 +401,42 @@
 - **输入**：`data/processed/perich_miller_population_2018/*.h5`
 - **依赖**：poyo conda 环境
 - **备注**：对应 plan.md 任务 1.2.4；全部 8 项测试通过
+
+### eval_phase1_v2.py（1.3.4 综合评估脚本）
+
+- **路径**：`scripts/analysis/neurohorizon/eval_phase1_v2.py`
+- **功能用途**：Phase 1 v2 综合评估脚本
+  - 连续模式评估：fp-bps（整体 + per-bin）、R-squared
+  - Trial-aligned 评估：PSTH-R-squared（8 方向 per-target + overall）
+  - 自动查找 checkpoint、计算 null rates、输出 JSON
+- **创建时间**：2026-03-12
+- **使用方式**：
+  ````bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/neurohorizon/eval_phase1_v2.py --log-dir results/logs/phase1_v2_250ms_cont
+  ````
+- **输入**：训练 checkpoint（last.ckpt），训练数据（用于 null rates）
+- **输出**：`eval_v2_results.json`（fp-bps, R2, per-bin fp-bps, PSTH-R2, per-target PSTH-R2）
+- **依赖**：poyo conda 环境
+- **备注**：对应 plan.md 任务 1.3.4
+
+### phase1_v2_visualize.py（1.3.4 可视化脚本）
+
+- **路径**：`scripts/analysis/neurohorizon/phase1_v2_visualize.py`
+- **功能用途**：Phase 1 v2 实验可视化（5 张图）
+  - Figure 1：fp-bps vs 预测窗口（连续 vs trial-aligned）
+  - Figure 2：per-bin fp-bps 衰减曲线
+  - Figure 3：PSTH-R2 热力图（8 方向 x 6 条件）
+  - Figure 4：连续 vs trial-aligned 对比柱状图
+  - Figure 5：训练曲线（val_loss + val_fp_bps vs epoch）
+- **创建时间**：2026-03-12
+- **使用方式**：
+  ````bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/neurohorizon/phase1_v2_visualize.py
+  ````
+- **输出**：`results/figures/phase1_v2/*.png`（5 张图）
+- **依赖**：poyo conda 环境, matplotlib
+- **备注**：对应 plan.md 任务 1.3.4

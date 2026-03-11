@@ -266,7 +266,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - [x] 500ms：R²=0.2417（-9.1%）
 - [x] 1000ms：R²=0.2343（AR）/ R²=0.2354（non-AR，差异<0.002）
 
-#### 1.3.4 [ ] v2 实验（fp-bps 为主指标 + trial-aligned 模式）
+#### 1.3.4 [x] v2 实验（fp-bps 为主指标 + trial-aligned 模式）
 > 依赖：`cc_core_files/proposal_review.md` §2.11（窗口实验） + §2.10（指标） + §2.1b（trial-aligned）
 > 产出：`results/logs/phase1_v2_{250ms,500ms,1000ms}_{cont,trial}/`，`results/figures/phase1_v2/`，`results/logs/phase1_v2_*/eval_v2_results.json`
 > 记录：`cc_todo/phase1-autoregressive/20260311-phase1-1.3.4-v2-experiment.md`
@@ -303,12 +303,12 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 4. 连续 vs trial-aligned 对比柱状图（fp-bps + R-squared 双指标）
 5. 训练曲线：6 个模型的 val_loss / val_fp_bps vs epoch
 
-- [ ] 250ms：连续 + trial-aligned，fp-bps / R-squared / PSTH-R-squared
-- [ ] 500ms：连续 + trial-aligned，fp-bps / R-squared / PSTH-R-squared
-- [ ] 1000ms：连续 + trial-aligned，fp-bps / R-squared / PSTH-R-squared
-- [ ] 分析：fp-bps 随预测窗口的衰减曲线（per-bin fp-bps）
-- [ ] 分析：连续 vs trial-aligned 训练效果差异
-- [ ] 分析：PSTH-R-squared 在不同预测窗口下的表现
+- [x] 250ms：连续 + trial-aligned，fp-bps / R-squared / PSTH-R-squared
+- [x] 500ms：连续 + trial-aligned，fp-bps / R-squared / PSTH-R-squared
+- [x] 1000ms：连续 + trial-aligned，fp-bps / R-squared / PSTH-R-squared
+- [x] 分析：fp-bps 随预测窗口的衰减曲线（per-bin fp-bps）
+- [x] 分析：连续 vs trial-aligned 训练效果差异
+- [x] 分析：PSTH-R-squared 在不同预测窗口下的表现
 
 ### 1.4 [ ] 观察窗口长度实验
 > 依赖：1.3.4 完成，确定最优 pred_window（预期 250ms）

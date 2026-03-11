@@ -541,3 +541,68 @@ results/
   - 1000ms AR 训练日志：`results/logs/phase1_small_1000ms/`
   - 1000ms non-AR 训练日志：`results/logs/phase1_small_1000ms_noar/`
   - 训练配置：`examples/neurohorizon/configs/train_small_1000ms.yaml`、`train_small_1000ms_noar.yaml`
+
+---
+
+## Phase 1.3.4：v2 预测窗口实验（fp-bps 主指标 + 连续/trial-aligned 对比）
+
+> 记录：`cc_todo/phase1-autoregressive/20260312-phase1-1.3.4-v2-experiment.md`
+> 执行日期：2026-03-12
+
+### 实验结果汇总
+
+| 条件 | fp-bps | R2 | PSTH-R2 | trial fp-bps |
+|------|--------|------|---------|-------------|
+| **250ms-cont** | **0.2115** | **0.2614** | 0.6826 | 0.2424 |
+| 250ms-trial | -0.1744 | 0.1302 | **0.8016** | 0.2304 |
+| **500ms-cont** | **0.1744** | **0.2368** | 0.1475 | 0.2261 |
+| 500ms-trial | -0.2471 | 0.0606 | 0.6330 | 0.2252 |
+| **1000ms-cont** | **0.1317** | **0.2290** | 0.2139 | 0.1585 |
+| 1000ms-trial | -0.1938 | 0.0789 | 0.6166 | 0.1877 |
+
+### v1 vs v2 R-squared 对比
+
+| 窗口 | v1 R2 | v2 R2 | 差异 |
+|------|-------|-------|------|
+| 250ms | 0.2658 | 0.2614 | -1.7% |
+| 500ms | 0.2417 | 0.2368 | -2.0% |
+| 1000ms | 0.2343 | 0.2290 | -2.3% |
+
+v2 代码变更（feedback 框架、fp-bps 集成）未显著影响连续训练性能。
+
+### 关键发现
+
+1. **连续训练稳定有效**：fp-bps 随窗口增长缓慢衰减（0.212 -> 0.174 -> 0.132），所有模型优于 null model
+2. **Trial-aligned 过拟合**：300 epochs 对约 186 个 trial 来说太多，模型在约 30-50 epochs 达到最佳后严重过拟合
+3. **PSTH-R2 悖论**：过拟合的 trial 模型 PSTH-R2 反而更高（0.60-0.80），因为 population-level 模式被保留
+4. **Per-bin fp-bps**：250ms 连续模型 12 个 bin 无明显衰减（0.16-0.24），预测在 250ms 内稳定有效
+
+### 可视化（5 张图）
+
+保存路径：`results/figures/phase1_v2/`
+
+**Figure 1: fp-bps vs 预测窗口** (`01_fpbps_vs_window.png`)
+- 连续模式 fp-bps 随窗口增大线性下降（0.21 -> 0.17 -> 0.13）
+- Trial-aligned 模式 fp-bps 均为负值（过拟合）
+
+**Figure 2: Per-bin fp-bps 衰减** (`02_perbin_fpbps_decay.png`)
+- 连续 250ms：12 bin 相对稳定，无显著衰减
+- 连续 500ms/1000ms：后段 bin 轻微衰减
+- Trial-aligned：所有 bin 均为负值
+
+**Figure 3: PSTH-R2 热力图** (`03_psth_r2_heatmap.png`)
+- 8 方向 x 6 条件，trial 模型 PSTH-R2 普遍高于连续模型
+- 方向 3（约 135 度）在 250ms-trial 模型中 R2=0.81（最高）
+
+**Figure 4: 连续 vs Trial-aligned** (`04_cont_vs_trial.png`)
+- fp-bps 和 R-squared 双指标柱状图
+- 连续模式全面优于 trial-aligned（在 300 epochs 条件下）
+
+**Figure 5: 训练曲线** (`05_training_curves.png`)
+- 连续模型 val_loss 平稳下降，fp-bps 稳定上升
+- Trial 模型 val_loss 先降后升（过拟合转折约 epoch 50），fp-bps 急剧恶化
+
+### 后续建议
+
+1. Trial-aligned 训练需 early stopping 或减少 epochs（约 30-50 epochs）
+2. 250ms-cont 是最优配置（fp-bps=0.212），推荐用于后续 1.4/1.5 实验
