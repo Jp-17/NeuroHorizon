@@ -458,7 +458,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - [ ] 调研 IBL-MtM 并整理到 benchmark_model.md
 - [ ] 添加备选模型备注（NEDS, STNDT, NDT3）
 
-#### 1.8.2 [ ] 环境配置与模型部署
+#### 1.8.2 [x] 环境配置与模型部署 <!-- 记录：cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md -->
 
 > 依赖：1.8.1 完成
 > 产出：`neural-benchmark/benchmark_models/` 下各模型代码、`neural-benchmark/envs/` conda 环境

@@ -169,3 +169,5 @@ uv.lock
 \!scripts/data/
 \!scripts/data/**
 results/
+neural-benchmark/envs/
+neural-benchmark/benchmark_models/
