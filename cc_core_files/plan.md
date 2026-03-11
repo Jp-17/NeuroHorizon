@@ -235,6 +235,24 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 #### 1.2.4 [x] v2 指标验证
 > 依赖：`cc_core_files/proposal_review.md` §2.10（指标） + §2.1b（sampler），1.1.7 + 1.1.9 产出代码
+> 产出：`scripts/analysis/neurohorizon/test_fp_bps.py`，验证结果 JSON
+> 记录：`cc_todo/phase1-autoregressive/20260311-phase1-1.1.7-1.1.9-implementation.md`
+
+**实验目的**：验证新实现的 fp-bps 指标和 trial-aligned sampler 的正确性，确保后续实验的评估基础可靠。
+
+**实验方法**：
+- 合成数据单元测试（9 项）：null model fp-bps=0、随机预测 fp-bps<0、oracle fp-bps>0、NLB 交叉验证 diff<1e-5
+- Trial-aligned sampler 功能验证：go_cue_time 对齐、target_id 正确传递、obs/pred 窗口边界正确
+
+**实验结果**（合成数据，非真实模型评估）：
+- fp-bps: null=0.0, random=-0.37, oracle=0.068（NLB 量级）
+- NLB 交叉验证 diff=2.8e-7
+- Trial-aligned sampler: 9/9 项通过
+
+**局限性**：
+- 本验证使用合成数据，仅确认指标计算逻辑正确性
+- 实际模型训练中的 fp-bps 数值需在 1.3.4 中获得
+
 - [x] fp-bps 正确性：null model fp-bps = 0.0，随机预测 < 0，训练好模型 > 0
 - [x] Trial-aligned sampler 正确性：每个 sample 以 go_cue_time 对齐，target_id 正确
 
@@ -250,32 +268,114 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 #### 1.3.4 [ ] v2 实验（fp-bps 为主指标 + trial-aligned 模式）
 > 依赖：`cc_core_files/proposal_review.md` §2.11（窗口实验） + §2.10（指标） + §2.1b（trial-aligned）
-- [ ] 250ms：连续 + trial-aligned，fp-bps / R² / PSTH-R²
-- [ ] 500ms：连续 + trial-aligned，fp-bps / R² / PSTH-R²
-- [ ] 1000ms：连续 + trial-aligned，fp-bps / R² / PSTH-R²
-- [ ] 分析：fp-bps 随预测窗口的衰减曲线
+> 产出：`results/logs/phase1_v2_{250ms,500ms,1000ms}_{cont,trial}/`，`results/figures/phase1_v2/`，`results/logs/phase1_v2_*/eval_v2_results.json`
+> 记录：`cc_todo/phase1-autoregressive/20260311-phase1-1.3.4-v2-experiment.md`
+
+**实验目的**：
+1. 用 fp-bps 替代 R-squared 作为主要评估指标，重新进行预测窗口实验
+2. 对比连续训练 vs trial-aligned 训练两种数据组织方式的效果
+3. 计算 PSTH-R-squared 评估群体水平预测质量
+4. 分析 per-bin fp-bps 衰减趋势，量化自回归预测的有效时程
+
+**实验配置（6 个训练运行）**：
+
+| 条件 | 训练模式 | pred_window | obs_window | bins | batch_size | log_dir | config |
+|------|---------|-------------|------------|------|------------|---------|--------|
+| 250ms-cont | 连续 | 250ms | 500ms | 12 | 64 | `phase1_v2_250ms_cont` | train_v2_250ms.yaml |
+| 250ms-trial | trial-aligned | 250ms | 500ms | 12 | 64 | `phase1_v2_250ms_trial` | train_v2_250ms_trial.yaml |
+| 500ms-cont | 连续 | 500ms | 500ms | 25 | 64 | `phase1_v2_500ms_cont` | train_v2_500ms.yaml |
+| 500ms-trial | trial-aligned | 500ms | 500ms | 25 | 64 | `phase1_v2_500ms_trial` | train_v2_500ms_trial.yaml |
+| 1000ms-cont | 连续 | 1000ms | 500ms | 50 | 32 | `phase1_v2_1000ms_cont` | train_v2_1000ms.yaml |
+| 1000ms-trial | trial-aligned | 1000ms | 500ms | 50 | 32 | `phase1_v2_1000ms_trial` | train_v2_1000ms_trial.yaml |
+
+**共用模型配置**：neurohorizon_small（dim=128, enc_depth=6, dec_depth=2），300 epochs，bf16-mixed，seed=42
+
+**评估指标**：fp-bps（整体 + per-bin）、R-squared、PSTH-R-squared（trial-aligned eval，8 方向）
+
+**v1 参考值（仅 R-squared，无 fp-bps）**：250ms R-squared=0.2658, 500ms R-squared=0.2417, 1000ms R-squared=0.2343
+
+**注意：不复用 v1 checkpoint，全部重新训练**（v1 无 fp-bps 集成，代码已变更 prediction feedback 等）
+
+**可视化（5 张图）**：
+1. fp-bps vs pred_window：连续 vs trial-aligned 两条线
+2. per-bin fp-bps 衰减曲线：6 条线（3 窗口 x 2 模式）
+3. PSTH-R-squared 热力图：target_id(0-7) x 条件(6 个)
+4. 连续 vs trial-aligned 对比柱状图（fp-bps + R-squared 双指标）
+5. 训练曲线：6 个模型的 val_loss / val_fp_bps vs epoch
+
+- [ ] 250ms：连续 + trial-aligned，fp-bps / R-squared / PSTH-R-squared
+- [ ] 500ms：连续 + trial-aligned，fp-bps / R-squared / PSTH-R-squared
+- [ ] 1000ms：连续 + trial-aligned，fp-bps / R-squared / PSTH-R-squared
+- [ ] 分析：fp-bps 随预测窗口的衰减曲线（per-bin fp-bps）
 - [ ] 分析：连续 vs trial-aligned 训练效果差异
-- [ ] 分析：PSTH-R² 在不同预测窗口下的表现
+- [ ] 分析：PSTH-R-squared 在不同预测窗口下的表现
 
 ### 1.4 [ ] 观察窗口长度实验
+> 依赖：1.3.4 完成，确定最优 pred_window（预期 250ms）
+> 产出：`results/logs/phase1_v2_obs{250,500,750,1000}ms/`，`results/figures/phase1_v2/`
+> 记录：`cc_todo/phase1-autoregressive/{date}-phase1-1.4-obs-window.md`
+
+**实验目的**：固定 pred_window=250ms，调节 obs_window（历史观察窗口），研究历史信息量对预测质量的影响，确定最优 obs_window 及饱和点。
+
+**实验配置**：
+
+| 条件 | obs_window | pred_window | sequence_length | bins | 备注 |
+|------|-----------|-------------|-----------------|------|------|
+| obs250 | 250ms | 250ms | 500ms | 12 | 仅覆盖 hold 末段 |
+| obs500 | 500ms | 250ms | 750ms | 12 | = 1.3.4 baseline（复用） |
+| obs750 | 750ms | 250ms | 1000ms | 12 | 延伸到 hold 前段 |
+| obs1000 | 1000ms | 250ms | 1250ms | 12 | 可能跨越前一 trial |
+
+**复用说明**：obs500 直接复用 1.3.4 的 250ms-cont 模型，无需重新训练（仅需 3 个新训练）。
+
+**评估指标**：fp-bps（整体 + per-bin）、R-squared、PSTH-R-squared
+
+**分析重点**：
+- fp-bps vs obs_window 曲线：是否存在饱和点（边际增益递减）
+- trial-aligned 下 250ms obs 仅覆盖 hold period 末段 vs 500ms 包含更多 hold 信息
+- obs_window 过长（1000ms）是否引入跨 trial 边界的噪声
 
 - [ ] 250ms obs + 250ms pred（连续 + trial-aligned）
-- [ ] 500ms obs + 250ms pred（= 1.3 baseline）
+- [ ] 500ms obs + 250ms pred（= 1.3.4 baseline，复用）
 - [ ] 750ms obs + 250ms pred
 - [ ] 1000ms obs + 250ms pred
-- [ ] 分析：fp-bps vs obs window 曲线，是否存在饱和点
+- [ ] 分析：fp-bps vs obs_window 曲线，是否存在饱和点
 - [ ] 分析：trial-aligned 下 250ms obs 仅覆盖 hold period vs 500ms 延伸到前一 trial
 - [ ] 配置说明：sequence_length = obs_window + pred_window，pred_window 固定
 
 ### 1.5 [ ] Session 数目实验
-> 产出：`examples/neurohorizon/configs/dataset/perich_miller_{1,4,7}sessions.yaml`（已创建）
+> 依赖：1.3.4 完成（10-session 结果作为 baseline），dataset configs 已存在
+> 产出：`results/logs/phase1_v2_{1,4,7}sessions/`，`examples/neurohorizon/configs/dataset/perich_miller_{1,4,7}sessions.yaml`（已创建）
+> 记录：`cc_todo/phase1-autoregressive/{date}-phase1-1.5-session-scaling.md`
+
+**实验目的**：研究多 session 联合训练对 spike 预测质量的影响，分析跨受试体泛化增益或干扰，为 Phase 2 跨 session 实验提供基线参考。
+
+**实验配置**：
+
+| 条件 | sessions 数 | 动物 | sessions 列表 | 备注 |
+|------|------------|------|-------------|------|
+| 1-session | 1 | C | c_20131003 | 单 session baseline |
+| 4-sessions | 4 | C | c_20131003/1022/1101/1204 | 同动物多 session |
+| 7-sessions | 7 | C+J | C 全部 + J 全部 | 跨动物 |
+| 10-sessions | 10 | C+J+M | 全部 | = 1.3.4 baseline（复用） |
+
+**共用配置**：250ms pred_window + 500ms obs_window（train_small 配置），连续训练模式
+
+**复用说明**：10-session 直接复用 1.3.4 的 250ms-cont 模型。
+
+**评估指标**：fp-bps（整体 + per-session）、R-squared、PSTH-R-squared
+
+**分析重点**：
+- 多 session 联合训练是否提升单 session 预测质量（正迁移 vs 干扰）
+- 跨受试体（C->J->M）泛化：用 C 训练的模型在 J/M sessions 上的 fp-bps
+- per-session fp-bps 分布变化：联合训练后各 session 性能是否均匀提升
 
 - [ ] 1 session（仅 c_20131003）
 - [ ] 4 sessions（C 动物：c_20131003/1022/1101/1204）
 - [ ] 7 sessions（C + J 动物）
-- [ ] 10 sessions（全部，= baseline）
+- [ ] 10 sessions（全部，= 1.3.4 baseline，复用）
 - [ ] 分析：多 session 联合训练对单 session 预测质量的影响
-- [ ] 分析：跨受试体（C→J→M）的泛化增益或干扰
+- [ ] 分析：跨受试体（C->J->M）的泛化增益或干扰
 - [ ] 报告：per-session fp-bps
 - [ ] 新增配置：perich_miller_{1,4,7}sessions.yaml
 
