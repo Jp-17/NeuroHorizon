@@ -27,6 +27,7 @@ from torch_brain.nn import (
     RotaryTimeEmbedding,
 )
 from torch_brain.nn.autoregressive_decoder import AutoregressiveDecoder, PerNeuronMLPHead
+from torch_brain.nn.prediction_feedback import build_feedback_encoder
 from torch_brain.utils import create_linspace_latent_tokens, create_start_end_unit_tokens
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,7 @@ class NeuroHorizon(nn.Module):
         t_max: float = 2.0627,
         max_pred_bins: int = 50,
         causal_decoder: bool = True,
+        feedback_method: str = "none",
     ):
         super().__init__()
 
@@ -164,6 +166,13 @@ class NeuroHorizon(nn.Module):
         # ── Per-Neuron MLP Head ──
         self.head = PerNeuronMLPHead(dim)
 
+        # ── Prediction Feedback Encoder (for AR) ──
+        self.feedback_method = feedback_method
+        if feedback_method != "none":
+            self.feedback_encoder = build_feedback_encoder(feedback_method, dim)
+        else:
+            self.feedback_encoder = None
+
     def forward(
         self,
         *,
@@ -180,11 +189,18 @@ class NeuroHorizon(nn.Module):
         # Unit info for PerNeuronMLPHead
         target_unit_index: TensorType["batch", "n_units", int],
         target_unit_mask: Optional[TensorType["batch", "n_units", bool]] = None,
+        # Target counts for teacher forcing feedback
+        target_counts=None,
     ) -> TensorType["batch", "n_bins", "n_units"]:
         """Forward pass (teacher forcing mode).
 
         Returns log spike rates [B, T_pred, N_units_padded].
         Use target_unit_mask to mask padding before computing loss.
+
+        Args:
+            target_counts: [B, T, N] GT spike counts for teacher forcing feedback.
+                Only used when feedback_encoder is not None.
+                Shifted right internally (feedback[t] uses counts[t-1]).
         """
         if self.unit_emb.is_lazy():
             raise ValueError(
@@ -216,9 +232,30 @@ class NeuroHorizon(nn.Module):
         bin_queries = self.bin_emb[:, :T_pred, :].expand(B, -1, -1).clone()
         bin_time_emb = self.rotary_emb(bin_timestamps)
 
+        # ── 5b. Compute prediction feedback (teacher forcing) ──
+        feedback = None
+        if self.feedback_encoder is not None and target_counts is not None:
+            unit_embs_fb = self.unit_emb(target_unit_index)  # [B, N_padded, dim]
+            N = target_counts.shape[2]
+
+            # Shift right: feedback[t] = encode(counts[t-1]), feedback[0] = 0
+            shifted_counts = torch.cat([
+                torch.zeros(B, 1, N, device=target_counts.device, dtype=target_counts.dtype),
+                target_counts[:, :-1, :],
+            ], dim=1)  # [B, T, N]
+
+            # Encode all timesteps in parallel: [B*T, N] -> [B*T, D] -> [B, T, D]
+            BT = B * T_pred
+            rates_flat = shifted_counts.reshape(BT, N)
+            embs_flat = unit_embs_fb.unsqueeze(1).expand(B, T_pred, -1, -1).reshape(BT, -1, self.dim)
+            mask_flat = target_unit_mask.unsqueeze(1).expand(B, T_pred, -1).reshape(BT, -1) if target_unit_mask is not None else None
+            feedback_flat = self.feedback_encoder(rates_flat, embs_flat, mask_flat)
+            feedback = feedback_flat.reshape(B, T_pred, self.dim)
+
         # ── 6. Autoregressive decoder ──
         bin_repr = self.ar_decoder(
             bin_queries, bin_time_emb, latents, latent_time_emb,
+            feedback=feedback,
         )
 
         # ── 7. Per-neuron prediction ──
@@ -244,6 +281,7 @@ class NeuroHorizon(nn.Module):
         """Autoregressive generation (step-by-step inference).
 
         Same inputs as forward(), but generates predictions one bin at a time.
+        When feedback_encoder is active, uses own predictions as feedback.
         Returns log spike rates [B, T_pred, N_units_padded].
         """
         if self.unit_emb.is_lazy():
@@ -271,20 +309,40 @@ class NeuroHorizon(nn.Module):
         unit_embs = self.unit_emb(target_unit_index)  # [B, N_padded, dim]
 
         all_log_rates = []
+        prev_predicted_rates = []  # Store predicted rates for feedback
+
         for t in range(T_pred):
-            # Use all bins up to and including current step
             cur_queries = self.bin_emb[:, :t + 1, :].expand(B, -1, -1).clone()
             cur_time_emb = self.rotary_emb(bin_timestamps[:, :t + 1])
 
-            # Decode with causal mask (auto-created inside decoder)
+            # Compute feedback from previous predictions
+            feedback = None
+            if self.feedback_encoder is not None:
+                fb_list = []
+                for s in range(t + 1):
+                    if s == 0 or len(prev_predicted_rates) == 0:
+                        fb_list.append(
+                            torch.zeros(B, self.dim, device=latents.device, dtype=latents.dtype)
+                        )
+                    else:
+                        fb_s = self.feedback_encoder(
+                            prev_predicted_rates[s - 1], unit_embs, target_unit_mask
+                        )
+                        fb_list.append(fb_s)
+                feedback = torch.stack(fb_list, dim=1)  # [B, t+1, dim]
+
             cur_repr = self.ar_decoder(
                 cur_queries, cur_time_emb, latents, latent_time_emb,
+                feedback=feedback,
             )
 
-            # Predict only for the latest bin
             latest_repr = cur_repr[:, -1:, :]  # [B, 1, dim]
             log_rate_t = self.head(latest_repr, unit_embs)  # [B, 1, N_padded]
             all_log_rates.append(log_rate_t)
+
+            # Store predicted rates for next step feedback
+            pred_rate_t = torch.exp(log_rate_t.squeeze(1).clamp(-10, 10))  # [B, N_padded]
+            prev_predicted_rates.append(pred_rate_t)
 
         return torch.cat(all_log_rates, dim=1)  # [B, T_pred, N_padded]
 

@@ -155,79 +155,128 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 ---
 
-## Phase 1：自回归改造验证 + 长时程生成验证
+## Phase 1: Autoregressive Modification Verification + Long-horizon Generation
 
-> **目标**：在 Brainsets 原生数据上实现核心自回归解码器，验证 causal mask 正确性和不同预测窗口下的生成质量。
-> **数据集**：Perich-Miller 2018（Brainsets 原生，5-20 sessions）
-> **执行参考**：`cc_core_files/proposal_review.md` 第二节（§二，含各模块代码级修改方案）
-> **cc_todo**：`cc_todo/phase1-autoregressive/`
+> **Goal**: Implement true autoregressive decoder with prediction feedback, validate with new metrics (fp-bps, PSTH-R2), test across prediction/observation windows and session counts.
+> **Dataset**: Perich-Miller 2018 (Brainsets native, 1-10 sessions)
+> **Execution Reference**: `cc_core_files/proposal_review.md` Section 2
+> **cc_todo**: `cc_todo/phase1-autoregressive/`
 
-### 1.1 核心模块实现
+### 1.1 Core Module Implementation
 
-- [x] **1.1.1** 添加 Poisson NLL Loss
-  - 📄 `cc_todo/phase1-autoregressive/20260302-phase1-1.1-core-modules.md`
-  - 修改 `torch_brain/nn/loss.py`，实现 `PoissonNLLLoss`
-  - 处理数值稳定性（log-sum-exp 技巧，避免 NaN；注意低发放率神经元的 log(0) 问题）
-  - 实现 `forward(log_rate, spike_count, weights)` 接口（与现有 loss 接口一致）
+#### 1.1.1-1.1.6 [x] v1 Base Modules (completed)
+- [x] PoissonNLLLoss
+- [x] spike_counts modality registration
+- [x] Causal mask support
+- [x] AutoregressiveDecoder + PerNeuronMLPHead
+- [x] NeuroHorizon model
+- [x] Training script + configs
 
-- [x] **1.1.2** 注册 spike_counts 输出模态
-  - 修改 `torch_brain/registry.py`，添加 `spike_counts` 模态类型
-  - 定义 `timestamp_key`、`value_key`、`loss_fn`
+#### 1.1.7 [ ] Evaluation Metrics Enhancement
+- [ ] Rebuild `torch_brain/utils/neurohorizon_metrics.py` (currently only .pyc)
+  - fp-bps (forward prediction bits per spike)
+  - PSTH-R2 (peri-stimulus time histogram R-squared)
+  - Retained: r2_score, firing_rate_correlation, poisson_log_likelihood
+- [ ] fp-bps null model: pre-training computation of per-neuron mean firing rate
+- [ ] Integrate fp-bps into train.py validation_step
+- [ ] Per-bin fp-bps (val/fp_bps_bin{t}) for decay analysis
+- [ ] PSTH-R2 standalone evaluation script (scripts/analysis/neurohorizon/eval_psth.py)
 
-- [x] **1.1.3** 修改 RotarySelfAttention 支持 causal mask ⚠️ 重点
-  - 修改 `torch_brain/nn/rotary_attention.py`
-  - 修改 `rotary_attn_pytorch_func` 的 mask reshape 逻辑（支持 2D / 3D / 4D mask）
-  - 若使用 xformers 后端，同步修改 `rotary_attn_xformers_func`
-  - 新增 `create_causal_mask(seq_len)` 工具函数
-  - **单元测试**：验证 causal mask 正确阻止未来 token 信息泄露
+#### 1.1.8 [ ] AR Fix: Prediction Feedback Implementation [Decision Pending]
+- [ ] Analyze and decide AR implementation approach (A: Query Augmentation / B: Prediction Memory Cross-Attention / C: Re-encode)
+  - See plan supplement for detailed analysis of three approaches
+- [ ] Analyze and decide feedback encoding method (5 candidates, per-neuron rates as input)
+  - Method 1: Per-neuron MLP + Mean Pooling
+  - Method 2: Rate-Weighted Unit Embedding Sum
+  - Method 3: Cross-Attention Pooling
+  - Method 4: Synthetic Spike Tokens (only for approach C)
+  - Method 5: No feedback (current implementation, as control)
+- [ ] Implement prediction_feedback.py
+- [ ] Modify autoregressive_decoder.py: forward() accepts target_counts, supports TF/AR modes
+- [ ] Modify neurohorizon.py: forward() passes GT counts, generate() uses predicted feedback
+- [ ] Modify train.py: pass target counts to model
 
-- [x] **1.1.4** 实现自回归 Cross-Attention Decoder ⚠️ 重点
-  - 新建 `torch_brain/nn/autoregressive_decoder.py`
-  - 实现 decoder block：cross-attn(bin_query → encoder_latents) + causal self-attn(bins) + FFN
-  - 实现 Per-Neuron MLP Head：`concat(bin_repr, unit_emb) → log-rate`
-  - 参考 `proposal_review.md` 第二节 §2.5 关于信息瓶颈问题的设计方案选择
-  - **单元测试**：teacher forcing 和自回归推理两种模式均可运行
+#### 1.1.9 [ ] Trial-Aligned Data Loading
+- [ ] New torch_brain/data/trial_sampler.py (TrialAlignedSampler)
+  - Each sample = one trial, aligned to go_cue_time
+  - window = [go_cue_time - obs_window, go_cue_time + pred_window]
+  - Supports shuffle (training) / sequential (evaluation)
+- [ ] Add get_trial_intervals() method to dataset.py
+- [ ] Add trial_aligned config parameter to train.py, controlling sampler selection
+- [ ] Pass trial metadata (target_id, go_cue_time) to batch
 
-- [x] **1.1.5** 组装 NeuroHorizon 模型（分三步）
-  - **1.1.5a** 模型骨架：复用 POYO encoder + processing layers，集成 IDEncoder 预留接口，验证 encoder 部分维度正确
-  - **1.1.5b** Decoder 集成：接入 AutoregressiveDecoder，实现完整 forward()，验证 teacher forcing 模式端到端可运行
-  - **1.1.5c** tokenize() 实现：构建 spike count targets（binning spike events），处理参考窗口，验证与 collate 函数的兼容性
-  - 更新 `torch_brain/models/__init__.py` 导出
+### 1.2 Foundation Verification
 
-- [x] **1.1.6** 编写训练脚本与评估指标
-  - 新建 `examples/neurohorizon/train.py` + Hydra configs（Small / Base 两套配置）
-  - 新建 `torch_brain/utils/neurohorizon_metrics.py`：PSTH 相关性、Poisson log-likelihood、R²
-  - 实现"预测准确性随时间步衰减"评估曲线
+#### 1.2.1-1.2.2 [x] v1 Verification (completed)
+- [x] Teacher forcing training convergence (R2=0.2658)
+- [x] AR vs TF consistency verification (max_diff=3e-6)
 
-### 1.2 基础功能验证
+#### 1.2.3 [ ] v2 AR Fix Verification
+- [ ] Verify post-fix TF and AR inference outputs are no longer identical (diff >> 1e-6)
+- [ ] Verify modifying bin t prediction actually affects bin t+1 and beyond
+- [ ] TF mode training convergence verification (loss decrease, no NaN/Inf)
+- [ ] AR inference fp-bps evaluation
 
-- [x] **1.2.1** Teacher forcing 模式训练（5-10 sessions，Small 配置）
-  - 📄 `cc_todo/phase1-autoregressive/20260302-phase1-1.2-foundation-verify.md`
-  - 验证 loss 收敛、预测 spike count 分布合理（Poisson 分布特性）
-  - 与简单 baseline 对比（PSTH-based prediction、线性预测）
+#### 1.2.4 [ ] v2 Metrics Verification
+- [ ] fp-bps correctness: null model fp-bps = 0.0, random prediction < 0, trained model > 0
+- [ ] Trial-aligned sampler correctness: each sample aligned to go_cue_time, target_id correct
 
-- [x] **1.2.2** 自回归推理验证
-  - 验证 causal mask 在推理时正确（未来 token 不被看到）
-  - 绘制误差随预测步数的传播曲线，记录衰减速度
+### 1.3 Prediction Window Experiments
 
-### 1.3 预测窗口梯度测试
+#### 1.3.1-1.3.3 [x] v1 Experiments (completed, R2 as primary metric)
+- [x] 250ms: R2=0.2658
+- [x] 500ms: R2=0.2417 (-9.1%)
+- [x] 1000ms: R2=0.2343 (AR) / R2=0.2354 (non-AR, diff<0.002)
 
-- [x] **1.3.1** 250ms 预测窗口实验（10-20 sessions）
-  - 📄 `cc_todo/phase1-autoregressive/20260302-phase1-1.3-prediction-window.md`
-  - 作为基线，记录 PSTH 相关性 / R²
-  - 方案 A（trial 对齐）：输入 = hold period，预测 = reach period 前 250ms
+#### 1.3.4 [ ] v2 Experiments (fp-bps as primary metric + trial-aligned mode)
+- [ ] 250ms: continuous + trial-aligned, fp-bps / R2 / PSTH-R2
+- [ ] 500ms: continuous + trial-aligned, fp-bps / R2 / PSTH-R2
+- [ ] 1000ms: continuous + trial-aligned, fp-bps / R2 / PSTH-R2
+- [ ] Analysis: fp-bps decay curve across prediction windows
+- [ ] Analysis: continuous vs trial-aligned training effect comparison
+- [ ] Analysis: PSTH-R2 across different prediction windows
 
-- [x] **1.3.2** 500ms 预测窗口实验
-  - 视 250ms 结果决定是否引入 scheduled sampling
-  - 对比：500ms 下 trial 对齐方案 A vs 滑动窗口方案 B
+### 1.4 [ ] Observation Window Length Experiments
 
-- [x] **1.3.3** 1000ms 预测窗口实验（约50 步自回归）
-  - 实现 scheduled sampling（从 100% teacher forcing 线性衰减至 约10%，20-50 epoch）
-  - non-autoregressive parallel prediction 对照基线
+- [ ] 250ms obs + 250ms pred (continuous + trial-aligned)
+- [ ] 500ms obs + 250ms pred (= 1.3 baseline)
+- [ ] 750ms obs + 250ms pred
+- [ ] 1000ms obs + 250ms pred
+- [ ] Analysis: fp-bps vs obs window curve, saturation point detection
+- [ ] Analysis: trial-aligned 250ms obs covers only hold period vs 500ms extending to previous trial
+- [ ] Config: sequence_length = obs_window + pred_window, pred_window fixed
 
-- [x] **1.3.4** 预测窗口汇总报告
-  - 绘制性能随窗口长度的衰减曲线（写入 `cc_core_files/results.md`）
-  - 决策：Phase 2/3 实验的主要预测窗口
+### 1.5 [ ] Session Count Experiments
+
+- [ ] 1 session (c_20131003 only)
+- [ ] 4 sessions (C animal: c_20131003/1022/1101/1204)
+- [ ] 7 sessions (C + J animals)
+- [ ] 10 sessions (all, = baseline)
+- [ ] Analysis: multi-session joint training effect on single-session prediction quality
+- [ ] Analysis: cross-subject (C->J->M) generalization gain or interference
+- [ ] Report: per-session fp-bps
+- [ ] New configs: perich_miller_{1,4,7}sessions.yaml
+
+### 1.6 [Pending] Forward Prediction -> Behavior Decoding Hypothesis
+
+> Status: to explore after Phase 1 core experiments
+>
+> **Hypothesis**: Higher fp-bps models yield higher behavior decoding R2 when encoder is frozen + linear probe.
+>
+> **Experimental Design** (implemented in Phase 3.2):
+> 1. Take NeuroHorizon models from 1.3/1.4/1.5 with different configs
+> 2. Freeze encoder, attach linear probe for behavior decoding (cursor velocity R2)
+> 3. Plot behavior R2 vs fp-bps scatter
+> 4. Positive correlation = strong evidence supporting hypothesis
+>
+> **Connection**: NDT-MtM multi-task masking improves fp-bps (0.50->0.54) already indirectly supports this
+
+### 1.7 [Optional] Scheduled Sampling
+
+> Status: optional optimization, consider after AR fix is verified effective
+>
+> Principle: training uses model predictions instead of GT feedback with probability p (annealed 0->0.5)
+> Note: loses training parallelism once introduced
 
 ---
 

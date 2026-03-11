@@ -86,6 +86,7 @@ class AutoregressiveDecoder(nn.Module):
         encoder_latents,
         latent_time_emb,
         causal_mask=None,
+        feedback=None,
     ):
         """Forward pass of the autoregressive decoder.
 
@@ -96,11 +97,17 @@ class AutoregressiveDecoder(nn.Module):
             latent_time_emb: [B, N_latents, dim_head] - rotary time embeddings for latents
             causal_mask: [B, T_pred, T_pred] or [T_pred, T_pred] bool mask (optional)
                 If None, created automatically.
+            feedback: [B, T_pred, dim] - prediction feedback from previous steps (optional)
+                If provided, added to bin_queries before decoder layers (Method A: Query Augmentation).
 
         Returns:
             [B, T_pred, dim] - decoded bin representations
         """
         B, T_pred, _ = bin_queries.shape
+
+        # Add prediction feedback to bin queries (Method A: Query Augmentation)
+        if feedback is not None:
+            bin_queries = bin_queries + feedback
 
         # Create causal mask if not provided (skip for non-AR mode)
         if causal_mask is None and self.causal:

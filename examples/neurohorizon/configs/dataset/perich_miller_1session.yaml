@@ -1,0 +1,8 @@
+# 1 session: C animal only (c_20131003)
+# For session count ablation experiment (1.5.1)
+- selection:
+  - brainset: perich_miller_population_2018
+    sessions:
+      - c_20131003_center_out_reaching
+    config:
+      multitask_readout: []

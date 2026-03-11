@@ -10,3 +10,4 @@ from .collate import (
     track_mask8,
 )
 from .dataset import Dataset
+from .trial_sampler import TrialAlignedSampler, TrialDatasetIndex

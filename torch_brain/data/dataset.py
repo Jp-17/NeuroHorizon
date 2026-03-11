@@ -482,12 +482,72 @@ class Dataset(torch.utils.data.Dataset):
             f"no leakage between {self.split} and other splits."
         )
 
+
+    def get_trial_intervals(self, split="train"):
+        r"""Return trial-level metadata for each recording.
+
+        For trial-aligned sampling: extracts go_cue_time, target_id
+        from the HDF5 data for the given split.
+
+        Args:
+            split: 'train', 'valid', or 'test'
+
+        Returns:
+            Dict[recording_id -> {
+                'go_cue_time': np.ndarray,
+                'target_id': np.ndarray,
+            }]
+        """
+        trial_info = {}
+        for recording_id in self.recording_dict.keys():
+            data = self._get_data_object(recording_id)
+
+            # First try {split}_domain (has per-trial metadata for valid/test)
+            domain_name = f"{split}_domain"
+            domain = getattr(data, domain_name, None)
+            if domain is not None and hasattr(domain, "go_cue_time"):
+                trial_info[recording_id] = {
+                    "go_cue_time": np.array(domain.go_cue_time),
+                    "target_id": np.array(domain.target_id).astype(int),
+                }
+                continue
+
+            # Fall back to trials/ group with split mask
+            trials = getattr(data, "trials", None)
+            if trials is None or not hasattr(trials, "go_cue_time"):
+                continue
+
+            mask_attr = f"{split}_mask"
+            if hasattr(trials, mask_attr):
+                mask = np.array(getattr(trials, mask_attr))
+            else:
+                mask = np.ones(len(trials.go_cue_time), dtype=bool)
+
+            # Also filter by is_valid
+            if hasattr(trials, "is_valid"):
+                mask = mask & np.array(trials.is_valid)
+
+            go_cues = np.array(trials.go_cue_time)[mask]
+            target_ids = np.array(trials.target_id)[mask].astype(int)
+
+            trial_info[recording_id] = {
+                "go_cue_time": go_cues,
+                "target_id": target_ids,
+            }
+
+        return trial_info
+
     def __getitem__(self, index: DatasetIndex):
         sample = self.get(index.recording_id, index.start, index.end)
 
         # apply transform
         if self.transform is not None:
             sample = self.transform(sample)
+
+        # Pass through trial metadata if present (from TrialAlignedSampler)
+        if isinstance(sample, dict) and hasattr(index, "target_id") and index.target_id >= 0:
+            sample["trial_target_id"] = index.target_id
+            sample["trial_go_cue_time"] = index.go_cue_time
 
         return sample
 

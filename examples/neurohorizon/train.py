@@ -24,11 +24,18 @@ from torch.utils.data import DataLoader
 
 from torch_brain.data import Dataset, collate
 from torch_brain.data.sampler import RandomFixedWindowSampler
+from torch_brain.data.trial_sampler import TrialAlignedSampler
 from torch_brain.models import NeuroHorizon
 from torch_brain.nn.loss import PoissonNLLLoss
 from torch_brain.transforms import Compose
 from torch_brain.utils import seed_everything
 from torch_brain.utils import callbacks as tbrain_callbacks
+from torch_brain.utils.neurohorizon_metrics import (
+    compute_null_rates,
+    build_null_rate_lookup,
+    fp_bps,
+    fp_bps_per_bin,
+)
 
 torch.set_float32_matmul_precision("medium")
 logger = logging.getLogger(__name__)
@@ -44,6 +51,13 @@ class TrainWrapper(L.LightningModule):
 
         # For tracking validation metrics
         self.val_outputs = []
+
+        # Null model lookup for fp-bps (populated after dataset setup)
+        self.register_buffer('null_rate_lookup', torch.zeros(1))
+
+    def set_null_rates(self, null_rate_lookup: torch.Tensor):
+        """Set null rate lookup tensor for fp-bps computation."""
+        self.null_rate_lookup = null_rate_lookup
 
     def configure_optimizers(self):
         max_lr = self.cfg.optim.base_lr * self.cfg.batch_size
@@ -83,8 +97,11 @@ class TrainWrapper(L.LightningModule):
         }
 
     def training_step(self, batch, batch_idx):
-        # Forward pass
-        log_rate = self.model(**batch["model_inputs"])
+        # Forward pass (pass target_counts for feedback if encoder is active)
+        forward_kwargs = dict(batch["model_inputs"])
+        if self.model.feedback_encoder is not None:
+            forward_kwargs["target_counts"] = batch["target_spike_counts"]
+        log_rate = self.model(**forward_kwargs)
 
         # Get targets and mask
         target = batch["target_spike_counts"]  # [B, T, N_padded]
@@ -108,7 +125,12 @@ class TrainWrapper(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        log_rate = self.model(**batch["model_inputs"])
+        # Forward pass (pass target_counts for feedback if encoder is active)
+        forward_kwargs = dict(batch["model_inputs"])
+        if self.model.feedback_encoder is not None:
+            forward_kwargs["target_counts"] = batch["target_spike_counts"]
+        log_rate = self.model(**forward_kwargs)
+
         target = batch["target_spike_counts"]
         unit_mask = batch["model_inputs"]["target_unit_mask"]
 
@@ -118,16 +140,31 @@ class TrainWrapper(L.LightningModule):
         loss = self.loss_fn(log_rate[mask], target[mask])
         self.log("val_loss", loss, prog_bar=True, sync_dist=True)
 
-        # Compute per-bin and overall R²
         with torch.no_grad():
             pred_rate = torch.exp(log_rate.clamp(-10, 10))
-            # R² over masked elements
+
+            # R-squared over masked elements
             pred_flat = pred_rate[mask]
             tgt_flat = target[mask]
             ss_res = ((pred_flat - tgt_flat) ** 2).sum()
             ss_tot = ((tgt_flat - tgt_flat.mean()) ** 2).sum()
             r2 = 1 - ss_res / (ss_tot + 1e-8)
             self.log("val/r2", r2, prog_bar=True, sync_dist=True)
+
+            # fp-bps (Forward Prediction Bits Per Spike)
+            if self.null_rate_lookup.numel() > 1:
+                target_unit_index = batch["model_inputs"]["target_unit_index"]
+                max_idx = self.null_rate_lookup.shape[0] - 1
+                clamped_idx = target_unit_index.clamp(0, max_idx)
+                null_log_rates = self.null_rate_lookup[clamped_idx]  # [B, N_padded]
+
+                bps = fp_bps(log_rate, target, null_log_rates, unit_mask)
+                self.log("val/fp_bps", bps, prog_bar=True, sync_dist=True)
+
+                # Per-bin fp-bps for decay analysis
+                per_bin_bps = fp_bps_per_bin(log_rate, target, null_log_rates, unit_mask)
+                for t in range(min(T, 12)):
+                    self.log(f"val/fp_bps_bin{t}", per_bin_bps[t], sync_dist=True)
 
             # Per-bin Poisson NLL (for error propagation curve)
             for t in range(min(T, 12)):
@@ -149,6 +186,7 @@ class DataModule(L.LightningDataModule):
         super().__init__()
         self.cfg = cfg
         self.log = logging.getLogger(__name__)
+        self.trial_aligned = getattr(cfg, 'trial_aligned', False)
 
     def setup_dataset_and_link_model(self, model: NeuroHorizon):
         self.sequence_length = model.sequence_length
@@ -178,12 +216,35 @@ class DataModule(L.LightningDataModule):
         )
         self.val_dataset.disable_data_leakage_check()
 
-    def train_dataloader(self):
-        sampler = RandomFixedWindowSampler(
-            sampling_intervals=self.train_dataset.get_sampling_intervals(),
-            window_length=self.sequence_length,
-            generator=torch.Generator().manual_seed(self.cfg.seed + 1),
+        # Store model reference for trial-aligned sampling
+        self.model = model
+
+        # Compute null model rates for fp-bps
+        self.log.info("Computing null model rates from training data...")
+        null_rates = compute_null_rates(
+            self.train_dataset, model, model.bin_size
         )
+        self.null_rate_lookup = build_null_rate_lookup(null_rates)
+        self.log.info(
+            f"Null model: {len(null_rates)} neurons computed"
+        )
+
+    def train_dataloader(self):
+        if self.trial_aligned:
+            trial_info = self.train_dataset.get_trial_intervals(split='train')
+            sampler = TrialAlignedSampler(
+                trial_info=trial_info,
+                obs_window=self.model.hist_window,
+                pred_window=self.model.pred_window,
+                shuffle=True,
+                generator=torch.Generator().manual_seed(self.cfg.seed + 1),
+            )
+        else:
+            sampler = RandomFixedWindowSampler(
+                sampling_intervals=self.train_dataset.get_sampling_intervals(),
+                window_length=self.sequence_length,
+                generator=torch.Generator().manual_seed(self.cfg.seed + 1),
+            )
 
         loader = DataLoader(
             self.train_dataset,
@@ -197,18 +258,29 @@ class DataModule(L.LightningDataModule):
             prefetch_factor=2 if self.cfg.num_workers > 0 else None,
         )
 
-        self.log.info(f"Training: {len(sampler)} samples, "
+        mode_str = "trial-aligned" if self.trial_aligned else "continuous"
+        self.log.info(f"Training ({mode_str}): {len(sampler)} samples, "
                       f"{len(self.train_dataset.get_unit_ids())} units, "
                       f"{len(self.train_dataset.get_session_ids())} sessions")
         return loader
 
     def val_dataloader(self):
         batch_size = self.cfg.eval_batch_size or self.cfg.batch_size
-        sampler = RandomFixedWindowSampler(
-            sampling_intervals=self.val_dataset.get_sampling_intervals(),
-            window_length=self.sequence_length,
-            generator=torch.Generator().manual_seed(self.cfg.seed + 2),
-        )
+
+        if self.trial_aligned:
+            trial_info = self.val_dataset.get_trial_intervals(split='valid')
+            sampler = TrialAlignedSampler(
+                trial_info=trial_info,
+                obs_window=self.model.hist_window,
+                pred_window=self.model.pred_window,
+                shuffle=False,
+            )
+        else:
+            sampler = RandomFixedWindowSampler(
+                sampling_intervals=self.val_dataset.get_sampling_intervals(),
+                window_length=self.sequence_length,
+                generator=torch.Generator().manual_seed(self.cfg.seed + 2),
+            )
 
         loader = DataLoader(
             self.val_dataset,
@@ -219,7 +291,8 @@ class DataModule(L.LightningDataModule):
             drop_last=False,
         )
 
-        self.log.info(f"Validation: {len(sampler)} samples")
+        mode_str = "trial-aligned" if self.trial_aligned else "continuous"
+        self.log.info(f"Validation ({mode_str}): {len(sampler)} samples")
         return loader
 
 
@@ -250,6 +323,9 @@ def main(cfg: DictConfig):
 
     # Training wrapper
     wrapper = TrainWrapper(cfg=cfg, model=model)
+
+    # Set null model rates for fp-bps
+    wrapper.set_null_rates(data_module.null_rate_lookup)
 
     callbacks = [
         ModelSummary(max_depth=2),
