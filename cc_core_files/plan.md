@@ -400,6 +400,170 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 > 原理：训练中以概率 p（退火 0→0.5）用模型预测替代 GT feedback
 > 注意：引入后失去训练并行性
 
+### 1.8 Benchmark 对比实验：多模型长时程预测 Baseline
+> 依赖：1.3.4 完成（NeuroHorizon baseline 结果），`cc_todo/phase0-env-baseline/20260309-phase0-0.4-benchmark-analysis.md` §0.4.2–§0.4.3
+> 产出：`neural-benchmark/`（目录）、`neural-benchmark/benchmark_model.md`、各模型适配代码与实验结果
+> 记录：`cc_todo/phase1-autoregressive/{date}-phase1-1.8-benchmark.md`
+
+**实验目的**：
+构建统一的多模型 benchmark，将 NDT2、Neuroformer、IBL-MtM 等对比模型适配到 torch_brain 的统一数据层和评估框架下，在与 NeuroHorizon 完全相同的数据划分和评估条件下进行长时程 forward prediction 对比实验，建立公平的 baseline。
+
+**核心标准**：
+1. **统一数据层**：所有模型共用 torch_brain 提供的数据集接口（`get_sampling_intervals(split)` 获取 train/valid/test 划分、HDF5 spike events `spikes.timestamps + spikes.unit_index`、行为数据 `hand.vel/hand.pos`、unit metadata），通过薄适配层（约100–150行/模型）转换为各模型原生输入格式
+2. **统一评估指标**：所有模型在完全相同的 test intervals 上，用统一实现的 Poisson NLL、fp-bps（`torch_brain/utils/neurohorizon_metrics.py::fp_bps`）、PSTH-R²（`neurohorizon_metrics.py::psth_r2`）、R²（`neurohorizon_metrics.py::r2_score`）进行评估
+3. **不改造模型内部 pipeline**：各模型的 model architecture / training loop / inference code 保持原样，仅在数据输入和评估输出层做适配
+
+**优先实现的对比模型**：
+
+| 模型 | 仓库 | 论文 | 架构类型 | FP 方式 | 适配难度 |
+|------|------|------|---------|---------|---------|
+| **NDT2** | [joel99/context_general_bci](https://github.com/joel99/context_general_bci) | NeurIPS 2023 | Encoder-Decoder, MAE | 并行填充（mask future bins → 重建） | 低 |
+| **Neuroformer** | [a-antoniades/Neuroformer](https://github.com/a-antoniades/Neuroformer) | ICLR 2024 | Decoder-only, GPT-style | 逐 spike 自回归生成 | 中 |
+| **IBL-MtM** | [colehurwitz/IBL_MtM_model](https://github.com/colehurwitz/IBL_MtM_model) | NeurIPS 2024 | Encoder-only, Multi-task Masking | temporal causal masking（并行预测） | 中 |
+
+**备选模型**（后续视需要扩展）：NEDS、STNDT、NDT3
+
+**数据集**：Perich-Miller 2018（与 1.3.4 完全相同的 10 sessions，相同 train/valid/test 划分）
+
+**参照实验**：1.3.4 v2 实验（6 个条件：3 窗口 × 2 模式，fp-bps/R²/PSTH-R² 指标）
+
+#### 1.8.1 [x] 模型调研与文档整理 <!-- 记录：cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md -->
+
+> 依赖：`cc_todo/phase0-env-baseline/20260309-phase0-0.4-benchmark-analysis.md` §0.4.2–§0.4.3
+> 产出：`neural-benchmark/benchmark_model.md`
+> 记录：同 1.8 主记录
+
+**任务**：
+1. 创建 `neural-benchmark/` 目录
+2. 深入调研 NDT2、Neuroformer、IBL-MtM 三个模型，整理以下信息到 `neural-benchmark/benchmark_model.md`：
+
+**每个模型必须包含的信息**：
+- GitHub 链接
+- 模型大小（参数量）
+- 资源需求（GPU 显存、训练时间）
+- 是否提供 inference code 和预训练 weight（可直接测试）
+- 是否支持 forward prediction（怎么实现的）
+- 一般支持的 forward prediction 时长
+- 观察窗口（observation window）和预测窗口（prediction window）时长
+- Paper 或代码中是否提到过 fp-bps 的数值参考
+- **如何适配到 torch_brain 框架**：数据适配方案（spike events → 模型输入格式的转换逻辑）和 metric 评估方案（模型输出 → 统一评估接口的对接方式）
+
+**备选模型备注**：在 benchmark_model.md 末尾添加备注节，列出 NEDS、STNDT、NDT3 等备选模型的基本信息和 GitHub 链接，标注为"待评估"
+
+**可参考内容**：`cc_todo/phase0-env-baseline/20260309-phase0-0.4-benchmark-analysis.md` §0.4.2（模型分析）+ §0.4.3（适配方案）
+
+- [ ] 创建 neural-benchmark/ 目录结构
+- [ ] 调研 NDT2 并整理到 benchmark_model.md
+- [ ] 调研 Neuroformer 并整理到 benchmark_model.md
+- [ ] 调研 IBL-MtM 并整理到 benchmark_model.md
+- [ ] 添加备选模型备注（NEDS, STNDT, NDT3）
+
+#### 1.8.2 [ ] 环境配置与模型部署
+
+> 依赖：1.8.1 完成
+> 产出：`neural-benchmark/benchmark_models/` 下各模型代码、`neural-benchmark/envs/` conda 环境
+> 记录：同 1.8 主记录
+
+**任务**：
+
+1. **存储映射**：将 conda 环境存储目录从默认的 `miniconda3/envs` 映射到 `NeuroHorizon/neural-benchmark/envs/`
+   ````bash
+   mkdir -p /root/autodl-tmp/NeuroHorizon/neural-benchmark/envs
+   conda config --prepend envs_dirs /root/autodl-tmp/NeuroHorizon/neural-benchmark/envs
+   ````
+   使实际存储占用在项目数据盘，但不影响 conda 正常使用（`conda activate benchmark-env` 等）
+
+2. **Clone 模型仓库**到 `neural-benchmark/benchmark_models/`：
+   ````bash
+   mkdir -p neural-benchmark/benchmark_models
+   git clone https://github.com/joel99/context_general_bci.git neural-benchmark/benchmark_models/ndt2
+   git clone https://github.com/a-antoniades/Neuroformer.git neural-benchmark/benchmark_models/neuroformer
+   git clone https://github.com/colehurwitz/IBL_MtM_model.git neural-benchmark/benchmark_models/ibl-mtm
+   ````
+
+3. **创建共用 conda 环境** `benchmark-env`：
+   - 优先在同一个 conda 环境中安装所有模型依赖
+   - 核心共用依赖：PyTorch (CUDA)、numpy、scipy、h5py、wandb、hydra 等
+   - 各模型特有依赖按其 README / requirements.txt / env.yaml 安装
+   - **仅当**存在严重不兼容（如 PyTorch 版本冲突、Python 版本不兼容）时，才为该模型单独创建 conda 环境（如 `benchmark-ndt2-env`）
+
+4. **验证安装**：每个模型完成安装后，运行其自带的最小测试或 import 检查，确保环境正常
+
+- [ ] 配置 conda envs_dirs 映射到 neural-benchmark/envs/
+- [ ] Clone NDT2 + 安装依赖 + 验证
+- [ ] Clone Neuroformer + 安装依赖 + 验证
+- [ ] Clone IBL-MtM + 安装依赖 + 验证
+- [ ] 记录环境配置结果（成功/失败/兼容性问题）
+
+#### 1.8.3 [ ] 模型适配与对比实验
+
+> 依赖：1.8.2 完成（环境就绪），1.3.4 完成（NeuroHorizon baseline 结果）
+> 产出：各模型适配代码（`neural-benchmark/adapters/`）、实验结果（`results/logs/phase1_benchmark_*/`）、对比图表（`results/figures/phase1_benchmark/`）
+> 记录：同 1.8 主记录
+
+**Part A: 适配层开发**
+
+为每个模型编写薄适配层（adapter），放在 `neural-benchmark/adapters/` 下：
+
+| 模型 | 适配层核心逻辑 | 估算行数 |
+|------|---------------|---------|
+| NDT2 | torch_brain spike events → 20ms binned counts → spatiotemporal patches | 约 100 行 |
+| Neuroformer | torch_brain spike events → neuron ID + dt token 序列 | 约 150 行 |
+| IBL-MtM | torch_brain spike events → 20ms binned counts → IBL session dict 格式 | 约 120 行 |
+
+**适配层职责**：
+- 从 torch_brain `Dataset` 读取 `get_sampling_intervals(split)` 获取统一的 train/valid/test 区间
+- 在各区间内切出原始 spike events（`spikes.timestamps + spikes.unit_index`）
+- 转换为模型原生输入格式（binning / tokenization / patching）
+- 模型推理后，将输出转换为统一格式 `[B, T, N]` log_rate（或 rate），对接 `neurohorizon_metrics.py` 的评估函数
+
+**评估统一化**：
+- 所有模型在**完全相同的 test intervals** 上评估
+- 统一调用 `fp_bps()`, `r2_score()`, `psth_r2()`, `PoissonNLLLoss` 计算指标
+- Null model: `compute_null_rates()` 从训练集计算 per-neuron mean（所有模型共用同一 null model）
+
+**Part B: 训练与评估实验**
+
+参照 1.3.4 的实验设计，对每个适配后的模型进行训练和评估：
+
+**实验配置**（参照 1.3.4，每个模型至少覆盖以下条件）：
+
+| 条件 | 训练模式 | pred_window | obs_window | 备注 |
+|------|---------|-------------|------------|------|
+| 250ms-cont | 连续 | 250ms | 500ms | 与 1.3.4 对标 |
+| 500ms-cont | 连续 | 500ms | 500ms | 与 1.3.4 对标 |
+| 1000ms-cont | 连续 | 1000ms | 500ms | 与 1.3.4 对标 |
+
+注：各模型是否支持 trial-aligned 模式视适配情况而定；连续模式为必做
+
+**评估指标**（与 1.3.4 完全一致）：
+- fp-bps（整体 + per-bin 衰减曲线）
+- R²
+- PSTH-R²（trial-aligned eval，8 方向）
+- Poisson NLL
+
+**Part C: 对比分析与可视化**
+
+与 NeuroHorizon 1.3.4 结果进行横向对比：
+
+**可视化（至少 4 张图）**：
+1. **多模型 fp-bps 对比柱状图**：各模型在 250ms/500ms/1000ms 下的 fp-bps，含 NeuroHorizon baseline
+2. **per-bin fp-bps 衰减对比**：各模型的 per-bin fp-bps 随预测步数的衰减曲线叠加
+3. **多模型 R² 对比柱状图**：各模型在 3 个窗口下的 R²
+4. **综合对比表 + 雷达图**：fp-bps / R² / PSTH-R² / Poisson NLL 四指标对比
+
+- [ ] NDT2 适配层开发 + 单元测试
+- [ ] Neuroformer 适配层开发 + 单元测试
+- [ ] IBL-MtM 适配层开发 + 单元测试
+- [ ] NDT2 训练实验（250ms/500ms/1000ms）
+- [ ] Neuroformer 训练实验（250ms/500ms/1000ms）
+- [ ] IBL-MtM 训练实验（250ms/500ms/1000ms）
+- [ ] 各模型评估（fp-bps / R² / PSTH-R² / Poisson NLL）
+- [ ] 与 NeuroHorizon 1.3.4 结果的横向对比分析
+- [ ] 对比可视化图表生成
+- [ ] 结果记录到 cc_core_files/results.md
+
+
 ---
 
 ## Phase 2：跨 Session 测试
