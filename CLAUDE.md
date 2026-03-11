@@ -131,6 +131,11 @@ NeuroHorizon/
 11. **plan.md 对应任务**：
     - 如果当前任务对应 `cc_core_files/plan.md` 中的某个任务，在 plan.md 对应位置记录执行情况（完成状态、完成程度、后续工作）
     - 任务**完全完成**后，在 plan.md 对应任务的 checkbox 处标记：将 `- [ ]` 改为 `- [x]`，在该行末尾追加：`<!-- 记录：cc_todo/{phase-folder}/{filename}.md -->`
+    - 对于 plan.md 中各个任务，标注其所依赖的信息文件位置（即该子任务的参考信息源）以及完成后的产出/记录文件位置。无关联文件的任务可省略。格式示例：
+      > 依赖：`cc_core_files/proposal_review.md` §2.5b（AR 反馈机制）
+      > 产出：`torch_brain/nn/prediction_feedback.py`
+      > 记录：`cc_todo/phase1-autoregressive/20260311-xxx.md`
+    - 如果任务要求调整 plan.md 的计划内容（增加/修改子任务描述、新增实验设计等），需要将计划内容写得**足够详细**以便直接执行，并且如果参考了某个文档的内容，必须**注明引用出处**（文件路径 + 章节号），方便阅读时直接跳转参考。
 
 ### 任务完成后
 

@@ -637,3 +637,58 @@
 - 解决：按现有规范将 CLAUDE.md 同步为 AGENTS.md
 
 **对应 plan.md 任务**：不直接对应 plan.md 中的代码任务，属于项目工作规范补齐
+
+---
+
+## 2026-03-11-22h
+
+### 任务：Phase 1 完成标记 + proposal_review 同步 + 1.2.4 指标验证
+
+**完成时间**：2026-03-11-22h
+
+**完成内容**：
+
+#### 步骤 0：CLAUDE.md / AGENTS.md 规范更新
+在远程 CLAUDE.md（及 AGENTS.md）的plan.md 对应任务中追加两条规范：
+- 对 plan.md 中各任务标注依赖/产出/记录文件位置
+- 计划内容需足够详细以便直接执行，引用文档需注明出处（文件路径 + 章节号）
+
+#### 步骤 1：proposal_review.md 同步更新
+- 在 §2.1 之后插入 §2.1b：Trial-Aligned 数据加载（已实现）
+- 在 §2.5 之后插入 §2.5b：AR 预测反馈机制【方案待决策】
+- 更新 §2.10 指标表：从 4 行扩展为 6 行，fp-bps 作为主要评估指标
+- 更新 §2.12 验收标准：追加 4 项（fp-bps null/random/trained/trial-aligned sampler）
+
+#### 步骤 2：plan.md 完成标记 + 文件引用
+- 1.1.7 [x]：评估指标补充（已完成）
+- 1.1.8 [ ]（整体未完成）：5/7 子项已完成（TF≡AR 分析、prediction_feedback.py、decoder/model/train 集成），2 项待决策（方案选择、编码方式选择）
+- 1.1.9 [x]：Trial-Aligned 数据加载（已完成）
+- 为 1.1.1-1.1.6、1.2.1-1.2.4、1.3.x、1.4、1.5 补充依赖/产出/记录引用
+
+#### 步骤 3-4：创建并执行 1.2.4 验证脚本
+- 创建 scripts/tests/test_1_2_4_metrics_verification.py（7 项测试）
+- 全部 8 项通过、0 项失败、1 项跳过（Test 5b yaml config 路径，已由 Test 5 HDF5 直接验证替代）
+
+**测试结果摘要**：
+| 测试 | 结果 |
+|------|------|
+| fp-bps null model = 0 | PASS (0.00000000) |
+| fp-bps random < 0 | PASS (-39.56) |
+| fp-bps good model > 0 | PASS (177.49, synthetic) |
+| checkpoint loadable | PASS |
+| per-bin fp-bps shape = [T] | PASS |
+| HDF5 trial structure | PASS (655 trials / 3 files) |
+| TrialAlignedSampler alignment | PASS (6/6 aligned) |
+| Sampler index fields | PASS |
+
+#### 步骤 5：文档管理
+- 创建 cc_todo 记录：20260311-phase1-1.1.7-1.1.9-implementation.md、20260311-phase1-1.2.4-metrics-verification.md
+- 更新 scripts.md：新增 neurohorizon_metrics.py、eval_psth.py、test_1_2_4_metrics_verification.py
+- plan.md 1.2.4 → [x]
+
+**遇到的问题与解决**：
+1. **PyTorch 2.6 weights_only 默认值变更**：torch.load() 默认 weights_only=True 导致 checkpoint 加载失败 → 添加 weights_only=False
+2. **HDF5 target_id 为 float64 含 NaN**：部分 trial 的 target_id 为 NaN（无效试次），min/max 返回 NaN → 用 np.isnan() 过滤后检查
+3. **proposal_review.md 复杂文本替换**：sed 无法处理含反引号的 markdown 内容 → 改用 Python 脚本通过 SSH 执行替换
+
+**对应 plan.md 任务**：1.1.7 [x], 1.1.8 [ ]（部分）, 1.1.9 [x], 1.2.4 [x]

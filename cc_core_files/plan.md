@@ -165,6 +165,10 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 ### 1.1 核心模块实现
 
 #### 1.1.1-1.1.6 [x] v1 基础模块（已完成）
+> 依赖：`cc_core_files/proposal_review.md` §2.1–§2.9, `cc_core_files/code_research.md`
+> 产出：`torch_brain/nn/loss.py`, `torch_brain/nn/autoregressive_decoder.py`, `torch_brain/models/neurohorizon.py`, `examples/neurohorizon/train.py` + configs
+> 记录：`cc_todo/phase1-autoregressive/20260302-phase1-1.1-core-modules.md`
+
 - [x] PoissonNLLLoss
 - [x] spike_counts 模态注册
 - [x] Causal mask 支持
@@ -172,63 +176,80 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - [x] NeuroHorizon 模型
 - [x] 训练脚本 + configs
 
-#### 1.1.7 [ ] 评估指标补充
-- [ ] 重建 `torch_brain/utils/neurohorizon_metrics.py`（当前仅有 .pyc）
+#### 1.1.7 [x] 评估指标补充 <!-- 记录：cc_todo/phase1-autoregressive/20260311-phase1-1.1.7-1.1.9-implementation.md -->
+> 依赖：`cc_core_files/proposal_review.md` §2.10（指标体系）
+> 产出：`torch_brain/utils/neurohorizon_metrics.py`, `scripts/analysis/neurohorizon/eval_psth.py`
+> 记录：`cc_todo/phase1-autoregressive/20260311-phase1-1.1.7-1.1.9-implementation.md`
+
+- [x] 重建 `torch_brain/utils/neurohorizon_metrics.py`
   - fp-bps（forward prediction bits per spike）
   - PSTH-R²（peri-stimulus time histogram R²）
   - 保留：r2_score、firing_rate_correlation、poisson_log_likelihood
-- [ ] fp-bps null model 计算：训练前遍历数据，计算 per-neuron 平均发放率
-- [ ] 在 train.py validation_step 中集成 fp-bps
-- [ ] Per-bin fp-bps（val/fp_bps_bin{t}）用于衰减分析
-- [ ] PSTH-R² 独立评估脚本（scripts/analysis/neurohorizon/eval_psth.py）
+- [x] fp-bps null model 计算：训练前遍历数据，计算 per-neuron 平均发放率
+- [x] 在 train.py validation_step 中集成 fp-bps
+- [x] Per-bin fp-bps（val/fp_bps_bin{t}）用于衰减分析
+- [x] PSTH-R² 独立评估脚本（scripts/analysis/neurohorizon/eval_psth.py）
 
 #### 1.1.8 [ ] AR 修复：预测反馈实现【方案待决策】
-- [ ] 分析并决策 AR 实现方案（A: Query 增强 / B: 预测记忆交叉注意力 / C: 重编码）
-  - 详见计划补充文档中三种方案的分析
-- [ ] 分析并决策 feedback 编码方式（5 种候选，per-neuron rates 为输入要求）
-  - 编码方式 1：Per-neuron MLP + 均值池化
-  - 编码方式 2：Rate 加权 Unit Embedding 求和
-  - 编码方式 3：交叉注意力池化
-  - 编码方式 4：合成 Spike Tokens（仅方案 C）
-  - 编码方式 5：无 feedback（当前实现，作为对照）
-- [ ] 实现 prediction_feedback.py
-- [ ] 修改 autoregressive_decoder.py：forward() 接受 target_counts，支持 TF/AR 两种模式
-- [ ] 修改 neurohorizon.py：forward() 传递 GT counts，generate() 使用预测 feedback
-- [ ] 修改 train.py：传递 target counts 到模型
+> 依赖：`cc_core_files/proposal_review.md` §2.5b（AR 反馈机制）, `cc_todo/phase1-autoregressive/20260302-phase1-1.2-foundation-verify.md`（TF≡AR 分析）
+> 产出：`torch_brain/nn/prediction_feedback.py`, `torch_brain/nn/autoregressive_decoder.py`（feedback 参数）, `torch_brain/models/neurohorizon.py`（generate 反馈）
+> 记录：`cc_todo/phase1-autoregressive/20260311-phase1-1.1.7-1.1.9-implementation.md`
 
-#### 1.1.9 [ ] Trial-Aligned 数据加载
-- [ ] 新建 torch_brain/data/trial_sampler.py（TrialAlignedSampler）
+- [x] 分析 TF≡AR 问题根因（bin_query 无状态，causal mask 仅限隐状态可见性）
+- [x] 实现 prediction_feedback.py：4 种反馈编码方式（mlp_pool / rate_weighted / cross_attn / none）
+- [x] 修改 autoregressive_decoder.py：forward() 接受 feedback 参数（方案 A: Query Augmentation）
+- [x] 修改 neurohorizon.py：forward() 传递 GT counts（TF），generate() 使用预测 feedback（AR）
+- [x] 修改 train.py：传递 target counts + feedback_method 配置
+- [ ] **方案决策**：对比方案 A/B/C，确定最终集成方式（当前仅实现方案 A）
+- [ ] **编码方式决策**：对比 4 种编码方式的效果（需 1.2.3 验证结果支持）
+
+#### 1.1.9 [x] Trial-Aligned 数据加载 <!-- 记录：cc_todo/phase1-autoregressive/20260311-phase1-1.1.7-1.1.9-implementation.md -->
+> 依赖：HDF5 数据结构（`data/processed/perich_miller_population_2018/*.h5` 中 trials 字段），`cc_core_files/proposal_review.md` §2.1b
+> 产出：`torch_brain/data/trial_sampler.py`, `torch_brain/data/dataset.py`（get_trial_intervals）
+> 记录：`cc_todo/phase1-autoregressive/20260311-phase1-1.1.7-1.1.9-implementation.md`
+
+- [x] 新建 torch_brain/data/trial_sampler.py（TrialAlignedSampler）
   - 每个 sample = 一个 trial，以 go_cue_time 为对齐点
   - window = [go_cue_time - obs_window, go_cue_time + pred_window]
   - 支持 shuffle（训练）/ sequential（评估）
-- [ ] 在 dataset.py 中添加 get_trial_intervals() 方法
-- [ ] 在 train.py 中添加 trial_aligned config 参数，控制 sampler 选择
-- [ ] 传递 trial metadata（target_id、go_cue_time）到 batch
+- [x] 在 dataset.py 中添加 get_trial_intervals() 方法
+- [x] 在 train.py 中添加 trial_aligned config 参数，控制 sampler 选择
+- [x] 传递 trial metadata（target_id、go_cue_time）到 batch
 
 ### 1.2 基础功能验证
 
 #### 1.2.1-1.2.2 [x] v1 验证（已完成）
+> 依赖：1.1 产出代码
+> 产出：`results/logs/phase1_small_250ms/ar_verify_results.json`, `scripts/analysis/neurohorizon/ar_verify.py`
+> 记录：`cc_todo/phase1-autoregressive/20260302-phase1-1.2-foundation-verify.md`
+
 - [x] Teacher forcing 训练收敛（R²=0.2658）
 - [x] AR vs TF 一致性验证（max_diff=3e-6）
 
 #### 1.2.3 [ ] v2 AR 修复验证
+> 依赖：`cc_core_files/proposal_review.md` §2.5b + §2.11, 1.1.8 产出代码
 - [ ] 验证修复后 TF 和 AR 推理输出不再相同（diff >> 1e-6）
 - [ ] 验证修改 bin t 的预测确实影响 bin t+1 及之后的输出
 - [ ] TF 模式下训练收敛验证（loss 下降，无 NaN/Inf）
 - [ ] AR 推理的 fp-bps 评估
 
-#### 1.2.4 [ ] v2 指标验证
-- [ ] fp-bps 正确性：null model fp-bps = 0.0，随机预测 < 0，训练好模型 > 0
-- [ ] Trial-aligned sampler 正确性：每个 sample 以 go_cue_time 对齐，target_id 正确
+#### 1.2.4 [x] v2 指标验证
+> 依赖：`cc_core_files/proposal_review.md` §2.10（指标） + §2.1b（sampler），1.1.7 + 1.1.9 产出代码
+- [x] fp-bps 正确性：null model fp-bps = 0.0，随机预测 < 0，训练好模型 > 0
+- [x] Trial-aligned sampler 正确性：每个 sample 以 go_cue_time 对齐，target_id 正确
 
 ### 1.3 预测窗口实验
 
 #### 1.3.1-1.3.3 [x] v1 实验（已完成，R² 为主指标）
+> 依赖：1.1 产出 + configs
+> 产出：`results/logs/phase1_small_{250,500,1000}ms/`
+> 记录：`cc_todo/phase1-autoregressive/20260302-phase1-1.3-prediction-window.md`
 - [x] 250ms：R²=0.2658
 - [x] 500ms：R²=0.2417（-9.1%）
 - [x] 1000ms：R²=0.2343（AR）/ R²=0.2354（non-AR，差异<0.002）
 
 #### 1.3.4 [ ] v2 实验（fp-bps 为主指标 + trial-aligned 模式）
+> 依赖：`cc_core_files/proposal_review.md` §2.11（窗口实验） + §2.10（指标） + §2.1b（trial-aligned）
 - [ ] 250ms：连续 + trial-aligned，fp-bps / R² / PSTH-R²
 - [ ] 500ms：连续 + trial-aligned，fp-bps / R² / PSTH-R²
 - [ ] 1000ms：连续 + trial-aligned，fp-bps / R² / PSTH-R²
@@ -247,6 +268,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - [ ] 配置说明：sequence_length = obs_window + pred_window，pred_window 固定
 
 ### 1.5 [ ] Session 数目实验
+> 产出：`examples/neurohorizon/configs/dataset/perich_miller_{1,4,7}sessions.yaml`（已创建）
 
 - [ ] 1 session（仅 c_20131003）
 - [ ] 4 sessions（C 动物：c_20131003/1022/1101/1204）

@@ -175,6 +175,39 @@ model_inputs = {
 }
 ```
 
+
+### 2.1b Trial-Aligned 数据加载（已实现）
+
+> 实现位置：`torch_brain/data/trial_sampler.py`, `torch_brain/data/dataset.py`（get_trial_intervals）
+
+与 §2.1 描述的连续窗口模式（RandomFixedWindowSampler）互补，trial-aligned 模式以每个 trial 的 go_cue_time 为对齐点采样。
+
+#### 数据来源
+
+Perich-Miller HDF5 文件中 trials 数据表包含 target_id, go_cue_time 等字段（见 `cc_core_files/data.md` 和 `cc_todo/phase0-env-baseline/20260228-phase0-data-explore.md` §0.2.3）。
+
+#### 窗口对齐方式
+
+每个 sample = 一个 trial：
+- window = [go_cue_time - obs_window, go_cue_time + pred_window]
+- obs_window 覆盖 hold period（pre-movement 活动）
+- pred_window 覆盖 reach period（运动相关活动）
+
+#### 实现组件
+
+1. `dataset.get_trial_intervals(split)` → 从 HDF5 提取 {recording_id: {go_cue_time, target_id}}
+2. `TrialAlignedSampler` → Sampler 子类，生成 TrialDatasetIndex（含 target_id, go_cue_time 元数据）
+3. `train.py` 中通过 `trial_aligned` config 开关选择 sampler
+
+#### 与连续窗口模式的关系
+
+| 模式 | Sampler | 窗口定义 | 主要用途 |
+|------|---------|---------|---------|
+| 连续 | RandomFixedWindowSampler | 随机位置，固定长度 | 训练（最大化数据利用） |
+| Trial-aligned | TrialAlignedSampler | go_cue 对齐 | PSTH-R² 评估、方向调谐分析 |
+
+**实验计划**（plan.md 1.3.4）中两种模式均需测试。
+
 ### 2.2 PoissonNLLLoss 实现
 
 **修改文件**：`torch_brain/nn/loss.py`
@@ -331,6 +364,45 @@ bin_queries [B, T_pred, dim]
 - bin_query 本身不依赖前一步预测输出（固定 learnable base + rotary time embed）
 - Causal self-attn 使后续 bin 能 attend 到前序 bin 的 **decoder 隐状态**（非预测输出值）
 - 这是标准 Transformer decoder 的自回归模式
+
+
+### 2.5b AR 预测反馈机制【方案待决策】
+
+> 实现位置：`torch_brain/nn/prediction_feedback.py`
+> 问题分析：`cc_todo/phase1-autoregressive/20260302-phase1-1.2-foundation-verify.md`（TF≡AR 分析）
+
+#### 问题背景
+
+Phase 1.2.1-1.2.2 验证发现 TF 和 AR 推理输出完全一致（max_diff=3e-6），原因是 bin_query 仅由 learnable base + rotary time embed 构成，不携带前一步的预测结果信息。Causal mask 仅限制了隐状态的可见性，但隐状态本身不包含预测值信息。
+
+**核心问题**：当前 decoder 的 bin_query 是无状态的——bin t 的 query 不依赖 bin t-1 的预测结果，因此 TF 和 AR 推理在数学上等价。需要引入prediction feedback机制。
+
+#### 三种集成方案对比
+
+| 方案 | 描述 | 修改范围 | 优缺点 |
+|------|------|---------|--------|
+| **A: Query Augmentation** | feedback 向量直接加到 bin_queries 上 | decoder forward 入口 | 最简单；feedback 信息与 query 基础信号混合 |
+| B: 预测记忆交叉注意力 | 新增 cross-attn 层：bin_queries attend to prediction_memory | decoder 层内部 | 更灵活；增加计算量和参数 |
+| C: 重编码 | 将预测 counts 转为 spike tokens → 重新编码 | encoder + decoder | 最彻底；实现复杂且破坏并行训练 |
+
+**当前实现**：仅方案 A 已集成到 `autoregressive_decoder.py`。方案 B/C 待后续对比实验决策。
+
+#### 四种反馈编码方式
+
+| 编码方式 | 类名 | 原理 | 额外参数 |
+|---------|------|------|---------|
+| mlp_pool | `PerNeuronMLPPooling` | MLP(concat(rate_emb, unit_emb)) → mean pool | 有 |
+| rate_weighted | `RateWeightedSum` | softmax(rates) 加权 unit_emb 求和 | 无 |
+| cross_attn | `CrossAttentionPooling` | 可学习 query attend to rate-augmented unit_emb | 有 |
+| none | `NoFeedback` | 返回零向量（当前实现 = 对照组） | 无 |
+
+接口统一：`forward(rates, unit_embs, unit_mask) → [B, D]`。通过 `build_feedback_encoder(method, dim)` 工厂函数实例化。
+
+#### 决策状态
+
+**用户尚未批准最终方案**。后续：
+1. 先用方案 A + 4 种编码方式做消融实验（1.2.3 验证任务）
+2. 根据结果决定是否需要实现方案 B/C
 
 ### 2.6 Per-Neuron MLP Head
 
@@ -533,14 +605,22 @@ def forward(self, ..., task="spike_prediction"):
 - `examples/neurohorizon/configs/` — Hydra 配置（Small / Base 两套）
 - `torch_brain/utils/neurohorizon_metrics.py`
 
-**评估指标**：
+**评估指标**（实现位置：`torch_brain/utils/neurohorizon_metrics.py`）：
 
-| 指标 | 用途 | 计算方式 |
-|------|------|---------|
-| Poisson log-likelihood | 主要指标 | `exp(log_rate) - y * log_rate` |
-| PSTH correlation | trial-averaged 预测质量 | Pearson r（对齐 trial 后平均） |
-| R² | 与 POYO baseline 对比 | `1 - SS_res / SS_tot` |
-| 误差随时间步衰减曲线 | 评估自回归累积误差 | 每步 PSTH correlation |
+| 指标 | 定义 | 用途 | 实现状态 |
+|------|------|------|---------|
+| **fp-bps** (Forward Prediction Bits Per Spike) | `(NLL_null - NLL_model) / (N_spikes * ln2)` | **主要评估指标**：相对于 null model 的信息增益 | 已实现 |
+| **per-bin fp-bps** | 每个 time bin 独立计算 fp-bps | 分析自回归预测随时间步的衰减 | 已实现 |
+| **PSTH-R²** | Trial-averaged 神经活动 vs 预测的 R² | 基于 trial 对齐的群体预测质量 | 已实现（独立脚本 `scripts/analysis/neurohorizon/eval_psth.py`） |
+| R² | `1 - SS_res / SS_tot` | 与 POYO baseline 对比 | 已实现 |
+| Firing rate correlation | Pearson r（per-neuron 平均发放率） | 辅助指标 | 已实现 |
+| Poisson NLL | `exp(log_rate) - y * log_rate` | 训练 loss | 已实现 |
+
+**fp-bps 核心设计**：
+- Null model = 训练集 per-neuron 平均发放率（通过 `compute_null_rates()` 在训练开始前遍历数据集计算）
+- fp-bps = 0 → 模型与 null model 等效；> 0 → 优于；< 0 → 劣于
+- PSTH-R² 需 trial-aligned 数据加载（依赖 §2.1b TrialAlignedSampler），按 target_id 分组后平均
+
 
 ### 2.11 功能验证与预测窗口梯度测试
 
@@ -574,6 +654,10 @@ def forward(self, ..., task="spike_prediction"):
 | 自回归生成 | 50 步生成无误差爆炸（spike rate < 200Hz） | 合成数据 100 trials |
 | 基线对比 | R² > 0.3（非 "> 0"） | Brainsets held-out session |
 | 非自回归基线 | 并行预测作为 ablation，对比差异 | 同数据同指标 |
+| fp-bps null model | fp-bps = 0.0（±1e-6） | 模型预测 = null rates |
+| fp-bps 随机预测 | fp-bps < 0 | 模型预测 = 随机值 |
+| fp-bps 训练模型 | fp-bps > 0 | 训练后 checkpoint |
+| Trial-aligned sampler | 窗口以 go_cue 对齐，target_id 正确 | 遍历 sampler 输出 |
 
 
 ---

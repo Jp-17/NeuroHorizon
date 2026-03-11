@@ -347,3 +347,57 @@
 - **依赖**：poyo conda 环境（matplotlib, numpy）
 - **备注**：对应 plan.md 任务 1.2/1.3 可视化补充
 
+
+### neurohorizon_metrics.py（1.1.7 评估指标库）
+
+- **路径**：`torch_brain/utils/neurohorizon_metrics.py`
+- **功能用途**：NeuroHorizon 评估指标模块
+  - fp-bps（Forward Prediction Bits Per Spike）：主要评估指标
+  - per-bin fp-bps：分析 AR 预测随时间步的衰减
+  - PSTH-R²：Trial-averaged 群体预测质量
+  - R²、Firing rate correlation、Poisson NLL
+  - compute_null_rates()：计算训练集 per-neuron 平均发放率
+  - build_null_rate_lookup()：构建全局单元 → null rate 查询表
+- **创建时间**：2026-03-11
+- **使用方式**：
+  ```python
+  from torch_brain.utils.neurohorizon_metrics import fp_bps, fp_bps_per_bin, compute_null_rates
+  val = fp_bps(log_rate, target, null_log_rates, mask=None)  # scalar
+  per_bin = fp_bps_per_bin(log_rate, target, null_log_rates)  # [T]
+  ```
+- **依赖**：torch
+- **备注**：对应 plan.md 任务 1.1.7；非独立脚本，作为模块被其他脚本/训练代码引用
+
+### eval_psth.py（1.1.7 PSTH-R² 评估脚本）
+
+- **路径**：`scripts/analysis/neurohorizon/eval_psth.py`
+- **功能用途**：PSTH-R² 独立评估脚本
+  - 加载训练好的模型 + trial-aligned 数据
+  - 按 target_id 分组计算 trial-averaged 神经活动
+  - 计算预测 vs 真实 PSTH 的 R²
+- **创建时间**：2026-03-11
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/neurohorizon/eval_psth.py
+  ```
+- **依赖**：poyo conda 环境
+- **备注**：对应 plan.md 任务 1.1.7
+
+### test_1_2_4_metrics_verification.py（1.2.4 指标与 Sampler 验证）
+
+- **路径**：`scripts/tests/test_1_2_4_metrics_verification.py`
+- **功能用途**：验证 fp-bps 和 Trial-Aligned Sampler 的正确性
+  - Test 1-4：fp-bps 正确性（null=0, random<0, trained>0, per-bin shape）
+  - Test 5-7：Trial-aligned sampler（HDF5 结构、窗口对齐、索引字段）
+- **创建时间**：2026-03-11
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/tests/test_1_2_4_metrics_verification.py
+  ```
+- **输入**：`data/processed/perich_miller_population_2018/*.h5`
+- **依赖**：poyo conda 环境
+- **备注**：对应 plan.md 任务 1.2.4；全部 8 项测试通过
