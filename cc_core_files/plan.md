@@ -155,128 +155,128 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 ---
 
-## Phase 1: Autoregressive Modification Verification + Long-horizon Generation
+## Phase 1：自回归改造验证 + 长时程生成验证
 
-> **Goal**: Implement true autoregressive decoder with prediction feedback, validate with new metrics (fp-bps, PSTH-R2), test across prediction/observation windows and session counts.
-> **Dataset**: Perich-Miller 2018 (Brainsets native, 1-10 sessions)
-> **Execution Reference**: `cc_core_files/proposal_review.md` Section 2
-> **cc_todo**: `cc_todo/phase1-autoregressive/`
+> **目标**：实现真正的自回归解码器（含预测反馈），用新指标（fp-bps、PSTH-R²）验证，在多种预测/观察窗口和 session 数目下测试。
+> **数据集**：Perich-Miller 2018（Brainsets 原生，1-10 sessions）
+> **执行参考**：`cc_core_files/proposal_review.md` 第二节
+> **cc_todo**：`cc_todo/phase1-autoregressive/`
 
-### 1.1 Core Module Implementation
+### 1.1 核心模块实现
 
-#### 1.1.1-1.1.6 [x] v1 Base Modules (completed)
+#### 1.1.1-1.1.6 [x] v1 基础模块（已完成）
 - [x] PoissonNLLLoss
-- [x] spike_counts modality registration
-- [x] Causal mask support
+- [x] spike_counts 模态注册
+- [x] Causal mask 支持
 - [x] AutoregressiveDecoder + PerNeuronMLPHead
-- [x] NeuroHorizon model
-- [x] Training script + configs
+- [x] NeuroHorizon 模型
+- [x] 训练脚本 + configs
 
-#### 1.1.7 [ ] Evaluation Metrics Enhancement
-- [ ] Rebuild `torch_brain/utils/neurohorizon_metrics.py` (currently only .pyc)
-  - fp-bps (forward prediction bits per spike)
-  - PSTH-R2 (peri-stimulus time histogram R-squared)
-  - Retained: r2_score, firing_rate_correlation, poisson_log_likelihood
-- [ ] fp-bps null model: pre-training computation of per-neuron mean firing rate
-- [ ] Integrate fp-bps into train.py validation_step
-- [ ] Per-bin fp-bps (val/fp_bps_bin{t}) for decay analysis
-- [ ] PSTH-R2 standalone evaluation script (scripts/analysis/neurohorizon/eval_psth.py)
+#### 1.1.7 [ ] 评估指标补充
+- [ ] 重建 `torch_brain/utils/neurohorizon_metrics.py`（当前仅有 .pyc）
+  - fp-bps（forward prediction bits per spike）
+  - PSTH-R²（peri-stimulus time histogram R²）
+  - 保留：r2_score、firing_rate_correlation、poisson_log_likelihood
+- [ ] fp-bps null model 计算：训练前遍历数据，计算 per-neuron 平均发放率
+- [ ] 在 train.py validation_step 中集成 fp-bps
+- [ ] Per-bin fp-bps（val/fp_bps_bin{t}）用于衰减分析
+- [ ] PSTH-R² 独立评估脚本（scripts/analysis/neurohorizon/eval_psth.py）
 
-#### 1.1.8 [ ] AR Fix: Prediction Feedback Implementation [Decision Pending]
-- [ ] Analyze and decide AR implementation approach (A: Query Augmentation / B: Prediction Memory Cross-Attention / C: Re-encode)
-  - See plan supplement for detailed analysis of three approaches
-- [ ] Analyze and decide feedback encoding method (5 candidates, per-neuron rates as input)
-  - Method 1: Per-neuron MLP + Mean Pooling
-  - Method 2: Rate-Weighted Unit Embedding Sum
-  - Method 3: Cross-Attention Pooling
-  - Method 4: Synthetic Spike Tokens (only for approach C)
-  - Method 5: No feedback (current implementation, as control)
-- [ ] Implement prediction_feedback.py
-- [ ] Modify autoregressive_decoder.py: forward() accepts target_counts, supports TF/AR modes
-- [ ] Modify neurohorizon.py: forward() passes GT counts, generate() uses predicted feedback
-- [ ] Modify train.py: pass target counts to model
+#### 1.1.8 [ ] AR 修复：预测反馈实现【方案待决策】
+- [ ] 分析并决策 AR 实现方案（A: Query 增强 / B: 预测记忆交叉注意力 / C: 重编码）
+  - 详见计划补充文档中三种方案的分析
+- [ ] 分析并决策 feedback 编码方式（5 种候选，per-neuron rates 为输入要求）
+  - 编码方式 1：Per-neuron MLP + 均值池化
+  - 编码方式 2：Rate 加权 Unit Embedding 求和
+  - 编码方式 3：交叉注意力池化
+  - 编码方式 4：合成 Spike Tokens（仅方案 C）
+  - 编码方式 5：无 feedback（当前实现，作为对照）
+- [ ] 实现 prediction_feedback.py
+- [ ] 修改 autoregressive_decoder.py：forward() 接受 target_counts，支持 TF/AR 两种模式
+- [ ] 修改 neurohorizon.py：forward() 传递 GT counts，generate() 使用预测 feedback
+- [ ] 修改 train.py：传递 target counts 到模型
 
-#### 1.1.9 [ ] Trial-Aligned Data Loading
-- [ ] New torch_brain/data/trial_sampler.py (TrialAlignedSampler)
-  - Each sample = one trial, aligned to go_cue_time
+#### 1.1.9 [ ] Trial-Aligned 数据加载
+- [ ] 新建 torch_brain/data/trial_sampler.py（TrialAlignedSampler）
+  - 每个 sample = 一个 trial，以 go_cue_time 为对齐点
   - window = [go_cue_time - obs_window, go_cue_time + pred_window]
-  - Supports shuffle (training) / sequential (evaluation)
-- [ ] Add get_trial_intervals() method to dataset.py
-- [ ] Add trial_aligned config parameter to train.py, controlling sampler selection
-- [ ] Pass trial metadata (target_id, go_cue_time) to batch
+  - 支持 shuffle（训练）/ sequential（评估）
+- [ ] 在 dataset.py 中添加 get_trial_intervals() 方法
+- [ ] 在 train.py 中添加 trial_aligned config 参数，控制 sampler 选择
+- [ ] 传递 trial metadata（target_id、go_cue_time）到 batch
 
-### 1.2 Foundation Verification
+### 1.2 基础功能验证
 
-#### 1.2.1-1.2.2 [x] v1 Verification (completed)
-- [x] Teacher forcing training convergence (R2=0.2658)
-- [x] AR vs TF consistency verification (max_diff=3e-6)
+#### 1.2.1-1.2.2 [x] v1 验证（已完成）
+- [x] Teacher forcing 训练收敛（R²=0.2658）
+- [x] AR vs TF 一致性验证（max_diff=3e-6）
 
-#### 1.2.3 [ ] v2 AR Fix Verification
-- [ ] Verify post-fix TF and AR inference outputs are no longer identical (diff >> 1e-6)
-- [ ] Verify modifying bin t prediction actually affects bin t+1 and beyond
-- [ ] TF mode training convergence verification (loss decrease, no NaN/Inf)
-- [ ] AR inference fp-bps evaluation
+#### 1.2.3 [ ] v2 AR 修复验证
+- [ ] 验证修复后 TF 和 AR 推理输出不再相同（diff >> 1e-6）
+- [ ] 验证修改 bin t 的预测确实影响 bin t+1 及之后的输出
+- [ ] TF 模式下训练收敛验证（loss 下降，无 NaN/Inf）
+- [ ] AR 推理的 fp-bps 评估
 
-#### 1.2.4 [ ] v2 Metrics Verification
-- [ ] fp-bps correctness: null model fp-bps = 0.0, random prediction < 0, trained model > 0
-- [ ] Trial-aligned sampler correctness: each sample aligned to go_cue_time, target_id correct
+#### 1.2.4 [ ] v2 指标验证
+- [ ] fp-bps 正确性：null model fp-bps = 0.0，随机预测 < 0，训练好模型 > 0
+- [ ] Trial-aligned sampler 正确性：每个 sample 以 go_cue_time 对齐，target_id 正确
 
-### 1.3 Prediction Window Experiments
+### 1.3 预测窗口实验
 
-#### 1.3.1-1.3.3 [x] v1 Experiments (completed, R2 as primary metric)
-- [x] 250ms: R2=0.2658
-- [x] 500ms: R2=0.2417 (-9.1%)
-- [x] 1000ms: R2=0.2343 (AR) / R2=0.2354 (non-AR, diff<0.002)
+#### 1.3.1-1.3.3 [x] v1 实验（已完成，R² 为主指标）
+- [x] 250ms：R²=0.2658
+- [x] 500ms：R²=0.2417（-9.1%）
+- [x] 1000ms：R²=0.2343（AR）/ R²=0.2354（non-AR，差异<0.002）
 
-#### 1.3.4 [ ] v2 Experiments (fp-bps as primary metric + trial-aligned mode)
-- [ ] 250ms: continuous + trial-aligned, fp-bps / R2 / PSTH-R2
-- [ ] 500ms: continuous + trial-aligned, fp-bps / R2 / PSTH-R2
-- [ ] 1000ms: continuous + trial-aligned, fp-bps / R2 / PSTH-R2
-- [ ] Analysis: fp-bps decay curve across prediction windows
-- [ ] Analysis: continuous vs trial-aligned training effect comparison
-- [ ] Analysis: PSTH-R2 across different prediction windows
+#### 1.3.4 [ ] v2 实验（fp-bps 为主指标 + trial-aligned 模式）
+- [ ] 250ms：连续 + trial-aligned，fp-bps / R² / PSTH-R²
+- [ ] 500ms：连续 + trial-aligned，fp-bps / R² / PSTH-R²
+- [ ] 1000ms：连续 + trial-aligned，fp-bps / R² / PSTH-R²
+- [ ] 分析：fp-bps 随预测窗口的衰减曲线
+- [ ] 分析：连续 vs trial-aligned 训练效果差异
+- [ ] 分析：PSTH-R² 在不同预测窗口下的表现
 
-### 1.4 [ ] Observation Window Length Experiments
+### 1.4 [ ] 观察窗口长度实验
 
-- [ ] 250ms obs + 250ms pred (continuous + trial-aligned)
-- [ ] 500ms obs + 250ms pred (= 1.3 baseline)
+- [ ] 250ms obs + 250ms pred（连续 + trial-aligned）
+- [ ] 500ms obs + 250ms pred（= 1.3 baseline）
 - [ ] 750ms obs + 250ms pred
 - [ ] 1000ms obs + 250ms pred
-- [ ] Analysis: fp-bps vs obs window curve, saturation point detection
-- [ ] Analysis: trial-aligned 250ms obs covers only hold period vs 500ms extending to previous trial
-- [ ] Config: sequence_length = obs_window + pred_window, pred_window fixed
+- [ ] 分析：fp-bps vs obs window 曲线，是否存在饱和点
+- [ ] 分析：trial-aligned 下 250ms obs 仅覆盖 hold period vs 500ms 延伸到前一 trial
+- [ ] 配置说明：sequence_length = obs_window + pred_window，pred_window 固定
 
-### 1.5 [ ] Session Count Experiments
+### 1.5 [ ] Session 数目实验
 
-- [ ] 1 session (c_20131003 only)
-- [ ] 4 sessions (C animal: c_20131003/1022/1101/1204)
-- [ ] 7 sessions (C + J animals)
-- [ ] 10 sessions (all, = baseline)
-- [ ] Analysis: multi-session joint training effect on single-session prediction quality
-- [ ] Analysis: cross-subject (C->J->M) generalization gain or interference
-- [ ] Report: per-session fp-bps
-- [ ] New configs: perich_miller_{1,4,7}sessions.yaml
+- [ ] 1 session（仅 c_20131003）
+- [ ] 4 sessions（C 动物：c_20131003/1022/1101/1204）
+- [ ] 7 sessions（C + J 动物）
+- [ ] 10 sessions（全部，= baseline）
+- [ ] 分析：多 session 联合训练对单 session 预测质量的影响
+- [ ] 分析：跨受试体（C→J→M）的泛化增益或干扰
+- [ ] 报告：per-session fp-bps
+- [ ] 新增配置：perich_miller_{1,4,7}sessions.yaml
 
-### 1.6 [Pending] Forward Prediction -> Behavior Decoding Hypothesis
+### 1.6 [待定] Forward Prediction → 行为解码假设
 
-> Status: to explore after Phase 1 core experiments
+> 状态：待 Phase 1 核心实验完成后探索
 >
-> **Hypothesis**: Higher fp-bps models yield higher behavior decoding R2 when encoder is frozen + linear probe.
+> **假设**：fp-bps 越高的模型，冻结 encoder 后接行为解码 head 的 R² 也越高。
 >
-> **Experimental Design** (implemented in Phase 3.2):
-> 1. Take NeuroHorizon models from 1.3/1.4/1.5 with different configs
-> 2. Freeze encoder, attach linear probe for behavior decoding (cursor velocity R2)
-> 3. Plot behavior R2 vs fp-bps scatter
-> 4. Positive correlation = strong evidence supporting hypothesis
+> **实验设计**（Phase 3.2 实施）：
+> 1. 取 1.3/1.4/1.5 中不同配置的 NeuroHorizon 模型
+> 2. 冻结 encoder，接 linear probe 做行为解码（cursor velocity R²）
+> 3. 绘制 behavior R² vs fp-bps 散点图
+> 4. 正相关 = 支持假设的有力证据
 >
-> **Connection**: NDT-MtM multi-task masking improves fp-bps (0.50->0.54) already indirectly supports this
+> **关联**：NDT-MtM 的 multi-task masking 提升 fp-bps（0.50→0.54）已间接支持此假设
 
-### 1.7 [Optional] Scheduled Sampling
+### 1.7 [可选] Scheduled Sampling
 
-> Status: optional optimization, consider after AR fix is verified effective
+> 状态：可选优化，AR 修复验证有效后再考虑
 >
-> Principle: training uses model predictions instead of GT feedback with probability p (annealed 0->0.5)
-> Note: loses training parallelism once introduced
+> 原理：训练中以概率 p（退火 0→0.5）用模型预测替代 GT feedback
+> 注意：引入后失去训练并行性
 
 ---
 
