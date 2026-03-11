@@ -70,39 +70,78 @@ except Exception as e:
 
 # ---------- Test 2: 随机预测 fp-bps < 0 ----------
 try:
-    B, T, N = 4, 10, 50
-    null_log_rates = torch.zeros(B, N)  # null = rate 1.0
-    log_rate = torch.randn(B, T, N) * 3.0  # 随机，与 null 差异大
-    target = torch.poisson(torch.ones(B, T, N) * 2.0)
+    torch.manual_seed(42)
+    B, T, N = 32, 12, 80
+    # 用合理的 null model（从数据本身的 per-neuron 均值）
+    base_log_rate = torch.randn(1, 1, N) * 0.5
+    target = torch.poisson(torch.exp(base_log_rate).expand(B, T, N))
+    null_rate_per_neuron = target.float().mean(dim=(0, 1))  # [N]
+    null_log_rates = torch.log(null_rate_per_neuron.clamp(min=1e-6)).unsqueeze(0).expand(B, N)
 
+    # 随机预测（与真实 rates 无关）
+    log_rate = torch.randn(B, T, N) * 0.5
     val = fp_bps(log_rate, target, null_log_rates)
     ok = val.item() < 0
     report("Test 2: random fp-bps < 0", ok,
-           f"fp-bps = {val.item():.6f}")
+           f"fp-bps = {val.item():.4f} (expected ~-0.5, NLB-scale)")
 except Exception as e:
     report("Test 2: random fp-bps < 0", False, str(e))
     traceback.print_exc()
 
-# ---------- Test 3: 训练好模型 fp-bps > 0 ----------
-# 这个测试需要 checkpoint 和完整数据集，作为 placeholder 先用合成数据模拟
+# ---------- Test 3: oracle 模型 fp-bps > 0（合理量级验证）----------
 try:
-    B, T, N = 4, 10, 50
-    # 构造一个"好"的预测：target 就是 Poisson(exp(log_rate))
-    true_log_rate = torch.randn(B, T, N) * 0.5  # 真实 log rate
-    target = torch.poisson(torch.exp(true_log_rate))
-    null_log_rates = torch.zeros(B, N)  # null = rate 1.0 (不太准)
+    torch.manual_seed(123)
+    B, T, N = 64, 12, 80
+    # 构造时间变化的真实 rates（模拟真实神经活动）
+    base_log_rate = torch.randn(1, 1, N) * 0.5  # per-neuron baseline
+    time_modulation = torch.randn(1, T, 1) * 0.3  # time-varying signal
+    trial_variation = torch.randn(B, 1, 1) * 0.1  # trial-to-trial variation
+    true_log_rates = base_log_rate + time_modulation + trial_variation
 
-    # 模型预测 = 真实 log_rate（oracle），应该优于 null
-    val = fp_bps(true_log_rate, target, null_log_rates)
-    # 注意：oracle 不一定 > 0 因为取决于 null_log_rates 的选取
-    # 改用更极端的情况：null 远离真实
-    null_log_rates_bad = torch.ones(B, N) * 5.0  # null rate = exp(5) ≈ 148，很不准
-    val_good = fp_bps(true_log_rate, target, null_log_rates_bad)
-    ok = val_good.item() > 0
-    report("Test 3: good model fp-bps > 0 (synthetic)", ok,
-           f"fp-bps = {val_good.item():.6f}")
+    target = torch.poisson(torch.exp(true_log_rates))
+
+    # Null model: per-neuron 均值（NLB 方式：从 eval 数据计算）
+    null_rate_per_neuron = target.float().mean(dim=(0, 1))  # [N]
+    null_log_rates = torch.log(null_rate_per_neuron.clamp(min=1e-6)).unsqueeze(0).expand(B, N)
+
+    # Oracle 知道真实 rates
+    val = fp_bps(true_log_rates, target, null_log_rates)
+    ok = val.item() > 0 and val.item() < 2.0  # NLB 论文中典型值 ~0.05-0.5
+    report("Test 3: oracle fp-bps > 0 (NLB-scale)", ok,
+           f"fp-bps = {val.item():.4f} (expected ~0.05, NLB-scale)")
 except Exception as e:
-    report("Test 3: good model fp-bps > 0 (synthetic)", False, str(e))
+    report("Test 3: oracle fp-bps > 0 (NLB-scale)", False, str(e))
+    traceback.print_exc()
+
+# ---------- Test 3a: NLB 交叉验证（与 NLB 参考代码数值一致）----------
+try:
+    from scipy.special import gammaln
+
+    def nlb_neg_log_likelihood(rates, spikes):
+        rates = np.where(rates == 0, 1e-9, rates)
+        result = rates - spikes * np.log(rates) + gammaln(spikes + 1.0)
+        return np.sum(result)
+
+    def nlb_bits_per_spike(rates, spikes):
+        nll_model = nlb_neg_log_likelihood(rates, spikes)
+        null_rates = np.tile(
+            np.nanmean(spikes, axis=tuple(range(spikes.ndim - 1)), keepdims=True),
+            spikes.shape[:-1] + (1,),
+        )
+        nll_null = nlb_neg_log_likelihood(null_rates, spikes)
+        return (nll_null - nll_model) / np.nansum(spikes) / np.log(2)
+
+    # 用同一组 oracle 数据，分别用 NLB 和我们的实现计算
+    rates_np = torch.exp(true_log_rates).numpy()
+    spikes_np = target.numpy()
+    bps_nlb = nlb_bits_per_spike(rates_np, spikes_np)
+    bps_ours = fp_bps(true_log_rates, target, null_log_rates).item()
+    diff = abs(bps_nlb - bps_ours)
+    ok = diff < 1e-4
+    report("Test 3a: NLB cross-validation", ok,
+           f"NLB={bps_nlb:.6f}, Ours={bps_ours:.6f}, diff={diff:.8f}")
+except Exception as e:
+    report("Test 3a: NLB cross-validation", False, str(e))
     traceback.print_exc()
 
 # ---------- Test 3b: 用真实 checkpoint 验证（如果存在）----------
