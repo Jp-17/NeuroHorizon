@@ -540,6 +540,7 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 - 3 只猕猴（Chewie 4s, Jaco 3s, Mihi 3s），10 sessions，407 global units（max 71/session）
 - 数据格式：HDF5 spike events via torch_brain，config: `perich_miller_10sessions.yaml`
 - 数据划分：`get_sampling_intervals(split)` 统一 train/valid/test
+- 取样方式：**连续滑动窗口取样**（Continuous Sliding Window，非 trial-aligned）——在各 split 返回的连续时间区间内，以固定窗口（obs_window + pred_window）按 50% overlap 滑动采样，不依赖 trial 边界
 - 样本数（250ms/500ms/1000ms pred_window，obs=500ms，50% overlap）：16890/12512/8129 train, 1588/1127/655 valid, 3121/2207/1284 test
 
 **Part A: 适配层开发**
