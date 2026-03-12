@@ -15,3 +15,4 @@ from .multitask_readout import (
     prepare_for_multitask_readout,
 )
 from .prediction_feedback import build_feedback_encoder
+from .prediction_memory import PredictionMemoryEncoder

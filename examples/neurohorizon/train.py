@@ -97,9 +97,9 @@ class TrainWrapper(L.LightningModule):
         }
 
     def training_step(self, batch, batch_idx):
-        # Forward pass (pass target_counts for feedback if encoder is active)
+        # Forward pass (pass target_counts for decoder variants that require shift-right feedback)
         forward_kwargs = dict(batch["model_inputs"])
-        if self.model.feedback_encoder is not None:
+        if getattr(self.model, "requires_target_counts", False):
             forward_kwargs["target_counts"] = batch["target_spike_counts"]
         log_rate = self.model(**forward_kwargs)
 
@@ -125,9 +125,9 @@ class TrainWrapper(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        # Forward pass (pass target_counts for feedback if encoder is active)
+        # Forward pass (pass target_counts for decoder variants that require shift-right feedback)
         forward_kwargs = dict(batch["model_inputs"])
-        if self.model.feedback_encoder is not None:
+        if getattr(self.model, "requires_target_counts", False):
             forward_kwargs["target_counts"] = batch["target_spike_counts"]
         log_rate = self.model(**forward_kwargs)
 
@@ -348,7 +348,9 @@ def main(cfg: DictConfig):
         max_epochs=cfg.epochs,
         log_every_n_steps=1,
         strategy=(
-            "ddp_find_unused_parameters_true" if torch.cuda.is_available() else "auto"
+            "ddp_find_unused_parameters_true"
+            if torch.cuda.is_available() and cfg.gpus * cfg.nodes > 1
+            else "auto"
         ),
         callbacks=callbacks,
         precision=cfg.precision,

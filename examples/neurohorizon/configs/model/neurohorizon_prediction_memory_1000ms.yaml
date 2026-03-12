@@ -1,0 +1,21 @@
+# NeuroHorizon prediction-memory model config - 1000ms prediction window
+_target_: torch_brain.models.NeuroHorizon
+sequence_length: 1.5
+pred_window: 1.000
+bin_size: 0.020
+latent_step: 0.05
+num_latents_per_step: 32
+dim: 128
+enc_depth: 6
+dec_depth: 2
+dim_head: 64
+cross_heads: 2
+self_heads: 8
+ffn_dropout: 0.2
+lin_dropout: 0.4
+atn_dropout: 0.2
+max_pred_bins: 50
+feedback_method: none
+decoder_variant: prediction_memory
+prediction_memory_k: 4
+prediction_memory_heads: 4

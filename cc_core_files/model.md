@@ -132,6 +132,187 @@ PerNeuronMLPHead
 
 （按时间倒序排列，新的改进想法添加在此处）
 
+### 2026-03-12 — Structured Prediction Memory Decoder
+
+> 状态: 已放弃
+> 分支: `dev/20260312_prediction_memory_decoder`
+> cc_todo: `cc_todo/phase1-autoregressive/1.9-module-optimization/20260312_prediction_memory_decoder.md`
+> commit: （待提交）
+
+**想法描述**：
+将 Phase 1 的主线 AR decoder 正式定为 `event-based POYO encoder + time-bin autoregressive decoder + structured prediction memory`。保持 history 侧输入仍为 spike events，不引入 spike-event 级 decoder；输出固定为未来 `T bins x N units` 的 spike counts。decoder 在时间维做 bin-by-bin 自回归，在每个 bin 内并行预测全部 neuron。
+
+**动机与目的**：
+- 明确问题定义：NeuroHorizon 当前要解决的是未来时间窗内的 `binned spike counts` 预测，而不是逐 spike event 生成。
+- 保留 POYO 优势：history 侧继续使用 event-based encoder，不为了 AR 破坏现有输入建模方式。
+- 解决 v2 的信息瓶颈：v2 虽然引入了 `feedback_method`，但主线实现本质上仍是把上一时刻全 population 的反馈压成单个向量后再加到 bin query 上，结构上偏“挤”。
+- 给后续迭代留接口：第一版先把“结构化 prediction memory”接通，后续再决定是否增大 `K`、是否在 decoder 更深层使用 memory、是否再做 scheduled sampling。
+
+**现有 v2 baseline 回顾：旧 `feedback_method` 逻辑是什么**
+- v2 的 decoder 主体仍是 `learnable bin query + history cross-attn + causal self-attn + PerNeuronMLPHead`。
+- 新增的 `feedback_method` 是一个可选反馈编码器接口，训练时对 `target_counts` 做 `shift-right`：
+  - `feedback[t] = encode(counts[t-1])`
+  - `feedback[0] = 0`
+- 然后将得到的 `[B, T, D]` 反馈向量直接加到 `bin_query` 上。这就是当前文档中的 Query Augmentation。
+- `feedback_method` 提供 4 个编码方案：`mlp_pool` / `rate_weighted` / `cross_attn` / `none`。
+- 这套逻辑不是错误，而是一个合理的 v2 baseline / ablation：它验证“显式 prediction feedback 是否有价值”，但它把 `N` 个 neuron 的上一时刻状态压缩成了单个 `D` 维向量，信息瓶颈偏强。
+
+**为什么旧 `feedback_method` 现在还有用**
+- 旧逻辑不删除，保留为 baseline / ablation。
+- `decoder_variant='query_aug'` 时，继续复用旧 `feedback_method` 路径，便于和 `prediction_memory` 做一对一比较。
+- 在新模型中，旧逻辑不再代表主线架构，只用于：
+  - 回归测试：确认本次重构没有破坏 v2 baseline；
+  - 消融实验：比较“单向量反馈”与“结构化 memory”谁更有效。
+
+**主线新架构**
+
+```
+History spike events
+  -> POYO event encoder / processor
+  -> history latents
+
+Future bin queries
+  -> history cross-attn
+  -> prediction-memory cross-attn
+  -> causal self-attn
+  -> FFN
+  -> PerNeuronMLPHead
+  -> log_rate[t, n]
+```
+
+- 输入端保持不变：history window 仍然输入 spike events、timestamp、unit id。
+- 输出端固定为未来 `T bins x N units` 的 spike counts，不做 spike-event decoder。
+- 自回归只沿时间维展开，不做 neuron-by-neuron AR。
+- 每个 future bin 仍保留一个 learnable bin query 和 rotary time embedding。
+- 新增 `prediction_memory` 作为第二条 memory 通路，而不是只把上一时刻 feedback 压成一个向量后直接加到 query 上。
+
+**`shift-right` 到底是什么意思**
+- 目标是保证 query bin `t` 看到的永远是 `< t` 的信息，而不是当前步真值。
+- 在训练时，teacher forcing 使用 GT counts，但必须先做 `shift-right`：
+  - memory slot `0` 用零向量初始化；
+  - memory slot `t` 编码的是 `counts[t-1]`，而不是 `counts[t]`。
+- 这样 query `t` 访问 memory `t` 时，实际拿到的是上一 bin 的 population counts。
+- 对应到 rollout：
+  - 第一步只有零初始化 memory；
+  - 预测出 bin `0` 后，再把其 predicted expected counts 编码成下一步可访问的 memory。
+- 这样 teacher forcing 和 generate 的因果结构一致，避免把当前步 GT 直接泄漏给当前步。
+
+**`prediction memory` 的设计**
+- 对上一 bin 的每个 neuron 构造：
+  - `h_{t-1,n} = MLP([unit_emb_n ; log1p(count_{t-1,n})])`
+- 然后使用 `K=4` 个 learned pooling queries 对 `{h_{t-1,n}}` 做 attention pooling，得到 `K=4` 个 summary tokens。
+- 这 4 个 tokens 共同表示“上一 bin 的 population state”，比单个反馈向量保留更多结构信息，但又不至于退化成完整的 per-neuron memory 序列。
+- 本次固定 `K=4`，原因：
+  - 先控制计算量和实现复杂度；
+  - 给后续 1.9 迭代保留清晰的超参数扩展方向；
+  - 对 Phase 1 当前的 10-session 规模已经足够做概念验证。
+
+**为什么不选另外两条路**
+- 不选 event-level decoder：
+  - 当前目标是 count/rate prediction，event-level 生成会显著增加目标空间和训练不稳定性；
+  - 与 Poisson NLL、fp-bps、PSTH-R2 的对齐也更差。
+- 不选“把预测 counts 重新编码成 spike tokens 再送回 encoder”：
+  - 计算太重；
+  - 语义不自然；
+  - 会把已经清晰定义的 count prediction 问题重新复杂化。
+- Query Augmentation 保留，但降级为 baseline，不再作为最终主线。
+
+**训练 / 推理数值语义**
+- 模型被定义为 `autoregressive mean-rate predictor`，不是 stochastic spike generator。
+- 训练时：
+  - 使用 `shift-right` 后的 GT counts；
+  - 进入 feedback / prediction memory encoder 前统一做 `log1p(count)` 压缩。
+- 推理时：
+  - 使用上一 bin 的 `predicted expected counts = exp(log_rate)`；
+  - 同样先做 `log1p(pred_count)` 再编码；
+  - 不做 Poisson sampling。
+- 第一版不引入 scheduled sampling，避免把架构收益和训练 trick 混在一起。
+
+**相比现有方案的改动点**
+- `torch_brain/models/neurohorizon.py`
+  - 新增 `decoder_variant`，区分 `query_aug` 与 `prediction_memory`
+  - 新增 prediction-memory 的训练/rollout 组装逻辑
+- `torch_brain/nn/prediction_memory.py`
+  - 新增 `PredictionMemoryEncoder`
+- `torch_brain/nn/autoregressive_decoder.py`
+  - decoder 层内顺序调整为：
+    - history cross-attn
+    - prediction-memory cross-attn
+    - causal self-attn
+    - FFN
+- `examples/neurohorizon/train.py`
+  - 按 `model.requires_target_counts` 自动传入 `target_counts`
+- `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+  - 支持在 teacher-forced / rollout 两种模式下评估
+
+**批判性分析**
+- 优点：
+  - 比 v2 单向量 feedback 更接近真正的结构化 AR；
+  - 保留 POYO event encoder，不推翻现有主干；
+  - 输出仍是 count prediction，训练和评估路径清楚；
+  - 保留旧 `feedback_method`，方便做 baseline 和回归测试。
+- 缺点/风险：
+  - 训练验证如果只看 teacher forcing，可能高估真实 rollout 质量；
+  - `K=4` 是工程上先固定的折中值，未必最优；
+  - 新增一条 memory cross-attn 后，长窗口训练的显存和时延会略增。
+- 替代方案：
+  - 继续用 Query Augmentation，仅做更强的 feedback encoder；
+  - 做 hidden-state injection；
+  - 做 event-level decoder 或 spike-token re-encoding（当前不推荐）。
+- 预期影响：
+  - 如果 AR feedback 真有价值，提升应主要体现在 longer horizon，尤其是 500ms / 1000ms 的后段 bins。
+
+**修改方案**
+- 模型实现：引入 `PredictionMemoryEncoder` 和 `decoder_variant='prediction_memory'`
+- 配置实现：新增 250/500/1000ms 三套 prediction-memory train config
+- 验证脚本：新增最小功能验证脚本，检查 shape、shift-right、TF/AR 不再等价
+- 实验脚本：新增批量训练与结果汇总脚本
+
+**基本功能验证方案**
+- `PredictionMemoryEncoder` 输出 shape 应为 `[B, 4, D]`
+- 改动 `target_counts[:, 0, :]` 应只影响 `bin >= 1` 的 teacher-forced 输出，不影响 `bin 0`
+- `forward()` 与 `generate()` 在同一 batch 上应不再数值等价
+- rollout 中修改某一步 predicted counts 后，应只影响之后 bins
+
+**实验计划**
+- 数据：`examples/neurohorizon/configs/dataset/perich_miller_10sessions.yaml`
+- 采样：连续滑动窗口
+- 观察窗口：500ms
+- 预测窗口：250ms / 500ms / 1000ms
+- 核心指标：fp-bps / R2 / PSTH-R2 / Poisson NLL
+- 主对比对象：`baseline_v2`（v2 query augmentation baseline）和 benchmark 三模型
+
+**实验结果摘要**：
+
+| pred_window | teacher-forced fp-bps | rollout fp-bps | vs baseline_v2 |
+|-------------|-----------------------|----------------|----------------|
+| 250ms | 0.2979 | 0.1486 | -0.0629 |
+| 500ms | 0.2832 | -0.0153 | -0.1897 |
+| 1000ms | 0.2776 | -0.2590 | -0.3907 |
+
+**关键观察**：
+- teacher forcing 下，prediction memory 版本显著高于 `baseline_v2`，说明模型容量和训练拟合能力都不是瓶颈。
+- rollout 下，性能随着预测窗口增长快速恶化：
+  - `250ms` 从第 `10` 个 bin 开始出现负 fp-bps
+  - `500ms` 从第 `11` 个 bin 开始出现负 fp-bps，并在后段持续恶化
+  - `1000ms` 从第 `9` 个 bin 开始出现负 fp-bps，后半段大范围为负
+- teacher-forced 与 rollout 的 gap 随窗口快速放大：
+  - `250ms`: `0.1493`
+  - `500ms`: `0.2985`
+  - `1000ms`: `0.5366`
+
+**为什么它比 baseline_v2 更差**
+- 第一，当前 structured prediction memory 的信息通路太强。相比 `baseline_v2` 的单向量 Query Augmentation，这版允许 decoder 通过 cross-attn 访问高容量的多 token population memory。训练时模型很容易学会依赖“上一时刻 GT population state”的强提示，因此 teacher-forced 指标很高。
+- 第二，训练 / 推理分布偏移被放大。训练时 memory 输入是 `log1p(GT integer counts)`；推理时输入是 `log1p(predicted expected counts)`。前者是稀疏离散、后者是平滑连续，memory encoder 在两种输入分布上的行为差异比 `baseline_v2` 更大。
+- 第三，当前设计让 query 可以访问完整历史 memory 序列，而不仅是紧邻上一步。这个高容量历史检索在 teacher forcing 下是优势，但在 rollout 下会把早期误差持续传播并放大，尤其在 `500ms / 1000ms` 长窗口中表现明显。
+- 第四，decoder 已经有 causal self-attention 负责时间累积，再叠加全历史 prediction-memory cross-attn 后，模型更容易把显式 memory 当成主通路，而不是把 history latents 和自身 hidden state 当成主通路。结果是训练时“看起来更强”，自由 rollout 时却更脆。
+
+**结论**：
+- `Structured Prediction Memory Decoder` 作为主线方案不成立，原因不是“无法训练”，而是“teacher forcing 拟合很强，但 rollout 稳定性显著劣于 baseline_v2”。
+- 这版保留为失败但有价值的 1.9 迭代记录，不合并为主线。
+- 下一轮优化应优先收缩或约束 prediction feedback 通路，降低对 GT memory 的依赖，而不是继续增加 memory 容量。
+
+
 <!-- 模板（每次新优化想法提出时，复制此模板并填写）:
 
 ### {YYYY-MM-DD} — {改进名称}

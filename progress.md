@@ -118,6 +118,100 @@
 
 **遇到的问题**：
 - SSH heredoc 传递含方括号的字符串时 zsh 做了 glob 展开，导致 Python 字符串匹配失败；解决：将脚本写入本地文件再 scp 上传执行
+
+---
+
+## 2026-03-12-22h
+
+### 任务：Phase 1.9 Structured Prediction Memory Decoder 实施与验证
+
+**完成时间**：2026-03-12-22h
+
+**完成内容**：
+1. 从 `dev/20260312_refactor` 新建分支 `dev/20260312_prediction_memory_decoder`
+2. 在 `cc_core_files/model.md` 中新增 1.9 架构设计小节，明确记录：
+   - `shift-right` 的因果语义
+   - `prediction memory` 的设计动机与结构
+   - 旧 `feedback_method` / Query Augmentation 的逻辑和新定位
+3. 实现 `PredictionMemoryEncoder`，并将 decoder 层顺序改为：
+   - history cross-attn
+   - prediction-memory cross-attn
+   - causal self-attn
+   - FFN
+4. 在 `NeuroHorizon` 中新增 `decoder_variant='prediction_memory'`，保留旧 `query_aug` 路径作为 baseline/ablation
+5. 修改训练与评估入口：
+   - `examples/neurohorizon/train.py` 按 `requires_target_counts` 自动传入 `target_counts`
+   - `scripts/analysis/neurohorizon/eval_phase1_v2.py` 支持 `--rollout`
+6. 新增 1.9 文档、配置和脚本：
+   - `cc_todo/phase1-autoregressive/1.9-module-optimization/20260312_prediction_memory_decoder.md`
+   - `train_1p9_prediction_memory_{250ms,500ms,1000ms}.yaml`
+   - `verify_prediction_memory.py`
+   - `run_prediction_memory_experiments.sh`
+   - `collect_prediction_memory_results.py`
+7. 完成静态编译和功能验证，并跑通 250ms 的 1-epoch smoke run 与 rollout smoke eval
+
+**执行结果**：
+- 功能验证通过：
+  - `PredictionMemoryEncoder` shape 正确
+  - `shift-right` 生效：修改 bin0 target 不影响 bin0，仅影响未来 bins
+  - `forward()` 与 `generate()` 不再等价
+- 250ms smoke run 跑通：
+  - `train_loss=0.424`
+  - `val_loss=0.412`
+  - `val/fp_bps=-0.823`
+- rollout smoke eval 跑通：
+  - `fp-bps=-0.8218`
+  - `R2=0.0001`
+- 正式 1.9 并行实验已后台启动：
+  - 脚本：`scripts/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/run_prediction_memory_experiments.sh`
+  - 日志：`results/logs/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/run_prediction_memory_experiments.log`
+  - 监控：`scripts/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/monitor_prediction_memory_progress.py`
+  - 当前已确认 GPU 上存在对应 python 训练进程
+  - 22:30 快照：
+    - 250ms / 500ms / 1000ms 三个窗口均已进入正式训练
+    - 显存占用约 7.7 GiB
+    - 粗略 ETA：500ms 约 1h39m，250ms 约 2h14m，1000ms 约 2h11m
+
+**遇到的问题**：
+- `torch_brain/nn/autoregressive_decoder.py` 初版有一个 `ValueError` 字符串漏引号的语法错误；通过重新回传修复后，编译和验证通过
+- 验证脚本初版打印 `requires_grad` tensor 时触发 warning；已改为 `detach()` 后再格式化输出
+
+**对应 plan.md 任务**：Phase 1.9.2 模型优化迭代记录（Structured Prediction Memory Decoder）
+
+---
+
+## 2026-03-13-00h
+
+### 任务：完成 1.9 Structured Prediction Memory Decoder 正式实验并归档结论
+
+**完成时间**：2026-03-13-00h
+
+**完成内容**：
+1. 完成 `250ms / 500ms / 1000ms` 三组 300-epoch 正式训练与 rollout 评估
+2. 自动汇总结果到 `prediction_memory_summary.json`
+3. 更新 `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+4. 刷新 1.9 趋势图 `optimization_progress.png/pdf`
+5. 将 `Structured Prediction Memory Decoder` 在 `model.md` / `plan.md` / `cc_todo` / `results.md` 中正式标记为失败迭代并记录原因
+
+**执行结果**：
+- rollout fp-bps：
+  - 250ms: `0.1486`
+  - 500ms: `-0.0153`
+  - 1000ms: `-0.2590`
+- 对比 `baseline_v2`：
+  - 250ms: `-0.0629`
+  - 500ms: `-0.1897`
+  - 1000ms: `-0.3907`
+- teacher forcing 指标虽然很高，但 rollout 明显崩塌，尤其长窗口后段大量出现负 fp-bps
+
+**遇到的问题**：
+- `progress_status.md` 初次刷新停留在训练中快照，实验结束后已手动补刷为 finished 状态
+- 结果表明当前 structured prediction memory 架构存在明显的 train/inference mismatch 和误差累积问题，不适合作为主线继续推进
+
+**对应 plan.md 任务**：Phase 1.9.2 模型优化迭代记录（Structured Prediction Memory Decoder，已放弃）
+
+---
+
 - heredoc 写文件时"载"字的 UTF-8 编码被截断为 3 个替换字符（U+FFFD）；解决：字节级定位并替换修复
 
 **对应 plan.md 任务**：属于"项目计划优化阶段"的文档修缮工作

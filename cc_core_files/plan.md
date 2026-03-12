@@ -680,7 +680,24 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 > 结果: 250ms fp-bps= / 500ms fp-bps= / 1000ms fp-bps=
 -->
 
-（暂无，等待新的模型优化想法提出后在此添加）
+##### 20260312_prediction_memory_decoder -- Structured Prediction Memory Decoder
+> 状态: 已放弃
+> 分支: `dev/20260312_prediction_memory_decoder`
+> 文档: `cc_core_files/model.md` 中“2026-03-12 — Structured Prediction Memory Decoder”
+> 任务记录: `cc_todo/phase1-autoregressive/1.9-module-optimization/20260312_prediction_memory_decoder.md`
+> 脚本: `scripts/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/`
+> 日志: `results/logs/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/`
+> 可视化: `results/figures/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/`
+> commit: （待提交）
+> 结果: 250ms fp-bps=0.1486 / 500ms fp-bps=-0.0153 / 1000ms fp-bps=-0.2590
+
+- 核心设计：`event-based POYO encoder + time-bin autoregressive decoder + structured prediction memory`
+- 旧 `feedback_method` / Query Augmentation 保留为 baseline / ablation，不再作为主线最终架构
+- 本次实现固定 `prediction_memory_k=4`，输出仍为 `future T bins x N units` 的 spike counts
+- 训练使用 `shift-right` GT counts 构造 prediction memory；推理使用 `exp(log_rate)` 得到 expected counts 再编码
+- 必做实验保持 1.9 统一规范：10 sessions、连续滑动窗口、obs=500ms、pred=250/500/1000ms
+- 结论：teacher-forced 指标很高，但 rollout 显著差于 `baseline_v2`，尤其长窗口出现严重误差积累；该方案不作为主线继续推进
+
 
 
 

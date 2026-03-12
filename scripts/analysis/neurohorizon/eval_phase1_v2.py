@@ -92,7 +92,20 @@ def load_model_from_checkpoint(ckpt_path: str, device: torch.device):
     return model, cfg, train_dataset
 
 
-def evaluate_continuous(model, cfg, train_dataset, null_lookup, device, batch_size=64):
+def run_model(model, batch, device, rollout: bool = False):
+    """Run the model in teacher-forced or free-running mode."""
+    inputs = {
+        k: v.to(device) if isinstance(v, torch.Tensor) else v
+        for k, v in batch["model_inputs"].items()
+    }
+    if rollout:
+        return model.generate(**inputs)
+    if getattr(model, "requires_target_counts", False):
+        inputs["target_counts"] = batch["target_spike_counts"].to(device)
+    return model(**inputs)
+
+
+def evaluate_continuous(model, cfg, train_dataset, null_lookup, device, batch_size=64, rollout=False):
     """Continuous mode evaluation: fp-bps (overall + per-bin), R-squared."""
     logger.info("=== Continuous Mode Evaluation ===")
 
@@ -131,12 +144,7 @@ def evaluate_continuous(model, cfg, train_dataset, null_lookup, device, batch_si
 
     with torch.no_grad():
         for batch in loader:
-            inputs = {
-                k: v.to(device) if isinstance(v, torch.Tensor) else v
-                for k, v in batch["model_inputs"].items()
-            }
-
-            log_rate = model(**inputs)
+            log_rate = run_model(model, batch, device, rollout=rollout)
             target = batch["target_spike_counts"].to(device)
             unit_mask = batch["model_inputs"]["target_unit_mask"].to(device)
             T = log_rate.shape[1]
@@ -187,7 +195,7 @@ def evaluate_continuous(model, cfg, train_dataset, null_lookup, device, batch_si
 
 
 def evaluate_trial_aligned(model, cfg, train_dataset, null_lookup, device,
-                           batch_size=16, sigma_bins=1):
+                           batch_size=16, sigma_bins=1, rollout=False):
     """Trial-aligned evaluation: PSTH-R-squared by target direction."""
     logger.info("=== Trial-Aligned Evaluation (PSTH-R2) ===")
 
@@ -227,12 +235,7 @@ def evaluate_trial_aligned(model, cfg, train_dataset, null_lookup, device,
 
     with torch.no_grad():
         for batch in loader:
-            inputs = {
-                k: v.to(device) if isinstance(v, torch.Tensor) else v
-                for k, v in batch["model_inputs"].items()
-            }
-
-            log_rate = model(**inputs)
+            log_rate = run_model(model, batch, device, rollout=rollout)
             pred_rate = torch.exp(log_rate.clamp(-10, 10)).cpu()
             target = batch["target_spike_counts"].cpu()
             unit_mask = batch["model_inputs"]["target_unit_mask"].cpu()
@@ -325,6 +328,7 @@ def main():
     parser.add_argument("--output", type=str, default=None, help="Output JSON path")
     parser.add_argument("--skip-continuous", action="store_true")
     parser.add_argument("--skip-trial", action="store_true")
+    parser.add_argument("--rollout", action="store_true", help="Use free-running generate() instead of teacher forcing")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -364,13 +368,15 @@ def main():
         "n_pred_bins": model.T_pred_bins,
         "bin_size_ms": int(model.bin_size * 1000),
         "trial_aligned_training": bool(getattr(cfg, "trial_aligned", False)),
+        "rollout": bool(args.rollout),
     }
 
     # Continuous evaluation
     if not args.skip_continuous:
         cont_results = evaluate_continuous(
             model, cfg, train_dataset, null_lookup, device,
-            batch_size=args.batch_size
+            batch_size=args.batch_size,
+            rollout=args.rollout,
         )
         results["continuous"] = cont_results
 
@@ -379,7 +385,8 @@ def main():
         trial_results = evaluate_trial_aligned(
             model, cfg, train_dataset, null_lookup, device,
             batch_size=args.trial_batch_size,
-            sigma_bins=args.sigma_bins
+            sigma_bins=args.sigma_bins,
+            rollout=args.rollout,
         )
         results["trial_aligned"] = trial_results
 
@@ -388,7 +395,8 @@ def main():
     print(f"EVALUATION SUMMARY")
     print(f"  Model: pred={results['pred_window_ms']}ms, "
           f"obs={results['hist_window_ms']}ms, "
-          f"training={'trial-aligned' if results['trial_aligned_training'] else 'continuous'}")
+          f"training={'trial-aligned' if results['trial_aligned_training'] else 'continuous'}, "
+          f"eval={'rollout' if results['rollout'] else 'teacher-forced'}")
     print("=" * 60)
 
     if "continuous" in results:
