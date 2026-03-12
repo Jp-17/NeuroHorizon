@@ -171,3 +171,5 @@ uv.lock
 results/
 neural-benchmark/envs/
 neural-benchmark/benchmark_models/
+neural_benchmark/envs/
+neural_benchmark/benchmark_models/

@@ -402,7 +402,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 ### 1.8 Benchmark 对比实验：多模型长时程预测 Baseline
 > 依赖：1.3.4 完成（NeuroHorizon baseline 结果），`cc_todo/phase0-env-baseline/20260309-phase0-0.4-benchmark-analysis.md` §0.4.2–§0.4.3
-> 产出：`neural-benchmark/`（目录）、`neural-benchmark/benchmark_model.md`、各模型适配代码与实验结果
+> 产出：`neural_benchmark/`（目录）、`neural_benchmark/benchmark_model.md`、各模型适配代码与实验结果
 > 记录：`cc_todo/phase1-autoregressive/{date}-phase1-1.8-benchmark.md`
 
 **实验目的**：
@@ -430,12 +430,12 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 #### 1.8.1 [x] 模型调研与文档整理 <!-- 记录：cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md -->
 
 > 依赖：`cc_todo/phase0-env-baseline/20260309-phase0-0.4-benchmark-analysis.md` §0.4.2–§0.4.3
-> 产出：`neural-benchmark/benchmark_model.md`
+> 产出：`neural_benchmark/benchmark_model.md`
 > 记录：同 1.8 主记录
 
 **任务**：
-1. 创建 `neural-benchmark/` 目录
-2. 深入调研 NDT2、Neuroformer、IBL-MtM 三个模型，整理以下信息到 `neural-benchmark/benchmark_model.md`：
+1. 创建 `neural_benchmark/` 目录
+2. 深入调研 NDT2、Neuroformer、IBL-MtM 三个模型，整理以下信息到 `neural_benchmark/benchmark_model.md`：
 
 **每个模型必须包含的信息**：
 - GitHub 链接
@@ -452,7 +452,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 **可参考内容**：`cc_todo/phase0-env-baseline/20260309-phase0-0.4-benchmark-analysis.md` §0.4.2（模型分析）+ §0.4.3（适配方案）
 
-- [ ] 创建 neural-benchmark/ 目录结构
+- [ ] 创建 neural_benchmark/ 目录结构
 - [ ] 调研 NDT2 并整理到 benchmark_model.md
 - [ ] 调研 Neuroformer 并整理到 benchmark_model.md
 - [ ] 调研 IBL-MtM 并整理到 benchmark_model.md
@@ -461,24 +461,24 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 #### 1.8.2 [x] 环境配置与模型部署 <!-- 记录：cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md -->
 
 > 依赖：1.8.1 完成
-> 产出：`neural-benchmark/benchmark_models/` 下各模型代码、`neural-benchmark/envs/` conda 环境
+> 产出：`neural_benchmark/benchmark_models/` 下各模型代码、`neural_benchmark/envs/` conda 环境
 > 记录：同 1.8 主记录
 
 **任务**：
 
-1. **存储映射**：将 conda 环境存储目录从默认的 `miniconda3/envs` 映射到 `NeuroHorizon/neural-benchmark/envs/`
+1. **存储映射**：将 conda 环境存储目录从默认的 `miniconda3/envs` 映射到 `NeuroHorizon/neural_benchmark/envs/`
    ````bash
-   mkdir -p /root/autodl-tmp/NeuroHorizon/neural-benchmark/envs
-   conda config --prepend envs_dirs /root/autodl-tmp/NeuroHorizon/neural-benchmark/envs
+   mkdir -p /root/autodl-tmp/NeuroHorizon/neural_benchmark/envs
+   conda config --prepend envs_dirs /root/autodl-tmp/NeuroHorizon/neural_benchmark/envs
    ````
    使实际存储占用在项目数据盘，但不影响 conda 正常使用（`conda activate benchmark-env` 等）
 
-2. **Clone 模型仓库**到 `neural-benchmark/benchmark_models/`：
+2. **Clone 模型仓库**到 `neural_benchmark/benchmark_models/`：
    ````bash
-   mkdir -p neural-benchmark/benchmark_models
-   git clone https://github.com/joel99/context_general_bci.git neural-benchmark/benchmark_models/ndt2
-   git clone https://github.com/a-antoniades/Neuroformer.git neural-benchmark/benchmark_models/neuroformer
-   git clone https://github.com/colehurwitz/IBL_MtM_model.git neural-benchmark/benchmark_models/ibl-mtm
+   mkdir -p neural_benchmark/benchmark_models
+   git clone https://github.com/joel99/context_general_bci.git neural_benchmark/benchmark_models/ndt2
+   git clone https://github.com/a-antoniades/Neuroformer.git neural_benchmark/benchmark_models/neuroformer
+   git clone https://github.com/colehurwitz/IBL_MtM_model.git neural_benchmark/benchmark_models/ibl-mtm
    ````
 
 3. **创建共用 conda 环境** `benchmark-env`：
@@ -489,7 +489,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 4. **验证安装**：每个模型完成安装后，运行其自带的最小测试或 import 检查，确保环境正常
 
-- [ ] 配置 conda envs_dirs 映射到 neural-benchmark/envs/
+- [ ] 配置 conda envs_dirs 映射到 neural_benchmark/envs/
 - [ ] Clone NDT2 + 安装依赖 + 验证
 - [ ] Clone Neuroformer + 安装依赖 + 验证
 - [ ] Clone IBL-MtM + 安装依赖 + 验证
@@ -498,12 +498,20 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 #### 1.8.3 [x] 模型适配与对比实验 ✅ 2026-03-12 完成，记录见 cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md
 
 > 依赖：1.8.2 完成（环境就绪），1.3.4 完成（NeuroHorizon baseline 结果）
-> 产出：各模型适配代码（`neural-benchmark/adapters/`）、实验结果（`results/logs/phase1_benchmark_*/`）、对比图表（`results/figures/phase1_benchmark/`）
+> 产出：各模型适配代码（`neural_benchmark/adapters/`）、实验结果（`results/logs/phase1_benchmark_*/`）、对比图表（`results/figures/phase1_benchmark/`）
 > 记录：同 1.8 主记录
+
+
+**数据集详情**：
+- Perich-Miller Population 2018，初级运动皮层（M1），center-out reaching（8 方向）
+- 3 只猕猴（Chewie 4s, Jaco 3s, Mihi 3s），10 sessions，407 global units（max 71/session）
+- 数据格式：HDF5 spike events via torch_brain，config: `perich_miller_10sessions.yaml`
+- 数据划分：`get_sampling_intervals(split)` 统一 train/valid/test
+- 样本数（250ms/500ms/1000ms pred_window，obs=500ms，50% overlap）：16890/12512/8129 train, 1588/1127/655 valid, 3121/2207/1284 test
 
 **Part A: 适配层开发**
 
-为每个模型编写薄适配层（adapter），放在 `neural-benchmark/adapters/` 下：
+为每个模型编写薄适配层（adapter），放在 `neural_benchmark/adapters/` 下：
 
 | 模型 | 适配层核心逻辑 | 估算行数 |
 |------|---------------|---------|

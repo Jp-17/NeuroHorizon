@@ -24,7 +24,7 @@ for MODEL in ndt2 ibl_mtm neuroformer; do
         echo ">>> Starting: ${MODEL} @ ${WINDOW_MS}ms"
         echo ">>> $(date)"
         
-        python3 neural-benchmark/benchmark_train.py \
+        python3 neural_benchmark/benchmark_train.py \
             --model $MODEL \
             --pred_window $WINDOW \
             --epochs $EPOCHS \

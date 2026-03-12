@@ -9,7 +9,7 @@ import torch.nn as nn
 import numpy as np
 
 sys.path.insert(0, '/root/autodl-tmp/NeuroHorizon')
-sys.path.insert(0, '/root/autodl-tmp/NeuroHorizon/neural-benchmark/benchmark_models/ibl-mtm/src')
+sys.path.insert(0, '/root/autodl-tmp/NeuroHorizon/neural_benchmark/benchmark_models/ibl-mtm/src')
 
 from neural_benchmark.adapters.base_adapter import BenchmarkConfig
 

@@ -9,7 +9,7 @@ import torch.nn as nn
 import numpy as np
 
 sys.path.insert(0, '/root/autodl-tmp/NeuroHorizon')
-sys.path.insert(0, '/root/autodl-tmp/NeuroHorizon/neural-benchmark/benchmark_models/ndt2')
+sys.path.insert(0, '/root/autodl-tmp/NeuroHorizon/neural_benchmark/benchmark_models/ndt2')
 
 from context_general_bci.config import (
     ModelConfig, ModelTask, Metric, Output, DataKey, MetaKey,

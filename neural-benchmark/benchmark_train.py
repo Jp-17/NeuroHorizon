@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader
 from pathlib import Path
 
 sys.path.insert(0, '/root/autodl-tmp/NeuroHorizon')
-sys.path.insert(0, '/root/autodl-tmp/NeuroHorizon/neural-benchmark')
+sys.path.insert(0, '/root/autodl-tmp/NeuroHorizon/neural_benchmark')
 
 from neural_benchmark.adapters.base_adapter import (
     BenchmarkConfig, BenchmarkDataset, compute_benchmark_null_rates, evaluate_model,
