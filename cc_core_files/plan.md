@@ -495,7 +495,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - [ ] Clone IBL-MtM + 安装依赖 + 验证
 - [ ] 记录环境配置结果（成功/失败/兼容性问题）
 
-#### 1.8.3 [ ] 模型适配与对比实验
+#### 1.8.3 [x] 模型适配与对比实验 ✅ 2026-03-12 完成，记录见 cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md
 
 > 依赖：1.8.2 完成（环境就绪），1.3.4 完成（NeuroHorizon baseline 结果）
 > 产出：各模型适配代码（`neural-benchmark/adapters/`）、实验结果（`results/logs/phase1_benchmark_*/`）、对比图表（`results/figures/phase1_benchmark/`）
@@ -552,16 +552,16 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 3. **多模型 R² 对比柱状图**：各模型在 3 个窗口下的 R²
 4. **综合对比表 + 雷达图**：fp-bps / R² / PSTH-R² / Poisson NLL 四指标对比
 
-- [ ] NDT2 适配层开发 + 单元测试
-- [ ] Neuroformer 适配层开发 + 单元测试
-- [ ] IBL-MtM 适配层开发 + 单元测试
-- [ ] NDT2 训练实验（250ms/500ms/1000ms）
-- [ ] Neuroformer 训练实验（250ms/500ms/1000ms）
-- [ ] IBL-MtM 训练实验（250ms/500ms/1000ms）
-- [ ] 各模型评估（fp-bps / R² / PSTH-R² / Poisson NLL）
-- [ ] 与 NeuroHorizon 1.3.4 结果的横向对比分析
-- [ ] 对比可视化图表生成
-- [ ] 结果记录到 cc_core_files/results.md
+- [x] NDT2 适配层开发 + 单元测试
+- [x] Neuroformer 适配层开发 + 单元测试
+- [x] IBL-MtM 适配层开发 + 单元测试
+- [x] NDT2 训练实验（250ms/500ms/1000ms）
+- [x] Neuroformer 训练实验（250ms/500ms/1000ms）
+- [x] IBL-MtM 训练实验（250ms/500ms/1000ms）
+- [x] 各模型评估（fp-bps / R² / PSTH-R² / Poisson NLL）
+- [x] 与 NeuroHorizon 1.3.4 结果的横向对比分析
+- [x] 对比可视化图表生成
+- [x] 结果记录到 cc_core_files/results.md
 
 
 ---
