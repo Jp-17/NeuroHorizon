@@ -69,10 +69,15 @@ class NeuroHorizon(nn.Module):
             raise ValueError(
                 f"sequence_length ({sequence_length}) must be > pred_window ({pred_window})"
             )
-        if decoder_variant not in {"query_aug", "prediction_memory"}:
+        if decoder_variant not in {
+            "query_aug",
+            "prediction_memory",
+            "local_prediction_memory",
+        }:
             raise ValueError(
                 "Unknown decoder_variant="
-                f"{decoder_variant!r}; choose 'query_aug' or 'prediction_memory'"
+                f"{decoder_variant!r}; choose 'query_aug', 'prediction_memory', "
+                "or 'local_prediction_memory'"
             )
 
         self.sequence_length = sequence_length
@@ -86,7 +91,10 @@ class NeuroHorizon(nn.Module):
         self.decoder_variant = decoder_variant
         self.feedback_method = feedback_method
         self.prediction_memory_k = prediction_memory_k
-        self.requires_target_counts = decoder_variant == "prediction_memory" or feedback_method != "none"
+        self.requires_target_counts = (
+            decoder_variant in {"prediction_memory", "local_prediction_memory"}
+            or feedback_method != "none"
+        )
 
         self.unit_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
         self.session_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
@@ -144,7 +152,7 @@ class NeuroHorizon(nn.Module):
         )
         self.head = PerNeuronMLPHead(dim)
 
-        if decoder_variant == "prediction_memory":
+        if decoder_variant in {"prediction_memory", "local_prediction_memory"}:
             self.feedback_encoder = None
             self.prediction_memory_encoder = PredictionMemoryEncoder(
                 dim=dim,
@@ -218,14 +226,38 @@ class NeuroHorizon(nn.Module):
         counts = torch.log1p(counts.clamp_min(0.0))
         return self.prediction_memory_encoder(counts, unit_embs, unit_mask)
 
-    def _build_prediction_memory_mask(self, num_steps, device):
+    def _build_prediction_memory_mask(self, num_steps, device, local_only: bool):
+        if local_only:
+            mask = torch.zeros(
+                num_steps,
+                num_steps * self.prediction_memory_k,
+                dtype=torch.bool,
+                device=device,
+            )
+            for t in range(num_steps):
+                start = t * self.prediction_memory_k
+                end = start + self.prediction_memory_k
+                mask[t, start:end] = True
+            return mask
+
         mask = create_causal_mask(num_steps, device=device)
         return mask.repeat_interleave(self.prediction_memory_k, dim=-1)
 
-    def _build_prediction_memory_time_emb(self, bin_time_emb):
-        B, T_pred, _ = bin_time_emb.shape
+    def _build_prediction_memory_time_emb(self, bin_time_emb, local_only: bool):
+        if local_only:
+            shifted_time_emb = torch.cat(
+                [
+                    torch.zeros_like(bin_time_emb[:, :1, :]),
+                    bin_time_emb[:, :-1, :],
+                ],
+                dim=1,
+            )
+        else:
+            shifted_time_emb = bin_time_emb
+
+        B, T_pred, _ = shifted_time_emb.shape
         return (
-            bin_time_emb.unsqueeze(2)
+            shifted_time_emb.unsqueeze(2)
             .expand(B, T_pred, self.prediction_memory_k, -1)
             .reshape(B, T_pred * self.prediction_memory_k, -1)
         )
@@ -236,6 +268,7 @@ class NeuroHorizon(nn.Module):
         unit_embs,
         unit_mask,
         bin_time_emb,
+        local_only: bool,
     ):
         B, T_pred, N = target_counts.shape
         shifted_counts = torch.cat(
@@ -261,10 +294,14 @@ class NeuroHorizon(nn.Module):
         memory[:, 0] = 0.0
 
         prediction_memory = memory.reshape(B, T_pred * self.prediction_memory_k, self.dim)
-        prediction_memory_time_emb = self._build_prediction_memory_time_emb(bin_time_emb)
+        prediction_memory_time_emb = self._build_prediction_memory_time_emb(
+            bin_time_emb,
+            local_only=local_only,
+        )
         prediction_memory_mask = self._build_prediction_memory_mask(
             T_pred,
             device=target_counts.device,
+            local_only=local_only,
         )
         prediction_memory_mask = prediction_memory_mask.unsqueeze(0).expand(B, -1, -1)
         return prediction_memory, prediction_memory_time_emb, prediction_memory_mask
@@ -275,6 +312,7 @@ class NeuroHorizon(nn.Module):
         unit_embs,
         unit_mask,
         cur_time_emb,
+        local_only: bool,
     ):
         B, T_cur, _ = cur_time_emb.shape
         zero_memory = torch.zeros(
@@ -290,10 +328,14 @@ class NeuroHorizon(nn.Module):
 
         memory = torch.stack(memory_slots, dim=1)
         prediction_memory = memory.reshape(B, T_cur * self.prediction_memory_k, self.dim)
-        prediction_memory_time_emb = self._build_prediction_memory_time_emb(cur_time_emb)
+        prediction_memory_time_emb = self._build_prediction_memory_time_emb(
+            cur_time_emb,
+            local_only=local_only,
+        )
         prediction_memory_mask = self._build_prediction_memory_mask(
             T_cur,
             device=unit_embs.device,
+            local_only=local_only,
         )
         prediction_memory_mask = prediction_memory_mask.unsqueeze(0).expand(B, -1, -1)
         return prediction_memory, prediction_memory_time_emb, prediction_memory_mask
@@ -341,13 +383,14 @@ class NeuroHorizon(nn.Module):
         prediction_memory_time_emb = None
         prediction_memory_mask = None
 
-        if self.decoder_variant == "prediction_memory":
+        if self.decoder_variant in {"prediction_memory", "local_prediction_memory"}:
             prediction_memory, prediction_memory_time_emb, prediction_memory_mask = (
                 self._build_prediction_memory_train(
                     target_counts,
                     unit_embs,
                     target_unit_mask,
                     bin_time_emb,
+                    local_only=self.decoder_variant == "local_prediction_memory",
                 )
             )
         elif self.feedback_encoder is not None:
@@ -411,13 +454,14 @@ class NeuroHorizon(nn.Module):
             prediction_memory_time_emb = None
             prediction_memory_mask = None
 
-            if self.decoder_variant == "prediction_memory":
+            if self.decoder_variant in {"prediction_memory", "local_prediction_memory"}:
                 prediction_memory, prediction_memory_time_emb, prediction_memory_mask = (
                     self._build_prediction_memory_rollout(
                         prev_predicted_counts,
                         unit_embs,
                         target_unit_mask,
                         cur_time_emb,
+                        local_only=self.decoder_variant == "local_prediction_memory",
                     )
                 )
             elif self.feedback_encoder is not None:

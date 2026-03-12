@@ -342,6 +342,116 @@
 - **依赖**：Python 标准库
 - **备注**：默认将 `rollout` 的 fp-bps 作为 1.9 新架构的正式记录值
 
+### verify_local_prediction_memory.py（1.9 Local Prediction Memory 功能验证）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/verify_local_prediction_memory.py`
+- **功能用途**：验证 `local_prediction_memory` decoder 的最小正确性
+  - 检查 local-only prediction memory mask 是否只允许访问对应 block
+  - 检查 `shift-right` 仍然生效
+  - 检查 `forward()` 与 `generate()` 不再等价
+- **创建时间**：2026-03-13
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/verify_local_prediction_memory.py
+  ```
+- **输出**：控制台验证结果
+- **依赖**：poyo conda 环境（PyTorch, torch_brain）
+- **备注**：对应 plan.md 1.9.2 的 `20260313_local_prediction_memory`
+
+### run_local_prediction_memory_smoke.sh（1.9 Local Prediction Memory smoke）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/run_local_prediction_memory_smoke.sh`
+- **功能用途**：执行 local prediction memory 版本的最小 smoke 流程
+  - 先跑功能验证
+  - 再跑 250ms 1-epoch smoke train
+  - 最后跑 rollout smoke eval
+- **创建时间**：2026-03-13
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/run_local_prediction_memory_smoke.sh
+  ```
+- **输入**：
+  - `examples/neurohorizon/configs/train_1p9_local_prediction_memory_250ms.yaml`
+  - `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+- **输出**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/250ms/`
+  - `eval_rollout_smoke.json`
+- **依赖**：poyo conda 环境
+- **备注**：用于第二轮 1.9 架构修正的最小可运行验证
+
+### run_local_prediction_memory_experiments.sh（1.9 Local Prediction Memory 批量实验）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/run_local_prediction_memory_experiments.sh`
+- **功能用途**：并行执行 local prediction memory 版本的 1.9 正式实验流程
+  - 先运行功能验证
+  - 并行训练 250ms / 500ms / 1000ms 三个配置
+  - 对每个窗口分别输出 teacher-forced 与 rollout 两套评估结果
+  - 最后调用汇总脚本生成 summary
+- **创建时间**：2026-03-13
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/run_local_prediction_memory_experiments.sh
+  ```
+- **输入**：
+  - `examples/neurohorizon/configs/train_1p9_local_prediction_memory_{250ms,500ms,1000ms}.yaml`
+  - `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+- **输出**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/{250ms,500ms,1000ms}/`
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/local_prediction_memory_summary.json`
+- **依赖**：poyo conda 环境
+- **备注**：与 20260312 版本保持相同实验协议，便于直接对比 rollout 稳定性
+
+### monitor_local_prediction_memory_progress.py（1.9 Local Prediction Memory 进度监控）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/monitor_local_prediction_memory_progress.py`
+- **功能用途**：周期性读取三个 local prediction memory 实验的 `metrics.csv` 和 pid 文件，估计当前 epoch 与剩余时间，并写出状态快照
+- **创建时间**：2026-03-13
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/monitor_local_prediction_memory_progress.py --interval-sec 600
+  ```
+- **输入**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/*/lightning_logs/version_*/metrics.csv`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/*/job.pid`
+- **输出**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/progress_status.md`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/progress_monitor.log`
+- **依赖**：Python 标准库
+- **备注**：用于正式对比实验期间的 ETA 跟踪，不修改训练结果本身
+
+### collect_local_prediction_memory_results.py（1.9 Local Prediction Memory 结果汇总）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/collect_local_prediction_memory_results.py`
+- **功能用途**：汇总 local prediction memory 的评估 JSON，并自动完成 1.9 收尾
+  - 读取 teacher-forced / rollout 评估结果
+  - 与 `baseline_v2` 做对比并生成 summary JSON
+  - 追加或更新 `results.tsv`
+  - 调用 `plot_optimization_progress.py` 刷新趋势图
+- **创建时间**：2026-03-13
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/collect_local_prediction_memory_results.py
+  ```
+- **输入**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/*/eval_{teacher_forced,rollout}.json`
+  - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+- **输出**：
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/local_prediction_memory_summary.json`
+  - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/optimization_progress.{png,pdf}`
+- **依赖**：Python 标准库
+- **备注**：默认将 `rollout` 的 fp-bps 作为 1.9 新架构的正式记录值
+
 ### ar_verify.py（1.2.2 AR 推理验证）
 
 - **路径**：`scripts/analysis/neurohorizon/ar_verify.py`

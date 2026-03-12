@@ -132,12 +132,78 @@ PerNeuronMLPHead
 
 （按时间倒序排列，新的改进想法添加在此处）
 
+### 2026-03-13 — Local Prediction Memory Decoder
+
+> 状态: 验证中
+> 分支: `dev/20260313_local_prediction_memory`
+> cc_todo: `cc_todo/phase1-autoregressive/1.9-module-optimization/20260313_local_prediction_memory.md`
+> commit: （待提交）
+
+**想法描述**：
+保留 structured prediction memory 的思想，但将其收缩为“local-only”反馈：每个 query bin 只访问紧邻上一步的 `K` 个 prediction memory tokens，不再检索整段历史 memory。
+
+**动机与目的**：
+- `20260312_prediction_memory_decoder` 已证明：高容量全历史 memory 在 teacher forcing 下很好用，但 rollout 稳定性明显差于 `baseline_v2`。
+- 下一轮优化优先做“收缩显式 feedback 通路”，而不是继续增强它。
+- 目标是在保留结构化上一时刻 population state 表征的同时，降低 exposure bias 和 error accumulation。
+
+**相比上一版的关键变化**：
+- 保留 `PredictionMemoryEncoder` 和 `K=4` summary tokens
+- query `t` 只允许访问 block `t`，其中：
+  - `memory[t] = encode(counts[t-1])`
+  - 更早历史交由 causal self-attention 负责
+- local memory 的时间嵌入改为与 source bin 对齐，而不是沿用 query 当前 bin 的时间
+
+**为什么这样可能更合理**：
+- 上一版真正的问题不是“有没有 prediction memory”，而是“prediction memory 过强且能访问整个历史”。
+- local-only memory 更像一个结构化的 `c_{t-1}` 条件输入，而不是整段 teacher-forced 侧信道。
+- decoder 原本就有 causal self-attention，可以负责更早时间的历史累积；显式 memory 没必要重复承担这个职责。
+
+**批判性分析**：
+- 优点：
+  - 保留 structured feedback，但显著降低信息通路容量
+  - 更接近经典 AR 的局部条件建模
+  - 改动集中在 memory mask 和 time alignment，工程风险较低
+- 风险：
+  - 如果主要问题是 GT counts 与 predicted expected counts 的分布不一致，local mask 只能部分缓解
+  - 如果 decoder 仍强依赖 local memory，本质的 rollout 偏移仍可能存在
+- 替代方案：
+  - 在 memory 输入上加 noise / dropout
+  - 在训练中混入 predicted counts，而不是纯 teacher forcing
+  - 回退到更强 bottleneck 的 query augmentation
+
+**修改方案**：
+- 新增 `decoder_variant='local_prediction_memory'`
+- 为 local 版本单独构造 block-diagonal prediction-memory mask
+- 为 local 版本使用 shift-right 后的 source-bin time embedding
+- 新增独立配置和验证脚本，先做功能验证和 250ms smoke run
+
+**基本功能验证方案**：
+- local mask 满足：query `t` 只能访问第 `t` 个 memory block
+- `shift-right` 语义保持不变
+- `forward()` 与 `generate()` 仍不等价
+- 250ms smoke run 能完成训练、保存 checkpoint、跑 rollout eval
+
+**当前进展（2026-03-13 凌晨）**：
+- 功能验证已通过：
+  - local mask block 可见性正确
+  - `shift-right` 生效
+  - `forward()` 与 `generate()` 不再等价
+- 250ms 1-epoch smoke run 已通过：
+  - `train_loss=0.418`
+  - `val_loss=0.412`
+  - `val/fp_bps=-0.825`
+  - rollout smoke fp-bps=`-0.8234`
+- 结论：
+  - 新 variant 的代码链路、训练链路、rollout eval 链路均已跑通
+  - 目前还不能判断它是否优于 `20260312_prediction_memory_decoder`，因为正式 300-epoch 实验尚未开始
+
 ### 2026-03-12 — Structured Prediction Memory Decoder
 
 > 状态: 已放弃
 > 分支: `dev/20260312_prediction_memory_decoder`
 > cc_todo: `cc_todo/phase1-autoregressive/1.9-module-optimization/20260312_prediction_memory_decoder.md`
-> commit: （待提交）
+> commit: `ebb59fa`
 
 **想法描述**：
 将 Phase 1 的主线 AR decoder 正式定为 `event-based POYO encoder + time-bin autoregressive decoder + structured prediction memory`。保持 history 侧输入仍为 spike events，不引入 spike-event 级 decoder；输出固定为未来 `T bins x N units` 的 spike counts。decoder 在时间维做 bin-by-bin 自回归，在每个 bin 内并行预测全部 neuron。

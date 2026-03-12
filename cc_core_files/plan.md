@@ -628,6 +628,7 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 - 按 `model.md` 中该节的修改方案进行代码改动
 - 完成基本功能验证（代码可跑、无错误）
 - 在 `model.md` 中更新状态为"实施中"
+- **Step 2 完成后立即执行一次 `git commit` + `git push`**：提交当前轮的代码、配置、文档和最小验证结果，作为实现阶段 checkpoint；即使后续正式实验效果不佳，也必须保留这一版实现记录
 
 **Step 3 -- 实验验证**（按优先级依次进行）：
 1. **必做 -- 预测窗口实验**（参照 1.3.4）：
@@ -648,6 +649,7 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 - **汇总更新**: `cc_core_files/scripts.md` 和 `cc_core_files/results.md` 按 CLAUDE.md 规范更新
 - **TSV 更新**: 将预测窗口实验结果追加到 `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
 - **趋势图更新**: 运行 `plot_optimization_progress.py` 更新优化进度折线图
+- **Step 4 完成后再执行一次 `git commit` + `git push`**：提交正式实验结果、汇总图表、结论更新与状态变更，保证每轮优化至少留下“实现 checkpoint”和“结果 checkpoint”两次提交
 
 **Step 5 -- 分支合并**（由用户决定）：
 - 效果好 -> merge 到 main，在 `model.md` 中标记状态为"已合并"
@@ -688,7 +690,7 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 > 脚本: `scripts/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/`
 > 日志: `results/logs/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/`
 > 可视化: `results/figures/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/`
-> commit: （待提交）
+> commit: `ebb59fa`
 > 结果: 250ms fp-bps=0.1486 / 500ms fp-bps=-0.0153 / 1000ms fp-bps=-0.2590
 
 - 核心设计：`event-based POYO encoder + time-bin autoregressive decoder + structured prediction memory`
@@ -698,6 +700,20 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 - 必做实验保持 1.9 统一规范：10 sessions、连续滑动窗口、obs=500ms、pred=250/500/1000ms
 - 结论：teacher-forced 指标很高，但 rollout 显著差于 `baseline_v2`，尤其长窗口出现严重误差积累；该方案不作为主线继续推进
 
+##### 20260313_local_prediction_memory -- Local Prediction Memory Decoder
+> 状态: 验证中
+> 分支: `dev/20260313_local_prediction_memory`
+> 文档: `cc_core_files/model.md` 中“2026-03-13 — Local Prediction Memory Decoder”
+> 任务记录: `cc_todo/phase1-autoregressive/1.9-module-optimization/20260313_local_prediction_memory.md`
+> 脚本: `scripts/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/`
+> 日志: `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/`
+> 可视化: `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/`
+> commit: （待提交）
+> 结果: 250ms fp-bps=待实验 / 500ms fp-bps=待实验 / 1000ms fp-bps=待实验
+
+- 核心设计：保留 structured memory，但 query 只访问紧邻上一步的 local memory block
+- 设计动机：针对 20260312 版本全历史 memory 检索带来的 rollout 崩塌，优先收缩 feedback 通路容量
+- 当前进展：功能验证与 250ms smoke run 已通过；下一步是决定是否启动完整 250/500/1000ms 正式实验
 
 
 

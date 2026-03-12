@@ -212,6 +212,39 @@
 
 ---
 
+## 2026-03-13-01h
+
+### 任务：启动下一轮 1.9 修正迭代 Local Prediction Memory Decoder
+
+**完成时间**：2026-03-13-01h
+
+**完成内容**：
+1. 从当前状态切新分支 `dev/20260313_local_prediction_memory`
+2. 在 `model.md` 和 `plan.md` 中登记新的 1.9 迭代，核心思想是：
+   - 保留 structured prediction memory
+   - 但将其收缩为 local-only block，query 只访问紧邻上一步 memory
+3. 在模型中新增 `decoder_variant='local_prediction_memory'`
+4. 实现 local-only prediction-memory mask 和 source-aligned memory time embedding
+5. 新增 local 版本配置与 smoke 脚本
+6. 完成功能验证和 250ms smoke run
+
+**执行结果**：
+- 功能验证通过：
+  - local block mask 正确
+  - `shift-right` 正确
+  - `forward()` 与 `generate()` 不再等价
+- 250ms smoke run 跑通：
+  - `train_loss=0.418`
+  - `val_loss=0.412`
+  - `val/fp_bps=-0.825`
+- rollout smoke eval：
+  - `fp-bps=-0.8234`
+  - `R2=-0.0002`
+
+**遇到的问题**：
+- 无新的代码级错误；当前只完成最小 smoke 验证，尚未做正式 300-epoch 对比实验
+
+**对应 plan.md 任务**：Phase 1.9.2 模型优化迭代记录（Local Prediction Memory Decoder，验证中）
 - heredoc 写文件时"载"字的 UTF-8 编码被截断为 3 个替换字符（U+FFFD）；解决：字节级定位并替换修复
 
 **对应 plan.md 任务**：属于"项目计划优化阶段"的文档修缮工作
@@ -788,3 +821,32 @@
 3. **proposal_review.md 复杂文本替换**：sed 无法处理含反引号的 markdown 内容 → 改用 Python 脚本通过 SSH 执行替换
 
 **对应 plan.md 任务**：1.1.7 [x], 1.1.8 [ ]（部分）, 1.1.9 [x], 1.2.4 [x]
+
+
+---
+
+## 2026-03-13-02h
+
+### 任务：整理 1.9 两轮分支提交并准备 Local Prediction Memory 正式实验
+
+**完成时间**：2026-03-13-02h
+
+**完成内容**：
+1. 将 `20260312_prediction_memory_decoder` 的实现、300-epoch 结果和失败结论提交并推送到 `origin/dev/20260312_prediction_memory_decoder`
+2. 更新 `plan.md 1.9.0`：新增 Step 2 和 Step 4 完成后都要执行 `git commit + git push` 的要求
+3. 为 `20260313_local_prediction_memory` 补齐正式实验脚本：
+   - `run_local_prediction_memory_experiments.sh`
+   - `monitor_local_prediction_memory_progress.py`
+   - `collect_local_prediction_memory_results.py`
+4. 回填 `20260312_prediction_memory_decoder` 的 commit 为 `ebb59fa`
+5. 准备在 `dev/20260313_local_prediction_memory` 上提交当前实现并启动正式 `250/500/1000ms` 并行实验
+
+**执行结果**：
+- 上一轮失败迭代已独立固化在旧分支，便于后续追踪 teacher-forced / rollout gap 的演变
+- 当前轮次的正式实验入口、监控和结果汇总脚本都已就绪
+- `plan.md 1.9.0` 现在明确要求每轮优化至少保留两次提交：实现 checkpoint 和结果 checkpoint
+
+**遇到的问题**：
+- 由于 `20260312` 与 `20260313` 共用了部分文档和模型文件，需要先把共享文件按轮次拆开后再分别提交；已通过临时备份和文件级回切解决
+
+**对应 plan.md 任务**：Phase 1.9.0 执行规范更新 + Phase 1.9.2 Local Prediction Memory Decoder（验证中）
