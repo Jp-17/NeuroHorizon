@@ -605,6 +605,84 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 - [x] 对比可视化图表生成
 - [x] 结果记录到 cc_core_files/results.md
 
+### 1.9 增量模型优化管理
+> 定位：支持不断的模型迭代优化记录和实验的增量验证工作
+> 产出：`cc_core_files/model.md`（模型演进文档）、各次优化的代码/实验/记录
+> 记录：`cc_todo/phase1-autoregressive/1.9-module-optimization/{date}_{module_name}`
+> 效果追踪：`cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+
+**目标**：
+建立标准化的模型改进流程，确保每次优化想法都经过充分讨论分析、规范实施、统一实验验证，并可追踪指标变化趋势。
+
+#### 1.9.0 执行规范
+
+**Step 1 -- 想法记录与讨论**（在提出改进想法时）：
+- 在 `cc_core_files/model.md` 中新增一节，标注日期和改进名称
+- 记录：想法描述、动机与目的、相比现有方案的改动点
+- 进行充分的批判性分析：优缺点、风险、替代方案
+- 基于当前仓库代码实现，给出大致的修改方案和基本功能验证方案
+- 标记状态为"提出"
+
+**Step 2 -- 分支创建与代码实施**（在用户确认可实施时）：
+- 在当前 git 状态基础上创建分支 `dev/{date}_{module_name}`
+- 按 `model.md` 中该节的修改方案进行代码改动
+- 完成基本功能验证（代码可跑、无错误）
+- 在 `model.md` 中更新状态为"实施中"
+
+**Step 3 -- 实验验证**（按优先级依次进行）：
+1. **必做 -- 预测窗口实验**（参照 1.3.4）：
+   - 数据: `examples/neurohorizon/configs/dataset/perich_miller_10sessions.yaml`
+   - 采样方式: 连续滑动窗口（非 trial-aligned）
+   - 观察窗口: 500ms
+   - 预测窗口: 250ms / 500ms / 1000ms（3 个条件）
+   - 评估指标: fp-bps / R-squared / PSTH-R-squared / Poisson NLL
+2. **可选 -- 观察窗口实验**（参照 1.4，用户确认后执行）
+3. **可选 -- Session 数目实验**（参照 1.5，用户确认后执行）
+
+**Step 4 -- 实验记录**（遵循 CLAUDE.md 中"任务执行中"的记录规范）：
+- **任务记录**: `cc_todo/phase1-autoregressive/1.9-module-optimization/{date}_{module_name}.md`
+  - 必须包含：改进想法摘要、详细实验配置（数据集、sessions 数、采样方式、obs/pred 窗口）、训练 loss 结果、各条件 metric 结果（fp-bps 等）、与 baseline 的对比
+- **脚本**: `scripts/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
+- **实验日志**: `results/logs/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
+- **可视化**: `results/figures/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
+- **汇总更新**: `cc_core_files/scripts.md` 和 `cc_core_files/results.md` 按 CLAUDE.md 规范更新
+- **TSV 更新**: 将预测窗口实验结果追加到 `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+- **趋势图更新**: 运行 `plot_optimization_progress.py` 更新优化进度折线图
+
+**Step 5 -- 分支合并**（由用户决定）：
+- 效果好 -> merge 到 main，在 `model.md` 中标记状态为"已合并"
+- 效果不佳 -> 保留分支供参考，在 `model.md` 中标记状态为"已放弃"并记录原因
+
+#### 1.9.1 [x] 模型版本基线
+
+> 产出：`cc_core_files/model.md`（v1/v2 总结）、`results.tsv`（baseline 数据）
+
+- [x] 整理 v1 架构总结（plan.md 1.1.1-1.1.6, commit `bb9439d`）
+- [x] 整理 v2 架构总结（plan.md 1.1.7-1.1.9, commit `e5dea0a`）
+- [x] 记录 v2 baseline fp-bps 到 results.tsv
+- [x] 记录 benchmark 模型结果到 results.tsv
+- [x] 创建 plot_optimization_progress.py 并生成初始趋势图
+
+#### 1.9.2 [ ] 模型优化迭代记录
+
+> 以下按时间顺序记录每次模型优化想法及其路径信息
+
+<!-- 模板（每次新优化时复制并填写）:
+##### {date}_{module_name} -- {改进名称}
+> 状态: 提出 / 实施中 / 验证中 / 已合并 / 已放弃
+> 分支: `dev/{date}_{module_name}`
+> 文档: `cc_core_files/model.md` 对应小节
+> 任务记录: `cc_todo/phase1-autoregressive/1.9-module-optimization/{date}_{module_name}.md`
+> 脚本: `scripts/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
+> 日志: `results/logs/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
+> 可视化: `results/figures/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
+> commit: （实施后填写）
+> 结果: 250ms fp-bps= / 500ms fp-bps= / 1000ms fp-bps=
+-->
+
+（暂无，等待新的模型优化想法提出后在此添加）
+
+
 
 ---
 

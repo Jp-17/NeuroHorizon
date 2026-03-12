@@ -137,6 +137,38 @@ NeuroHorizon/
       > 记录：`cc_todo/phase1-autoregressive/20260311-xxx.md`
     - 如果任务要求调整 plan.md 的计划内容（增加/修改子任务描述、新增实验设计等），需要将计划内容写得**足够详细**以便直接执行，并且如果参考了某个文档的内容，必须**注明引用出处**（文件路径 + 章节号），方便阅读时直接跳转参考。
 
+### 1.9 模块优化专用规范
+
+当执行 plan.md 1.9 的模型优化迭代任务时，除遵循上述通用规范外，还需遵守以下专用规范：
+
+**分支管理**：
+- 每次模型改进在独立分支 `dev/{date}_{module_name}` 上开发
+- 从当前 main 分支的最新状态创建，完成后由用户决定是否 merge
+
+**文档流程**：
+1. 改进想法先记录到 `cc_core_files/model.md`，包含完整的讨论和批判性分析
+2. 用户确认后创建分支并实施代码改动
+3. 实验验证优先做预测窗口实验（参照 1.3.4：perich_miller_10sessions, 连续采样, obs=500ms, pred=250/500/1000ms）
+
+**文件路径规范**：
+- 任务记录: `cc_todo/phase1-autoregressive/1.9-module-optimization/{date}_{module_name}.md`
+- 脚本: `scripts/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
+- 实验日志: `results/logs/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
+- 可视化: `results/figures/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
+
+**实验记录要求**（cc_todo 文档中必须包含）：
+- 改进想法摘要及 model.md 中对应小节的引用
+- 详细实验配置：数据集、sessions 数、采样方式、obs/pred 窗口长度
+- 训练 loss 曲线和结果
+- 各实验条件下的 metric 结果（fp-bps / R-squared / PSTH-R-squared / Poisson NLL）
+- 与 baseline_v2 及 benchmark 模型的对比分析
+
+**结果追踪**：
+- 实验完成后将结果追加到 `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`（tab-separated）
+- 运行 `plot_optimization_progress.py` 更新优化进度折线图
+- 更新 `cc_core_files/results.md` 和 `cc_core_files/scripts.md`
+- 更新 `plan.md` 1.9.2 中对应条目的状态和结果
+
 ### 任务完成后
 
 12. **文档检查清单**：
