@@ -514,3 +514,23 @@
 - **输出**：`results/figures/phase1_v2/06_benchmark_comparison.png`
 - **依赖**：poyo conda 环境, matplotlib
 - **备注**：对应 plan.md 任务 1.3.4 Benchmark 对比
+
+
+### phase1_14_15_visualize.py（1.4/1.5 对比可视化）
+
+- **路径**：scripts/analysis/neurohorizon/phase1_14_15_visualize.py
+- **功能用途**：Phase 1 实验 1.4（obs_window）和 1.5（session count）的对比可视化
+  - 1.4 图：fp-bps vs obs_window 对比图（NeuroHorizon + NDT2 + Neuroformer + IBL-MtM，4 条曲线）
+  - 1.5 图：fp-bps vs session_count 对比图（4 模型曲线）
+- **创建时间**：2026-03-12
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/neurohorizon/phase1_14_15_visualize.py
+  ```
+- **输出**：
+  - results/figures/phase1_obs_window/（1.4 obs_window 对比图）
+  - results/figures/phase1_sessions/（1.5 session count 对比图）
+- **依赖**：poyo conda 环境（matplotlib, numpy）
+- **备注**：对应 plan.md 任务 1.4、1.5 可视化

@@ -106,7 +106,11 @@ def train_model(args):
     
     # Setup datasets
     print("\nLoading datasets...")
-    train_dataset, val_dataset, test_dataset, max_units = setup_datasets(config, dataset_config=getattr(args, 'dataset_config', None))
+    # Resolve dataset_config path
+    dc = getattr(args, 'dataset_config', None)
+    if dc and not dc.startswith('/'):
+        dc = f'/root/autodl-tmp/NeuroHorizon/examples/neurohorizon/configs/dataset/{dc}'
+    train_dataset, val_dataset, test_dataset, max_units = setup_datasets(config, dataset_config=dc)
     print(f"  Train samples: {len(train_dataset)}")
     print(f"  Val samples: {len(val_dataset)}")
     print(f"  Test samples: {len(test_dataset)}")

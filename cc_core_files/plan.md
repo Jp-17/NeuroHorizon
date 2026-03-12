@@ -323,7 +323,7 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 
 - [x] Benchmark 对比分析（直接引用 1.8.3 结果，无需重训）
 
-### 1.4 [ ] 观察窗口长度实验
+### 1.4 [x] 观察窗口长度实验
 > 依赖：1.3.4 完成，确定最优 pred_window（预期 250ms）
 > 产出：`results/logs/phase1_v2_obs{250,500,750,1000}ms/`，`results/figures/phase1_v2/`
 > 记录：`cc_todo/phase1-autoregressive/{date}-phase1-1.4-obs-window.md`
@@ -348,25 +348,25 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 - trial-aligned 下 250ms obs 仅覆盖 hold period 末段 vs 500ms 包含更多 hold 信息
 - obs_window 过长（1000ms）是否引入跨 trial 边界的噪声
 
-- [ ] 250ms obs + 250ms pred（连续 + trial-aligned）
-- [ ] 500ms obs + 250ms pred（= 1.3.4 baseline，复用）
-- [ ] 750ms obs + 250ms pred
-- [ ] 1000ms obs + 250ms pred
-- [ ] 分析：fp-bps vs obs_window 曲线，是否存在饱和点
-- [ ] 分析：trial-aligned 下 250ms obs 仅覆盖 hold period vs 500ms 延伸到前一 trial
-- [ ] 配置说明：sequence_length = obs_window + pred_window，pred_window 固定
+- [x] 250ms obs + 250ms pred（连续 + trial-aligned）
+- [x] 500ms obs + 250ms pred（= 1.3.4 baseline，复用）
+- [x] 750ms obs + 250ms pred
+- [x] 1000ms obs + 250ms pred
+- [x] 分析：fp-bps vs obs_window 曲线，是否存在饱和点
+- [x] 分析：trial-aligned 下 250ms obs 仅覆盖 hold period vs 500ms 延伸到前一 trial
+- [x] 配置说明：sequence_length = obs_window + pred_window，pred_window 固定
 
 **Benchmark 对比说明**：
 - 各 obs_window 条件下，同时训练 NDT2 / Neuroformer / IBL-MtM（与 NeuroHorizon 相同 obs_window + pred_window=250ms）
 - obs500 复用 1.8.3 已有 benchmark 结果（条件一致）
 - 比较维度：fp-bps / R² vs obs_window，4 个模型在同一图中
 
-- [ ] Benchmark 训练：obs250 × 3 模型
-- [ ] Benchmark 训练：obs750 × 3 模型
-- [ ] Benchmark 训练：obs1000 × 3 模型
-- [ ] Benchmark 对比可视化：fp-bps vs obs_window（4 模型曲线）
+- [x] Benchmark 训练：obs250 × 3 模型
+- [x] Benchmark 训练：obs750 × 3 模型
+- [x] Benchmark 训练：obs1000 × 3 模型
+- [x] Benchmark 对比可视化：fp-bps vs obs_window（4 模型曲线）
 
-### 1.5 [ ] Session 数目实验
+### 1.5 [x] Session 数目实验
 > 依赖：1.3.4 完成（10-session 结果作为 baseline），dataset configs 已存在
 > 产出：`results/logs/phase1_v2_{1,4,7}sessions/`，`examples/neurohorizon/configs/dataset/perich_miller_{1,4,7}sessions.yaml`（已创建）
 > 记录：`cc_todo/phase1-autoregressive/{date}-phase1-1.5-session-scaling.md`
@@ -393,24 +393,24 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 - 跨受试体（C->J->M）泛化：用 C 训练的模型在 J/M sessions 上的 fp-bps
 - per-session fp-bps 分布变化：联合训练后各 session 性能是否均匀提升
 
-- [ ] 1 session（仅 c_20131003）
-- [ ] 4 sessions（C 动物：c_20131003/1022/1101/1204）
-- [ ] 7 sessions（C + J 动物）
-- [ ] 10 sessions（全部，= 1.3.4 baseline，复用）
-- [ ] 分析：多 session 联合训练对单 session 预测质量的影响
-- [ ] 分析：跨受试体（C->J->M）的泛化增益或干扰
-- [ ] 报告：per-session fp-bps
-- [ ] 新增配置：perich_miller_{1,4,7}sessions.yaml
+- [x] 1 session（仅 c_20131003）
+- [x] 4 sessions（C 动物：c_20131003/1022/1101/1204）
+- [x] 7 sessions（C + J 动物）
+- [x] 10 sessions（全部，= 1.3.4 baseline，复用）
+- [x] 分析：多 session 联合训练对单 session 预测质量的影响
+- [x] 分析：跨受试体（C->J->M）的泛化增益或干扰
+- [x] 报告：per-session fp-bps
+- [x] 新增配置：perich_miller_{1,4,7}sessions.yaml
 
 **Benchmark 对比说明**：
 - 各 session 数目条件下，同时训练 NDT2 / Neuroformer / IBL-MtM（与 NeuroHorizon 相同 session 配置 + pred_window=250ms）
 - 10-session 复用 1.8.3 已有 benchmark 结果（条件一致）
 - 比较维度：fp-bps / R² vs session_count，4 个模型在同一图中
 
-- [ ] Benchmark 训练：1-session × 3 模型
-- [ ] Benchmark 训练：4-sessions × 3 模型
-- [ ] Benchmark 训练：7-sessions × 3 模型
-- [ ] Benchmark 对比可视化：fp-bps vs session_count（4 模型曲线）
+- [x] Benchmark 训练：1-session × 3 模型
+- [x] Benchmark 训练：4-sessions × 3 模型
+- [x] Benchmark 训练：7-sessions × 3 模型
+- [x] Benchmark 对比可视化：fp-bps vs session_count（4 模型曲线）
 
 ### 1.6 [待定] Forward Prediction → 行为解码假设
 
