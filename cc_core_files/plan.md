@@ -310,6 +310,19 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - [x] 分析：连续 vs trial-aligned 训练效果差异
 - [x] 分析：PSTH-R-squared 在不同预测窗口下的表现
 
+**Benchmark 对比分析**（引用 1.8.3 结果，条件完全一致：10 sessions、500ms obs_window、连续训练、同一数据划分）：
+
+| 模型 | 250ms fp-bps | 500ms fp-bps | 1000ms fp-bps | 参数量 |
+|------|-------------|-------------|--------------|--------|
+| **NeuroHorizon** | **0.2115** | **0.1744** | **0.1317** | ~2.1M |
+| Neuroformer | 0.1856 | 0.1583 | 0.1210 | ~4.9M |
+| IBL-MtM | 0.1749 | 0.1531 | 0.1001 | ~10.7M |
+| NDT2 | 0.1691 | 0.1502 | 0.1079 | ~4.8M |
+
+NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer, +21% vs IBL-MtM, +25% vs NDT2），且参数量最小。
+
+- [x] Benchmark 对比分析（直接引用 1.8.3 结果，无需重训）
+
 ### 1.4 [ ] 观察窗口长度实验
 > 依赖：1.3.4 完成，确定最优 pred_window（预期 250ms）
 > 产出：`results/logs/phase1_v2_obs{250,500,750,1000}ms/`，`results/figures/phase1_v2/`
@@ -342,6 +355,16 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - [ ] 分析：fp-bps vs obs_window 曲线，是否存在饱和点
 - [ ] 分析：trial-aligned 下 250ms obs 仅覆盖 hold period vs 500ms 延伸到前一 trial
 - [ ] 配置说明：sequence_length = obs_window + pred_window，pred_window 固定
+
+**Benchmark 对比说明**：
+- 各 obs_window 条件下，同时训练 NDT2 / Neuroformer / IBL-MtM（与 NeuroHorizon 相同 obs_window + pred_window=250ms）
+- obs500 复用 1.8.3 已有 benchmark 结果（条件一致）
+- 比较维度：fp-bps / R² vs obs_window，4 个模型在同一图中
+
+- [ ] Benchmark 训练：obs250 × 3 模型
+- [ ] Benchmark 训练：obs750 × 3 模型
+- [ ] Benchmark 训练：obs1000 × 3 模型
+- [ ] Benchmark 对比可视化：fp-bps vs obs_window（4 模型曲线）
 
 ### 1.5 [ ] Session 数目实验
 > 依赖：1.3.4 完成（10-session 结果作为 baseline），dataset configs 已存在
@@ -378,6 +401,16 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - [ ] 分析：跨受试体（C->J->M）的泛化增益或干扰
 - [ ] 报告：per-session fp-bps
 - [ ] 新增配置：perich_miller_{1,4,7}sessions.yaml
+
+**Benchmark 对比说明**：
+- 各 session 数目条件下，同时训练 NDT2 / Neuroformer / IBL-MtM（与 NeuroHorizon 相同 session 配置 + pred_window=250ms）
+- 10-session 复用 1.8.3 已有 benchmark 结果（条件一致）
+- 比较维度：fp-bps / R² vs session_count，4 个模型在同一图中
+
+- [ ] Benchmark 训练：1-session × 3 模型
+- [ ] Benchmark 训练：4-sessions × 3 模型
+- [ ] Benchmark 训练：7-sessions × 3 模型
+- [ ] Benchmark 对比可视化：fp-bps vs session_count（4 模型曲线）
 
 ### 1.6 [待定] Forward Prediction → 行为解码假设
 
