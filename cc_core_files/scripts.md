@@ -496,3 +496,21 @@
   ```
 - **输出**：`results/figures/phase1_benchmark/*.png`
 - **备注**：可自动检测并加载 NeuroHorizon 1.3.4 结果进行对比
+
+### phase1_benchmark_compare.py（1.3.4 Benchmark 对比可视化）
+
+- **路径**：`scripts/analysis/neurohorizon/phase1_benchmark_compare.py`
+- **功能用途**：1.3.4 NeuroHorizon vs Benchmark 模型对比可视化
+  - 读取 NeuroHorizon v2 eval 结果和 1.8.3 benchmark results.json
+  - 生成分组柱状图 + 折线图（4 模型 × 3 窗口）
+  - 输出相对优势百分比
+- **创建时间**：2026-03-12
+- **使用方式**：
+  ````bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/neurohorizon/phase1_benchmark_compare.py
+  ````
+- **输出**：`results/figures/phase1_v2/06_benchmark_comparison.png`
+- **依赖**：poyo conda 环境, matplotlib
+- **备注**：对应 plan.md 任务 1.3.4 Benchmark 对比
