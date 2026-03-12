@@ -37,15 +37,15 @@ MODEL_CREATORS = {
 }
 
 
-def setup_datasets(config: BenchmarkConfig):
+def setup_datasets(config: BenchmarkConfig, dataset_config: str = None):
     """Load Perich-Miller dataset via torch_brain."""
     # Create torch_brain datasets for each split
     print("  Creating train dataset...")
-    train_tb = create_tb_dataset('train')
+    train_tb = create_tb_dataset('train', dataset_config=dataset_config)
     print("  Creating valid dataset...")
-    val_tb = create_tb_dataset('valid')
+    val_tb = create_tb_dataset('valid', dataset_config=dataset_config)
     print("  Creating test dataset...")
-    test_tb = create_tb_dataset('test')
+    test_tb = create_tb_dataset('test', dataset_config=dataset_config)
     
     # Determine max units across all recordings
     max_units = 0
@@ -106,7 +106,7 @@ def train_model(args):
     
     # Setup datasets
     print("\nLoading datasets...")
-    train_dataset, val_dataset, test_dataset, max_units = setup_datasets(config)
+    train_dataset, val_dataset, test_dataset, max_units = setup_datasets(config, dataset_config=getattr(args, 'dataset_config', None))
     print(f"  Train samples: {len(train_dataset)}")
     print(f"  Val samples: {len(val_dataset)}")
     print(f"  Test samples: {len(test_dataset)}")
@@ -144,7 +144,10 @@ def train_model(args):
     )
     
     # Output directory
-    log_dir = Path(f'/root/autodl-tmp/NeuroHorizon/results/logs/phase1_benchmark_{args.model}_{int(config.pred_window_s*1000)}ms')
+    if getattr(args, 'log_suffix', None):
+        log_dir = Path(f'/root/autodl-tmp/NeuroHorizon/results/logs/phase1_benchmark_{args.model}_{args.log_suffix}')
+    else:
+        log_dir = Path(f'/root/autodl-tmp/NeuroHorizon/results/logs/phase1_benchmark_{args.model}_{int(config.pred_window_s*1000)}ms')
     log_dir.mkdir(parents=True, exist_ok=True)
     
     # Training loop
@@ -249,6 +252,10 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=300)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--dataset_config', type=str, default=None,
+                       help='Path to dataset config YAML (default: perich_miller_10sessions)')
+    parser.add_argument('--log_suffix', type=str, default=None,
+                       help='Custom suffix for log directory (e.g., obs250ms, 1session)')
     
     args = parser.parse_args()
     train_model(args)

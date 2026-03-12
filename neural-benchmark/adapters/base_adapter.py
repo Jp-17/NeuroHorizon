@@ -89,11 +89,11 @@ def bin_spike_events(timestamps: np.ndarray, unit_index: np.ndarray,
     return spike_counts
 
 
-def create_tb_dataset(split: str) -> TBDataset:
+def create_tb_dataset(split: str, dataset_config: str = None) -> TBDataset:
     """Create a torch_brain Dataset for the given split."""
     ds = TBDataset(
         root=DATA_ROOT,
-        config=DATASET_CONFIG,
+        config=dataset_config or DATASET_CONFIG,
         split=split,
     )
     ds.disable_data_leakage_check()
