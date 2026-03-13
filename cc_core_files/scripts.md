@@ -452,6 +452,104 @@
 - **依赖**：Python 标准库
 - **备注**：默认将 `rollout` 的 fp-bps 作为 1.9 新架构的正式记录值
 
+### verify_prediction_memory_alignment.py（1.9 Alignment 功能验证）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/verify_prediction_memory_alignment.py`
+- **功能用途**：验证 mixed-memory 训练与 memory-input regularization 两个核心机制
+  - `mix_prob=1.0` 时训练态 forward 不再依赖 GT target counts
+  - train-time memory noise/dropout 会实际扰动 memory tokens
+- **创建时间**：2026-03-13
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/verify_prediction_memory_alignment.py
+  ```
+- **输出**：终端打印机制验证结果
+- **依赖**：poyo conda 环境
+- **备注**：对应 plan.md 1.9.2 的 `20260313_prediction_memory_alignment`
+
+### run_prediction_memory_alignment_smoke.sh（1.9 Alignment Smoke Run）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/run_prediction_memory_alignment_smoke.sh`
+- **功能用途**：执行 alignment 方案的最小链路验证
+  - 运行功能验证脚本
+  - 跑 250ms 1-epoch smoke train
+  - 跑 250ms rollout smoke eval
+- **创建时间**：2026-03-13
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/run_prediction_memory_alignment_smoke.sh
+  ```
+- **输出**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/250ms/`
+- **依赖**：poyo conda 环境
+- **备注**：Step 2 checkpoint 前的最小可运行性验证
+
+### run_prediction_memory_alignment_experiments.sh（1.9 Alignment 正式实验）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/run_prediction_memory_alignment_experiments.sh`
+- **功能用途**：并行启动 `250ms / 500ms / 1000ms` 三个正式 alignment 实验，并在训练完成后自动执行 teacher-forced / rollout eval 与结果收集
+- **创建时间**：2026-03-13
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/run_prediction_memory_alignment_experiments.sh
+  ```
+- **输出**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/{250ms,500ms,1000ms}/`
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/prediction_memory_alignment_summary.json`
+- **依赖**：poyo conda 环境
+- **备注**：沿用 1.9 统一三窗口协议
+
+### monitor_prediction_memory_alignment_progress.py（1.9 Alignment 进度监控）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/monitor_prediction_memory_alignment_progress.py`
+- **功能用途**：周期性读取三窗口实验的 `metrics.csv` 和 `job.pid`，估算每个窗口的 epoch 进度与 ETA，并写入统一 `progress_status.md`
+- **创建时间**：2026-03-13
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/monitor_prediction_memory_alignment_progress.py --interval-sec 600
+  ```
+- **输入**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/*/lightning_logs/version_*/metrics.csv`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/*/job.pid`
+- **输出**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/progress_status.md`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/progress_monitor.log`
+- **依赖**：Python 标准库
+- **备注**：用于正式对比实验期间的 ETA 跟踪，不修改训练结果本身
+
+### collect_prediction_memory_alignment_results.py（1.9 Alignment 结果汇总）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/collect_prediction_memory_alignment_results.py`
+- **功能用途**：汇总 prediction memory alignment 的评估 JSON，并自动完成 1.9 收尾
+  - 读取 teacher-forced / rollout 评估结果
+  - 与 `baseline_v2` 做对比并生成 summary JSON
+  - 追加或更新 `results.tsv`
+  - 调用 `plot_optimization_progress.py` 刷新趋势图
+- **创建时间**：2026-03-13
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/collect_prediction_memory_alignment_results.py
+  ```
+- **输入**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/*/eval_{teacher_forced,rollout}.json`
+  - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+- **输出**：
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/prediction_memory_alignment_summary.json`
+  - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/optimization_progress.{png,pdf}`
+- **依赖**：Python 标准库
+- **备注**：默认将 `rollout` 的 fp-bps 作为 1.9 新架构的正式记录值
+
 ### ar_verify.py（1.2.2 AR 推理验证）
 
 - **路径**：`scripts/analysis/neurohorizon/ar_verify.py`

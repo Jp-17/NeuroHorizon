@@ -62,6 +62,9 @@ class NeuroHorizon(nn.Module):
         decoder_variant: str = "query_aug",
         prediction_memory_k: int = 4,
         prediction_memory_heads: int = 4,
+        prediction_memory_train_mix_prob: float = 0.0,
+        prediction_memory_input_dropout: float = 0.0,
+        prediction_memory_input_noise_std: float = 0.0,
     ):
         super().__init__()
 
@@ -91,6 +94,15 @@ class NeuroHorizon(nn.Module):
         self.decoder_variant = decoder_variant
         self.feedback_method = feedback_method
         self.prediction_memory_k = prediction_memory_k
+        if not 0.0 <= prediction_memory_train_mix_prob <= 1.0:
+            raise ValueError("prediction_memory_train_mix_prob must be in [0, 1]")
+        if not 0.0 <= prediction_memory_input_dropout < 1.0:
+            raise ValueError("prediction_memory_input_dropout must be in [0, 1)")
+        if prediction_memory_input_noise_std < 0.0:
+            raise ValueError("prediction_memory_input_noise_std must be >= 0")
+        self.prediction_memory_train_mix_prob = prediction_memory_train_mix_prob
+        self.prediction_memory_input_dropout = prediction_memory_input_dropout
+        self.prediction_memory_input_noise_std = prediction_memory_input_noise_std
         self.requires_target_counts = (
             decoder_variant in {"prediction_memory", "local_prediction_memory"}
             or feedback_method != "none"
@@ -224,7 +236,68 @@ class NeuroHorizon(nn.Module):
         if self.prediction_memory_encoder is None:
             raise RuntimeError("prediction_memory_encoder is not initialized")
         counts = torch.log1p(counts.clamp_min(0.0))
+        if self.training and self.prediction_memory_input_noise_std > 0:
+            counts = counts + torch.randn_like(counts) * self.prediction_memory_input_noise_std
+        if self.training and self.prediction_memory_input_dropout > 0:
+            keep_mask = (
+                torch.rand_like(counts) >= self.prediction_memory_input_dropout
+            ).to(counts.dtype)
+            counts = counts * keep_mask
         return self.prediction_memory_encoder(counts, unit_embs, unit_mask)
+
+    def _build_shifted_memory_counts(self, target_counts, bootstrap_predicted_counts=None):
+        B, T_pred, N = target_counts.shape
+        shifted_gt = torch.cat(
+            [
+                torch.zeros(B, 1, N, device=target_counts.device, dtype=target_counts.dtype),
+                target_counts[:, :-1, :],
+            ],
+            dim=1,
+        )
+        if (
+            not self.training
+            or self.prediction_memory_train_mix_prob <= 0.0
+            or bootstrap_predicted_counts is None
+        ):
+            return shifted_gt
+
+        if bootstrap_predicted_counts.shape != target_counts.shape:
+            raise ValueError(
+                "bootstrap_predicted_counts must match target_counts shape, got "
+                f"{tuple(bootstrap_predicted_counts.shape)} vs {tuple(target_counts.shape)}"
+            )
+
+        shifted_pred = torch.cat(
+            [
+                torch.zeros(
+                    B,
+                    1,
+                    N,
+                    device=bootstrap_predicted_counts.device,
+                    dtype=bootstrap_predicted_counts.dtype,
+                ),
+                bootstrap_predicted_counts[:, :-1, :],
+            ],
+            dim=1,
+        )
+
+        if self.prediction_memory_train_mix_prob >= 1.0:
+            return shifted_pred
+
+        mix_mask = torch.rand(
+            B,
+            T_pred - 1,
+            1,
+            device=target_counts.device,
+        ) < self.prediction_memory_train_mix_prob
+        mix_mask = torch.cat(
+            [
+                torch.zeros(B, 1, 1, device=target_counts.device, dtype=torch.bool),
+                mix_mask,
+            ],
+            dim=1,
+        )
+        return torch.where(mix_mask, shifted_pred, shifted_gt)
 
     def _build_prediction_memory_mask(self, num_steps, device, local_only: bool):
         if local_only:
@@ -269,14 +342,12 @@ class NeuroHorizon(nn.Module):
         unit_mask,
         bin_time_emb,
         local_only: bool,
+        bootstrap_predicted_counts=None,
     ):
         B, T_pred, N = target_counts.shape
-        shifted_counts = torch.cat(
-            [
-                torch.zeros(B, 1, N, device=target_counts.device, dtype=target_counts.dtype),
-                target_counts[:, :-1, :],
-            ],
-            dim=1,
+        shifted_counts = self._build_shifted_memory_counts(
+            target_counts,
+            bootstrap_predicted_counts=bootstrap_predicted_counts,
         )
 
         BT = B * T_pred
@@ -305,6 +376,39 @@ class NeuroHorizon(nn.Module):
         )
         prediction_memory_mask = prediction_memory_mask.unsqueeze(0).expand(B, -1, -1)
         return prediction_memory, prediction_memory_time_emb, prediction_memory_mask
+
+    @torch.no_grad()
+    def _bootstrap_prediction_counts(
+        self,
+        *,
+        input_unit_index,
+        input_timestamps,
+        input_token_type,
+        input_mask,
+        latent_index,
+        latent_timestamps,
+        bin_timestamps,
+        target_unit_index,
+        target_unit_mask,
+    ):
+        was_training = self.training
+        self.eval()
+        try:
+            bootstrap_log_rate = self.generate(
+                input_unit_index=input_unit_index,
+                input_timestamps=input_timestamps,
+                input_token_type=input_token_type,
+                input_mask=input_mask,
+                latent_index=latent_index,
+                latent_timestamps=latent_timestamps,
+                bin_timestamps=bin_timestamps,
+                target_unit_index=target_unit_index,
+                target_unit_mask=target_unit_mask,
+            )
+        finally:
+            if was_training:
+                self.train()
+        return torch.exp(bootstrap_log_rate.clamp(-10, 10))
 
     def _build_prediction_memory_rollout(
         self,
@@ -384,6 +488,19 @@ class NeuroHorizon(nn.Module):
         prediction_memory_mask = None
 
         if self.decoder_variant in {"prediction_memory", "local_prediction_memory"}:
+            bootstrap_predicted_counts = None
+            if self.training and self.prediction_memory_train_mix_prob > 0.0:
+                bootstrap_predicted_counts = self._bootstrap_prediction_counts(
+                    input_unit_index=input_unit_index,
+                    input_timestamps=input_timestamps,
+                    input_token_type=input_token_type,
+                    input_mask=input_mask,
+                    latent_index=latent_index,
+                    latent_timestamps=latent_timestamps,
+                    bin_timestamps=bin_timestamps,
+                    target_unit_index=target_unit_index,
+                    target_unit_mask=target_unit_mask,
+                )
             prediction_memory, prediction_memory_time_emb, prediction_memory_mask = (
                 self._build_prediction_memory_train(
                     target_counts,
@@ -391,6 +508,7 @@ class NeuroHorizon(nn.Module):
                     target_unit_mask,
                     bin_time_emb,
                     local_only=self.decoder_variant == "local_prediction_memory",
+                    bootstrap_predicted_counts=bootstrap_predicted_counts,
                 )
             )
         elif self.feedback_encoder is not None:

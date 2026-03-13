@@ -884,3 +884,47 @@
 - local-only memory 虽然削弱了上一轮的全历史错误传播，但 teacher forcing 与 rollout 的分布偏移仍是主导问题，导致长窗口自由 rollout 依旧明显崩塌
 
 **对应 plan.md 任务**：Phase 1.9.2 Local Prediction Memory Decoder（已放弃）
+
+
+---
+
+## 2026-03-13-11h
+
+### 任务：补充 Local Prediction Memory 机制复盘并实现 Prediction Memory Alignment 新迭代
+
+**完成时间**：2026-03-13-11h
+
+**完成内容**：
+1. 在 `20260313_local_prediction_memory.md` 中补写机制讨论，明确解释：
+   - 为什么 `baseline_v2` 没有出现同等级 rollout 退化
+   - 当前 benchmark `Neuroformer` 为什么不等价于 event-level autoregressive generation
+   - 为什么 `NDT2 / IBL-MtM` 这类 one-shot future predictor 在 `fp-bps` 下可能占优
+2. 将上述补充提交并推送到 `origin/dev/20260313_local_prediction_memory`，commit `f189e30`
+3. 从该节点新建分支 `dev/20260313_prediction_memory_alignment`
+4. 实现新的 alignment 训练策略：
+   - `prediction_memory_train_mix_prob`
+   - `prediction_memory_input_dropout`
+   - `prediction_memory_input_noise_std`
+   - 训练态 no-grad rollout bootstrap + mixed GT/predicted memory
+5. 补齐 1.9 文档、配置和脚本：
+   - `cc_core_files/model.md`
+   - `cc_core_files/plan.md`
+   - `cc_todo/phase1-autoregressive/1.9-module-optimization/20260313_prediction_memory_alignment.md`
+   - `scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/`
+6. 完成功能验证和 250ms smoke run
+
+**执行结果**：
+- 功能验证通过：
+  - `target_independence_delta=0.000000`
+  - `train_eval_memory_delta=0.011355`
+- 250ms smoke run 通过：
+  - `train_loss=0.418`
+  - `val_loss=0.412`
+  - `val/fp_bps=-0.824`
+  - rollout smoke eval：`fp-bps=-0.8228`, `val_loss=0.4133`
+- 当前新迭代已进入“验证中”状态，具备执行 Step 2 checkpoint 提交和正式三窗口实验的条件
+
+**遇到的问题**：
+- 当前 `baseline_v2` 与 benchmark 模型的“rollout”语义和显式 prediction-memory 方案并不一致；在总结文档中已补充代码级区分，避免继续把它们混作同一种 exposure bias 问题
+
+**对应 plan.md 任务**：Phase 1.9.2 Prediction Memory Alignment Training（验证中）

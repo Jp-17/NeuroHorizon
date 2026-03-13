@@ -132,6 +132,81 @@ PerNeuronMLPHead
 
 （按时间倒序排列，新的改进想法添加在此处）
 
+### 2026-03-13 — Prediction Memory Alignment Training
+
+> 状态: 验证中
+> 分支: `dev/20260313_prediction_memory_alignment`
+> cc_todo: `cc_todo/phase1-autoregressive/1.9-module-optimization/20260313_prediction_memory_alignment.md`
+> commit: 待填
+
+**想法描述**：
+延续 `local_prediction_memory` 的 decoder 结构，不再继续改 memory 可见性，而是把优化重点转到“训练期 memory 输入对齐”。核心策略是：
+
+- 训练时不再让 prediction memory 只吃 `shift-right GT counts`
+- 而是在一部分时间步上，改为喂入模型自己 rollout 得到的 `predicted expected counts`
+- 同时对 memory encoder 输入增加轻量 noise / dropout，主动削弱它作为 teacher-forced 侧信道的可靠性
+
+**动机与目的**：
+- `20260313_local_prediction_memory` 已证明：即使把 memory 收缩到 local-only block，teacher forcing 和 rollout 之间仍存在明显 gap。
+- 根因不再主要是 “memory 看得太远”，而是：
+  - 训练期 memory 输入为 `log1p(GT counts)`
+  - 推理期 memory 输入为 `log1p(predicted expected counts)`
+  - decoder 会过度依赖这条显式 side channel
+- 因此下一轮优先做 train / inference alignment，而不是继续改 decoder 结构。
+
+**新方案定义**：
+- decoder 主体保持 `local_prediction_memory` 不变：
+  - `history cross-attn -> prediction-memory cross-attn -> causal self-attn -> FFN`
+- 引入三项训练期参数：
+  - `prediction_memory_train_mix_prob`
+  - `prediction_memory_input_dropout`
+  - `prediction_memory_input_noise_std`
+- 当 `prediction_memory_train_mix_prob > 0` 且处于训练态时：
+  - 先用当前模型做一次 no-grad rollout bootstrap
+  - 将 `shift-right GT counts` 与 `shift-right predicted expected counts` 按时间步做整段 population 级混合
+- memory encoder 的输入仍是 `log1p(count)`，但训练时会额外施加 noise / dropout
+
+**为什么这样比继续改 mask 更合理**：
+- `local_prediction_memory` 的结果已经说明：只缩小可见性，无法消除 train / inference mismatch。
+- 如果不降低 memory 这条 side channel 的确定性，decoder 仍会在 teacher forcing 下把它当成捷径。
+- 相比再次改 decoder 结构，这一轮只调整训练期 memory 输入，更容易把变量锁定在“distribution alignment”上。
+
+**批判性分析**：
+- 优点：
+  - 不再引入新的 decoder 结构变量，便于判断收益是否真的来自训练-推理对齐
+  - 直接针对当前最明确的问题：GT memory 和 predicted memory 的分布跳变
+  - 若有效，可作为后续所有 prediction-memory 方案的通用训练策略
+- 风险：
+  - 训练成本会上升，因为 mixed-memory 模式需要额外的 no-grad rollout bootstrap
+  - 如果 `mix_prob` 太高，早期训练可能过早吃到不稳定 predicted memory
+  - noise/dropout 过强时，可能把 memory 通路削弱到几乎无效
+- 替代方案：
+  - scheduled sampling 式逐步升高 `mix_prob`
+  - 只做 memory 输入 dropout，不做 mixed counts
+  - 回退到 `query_aug` 并在 bottleneck 上继续做更轻量的反馈实验
+
+**修改方案**：
+- 保持 `decoder_variant='local_prediction_memory'`
+- 在 `NeuroHorizon` 中新增 mixed-memory 训练逻辑与 memory-input regularization
+- 新增 `prediction_memory_alignment` 的配置、验证脚本、smoke run 脚本和正式实验脚本
+- 延续 1.9 的三窗口评估协议：`250ms / 500ms / 1000ms`
+
+**基本功能验证方案**：
+- 当 `prediction_memory_train_mix_prob=1.0` 且关闭 memory noise/dropout 时，训练态 `forward()` 不应再读取 `target_counts`，修改 GT 不应改变输出
+- 开启 `prediction_memory_input_noise_std / dropout` 后，train-time memory tokens 应与 eval-time memory tokens 不同
+- 250ms smoke run 需要完成训练、checkpoint 保存和 rollout eval
+
+**当前验证结果**：
+- 功能验证通过：
+  - `target_independence_delta=0.000000`
+  - `train_eval_memory_delta=0.011355`
+- 250ms smoke run 通过：
+  - `train_loss=0.418`
+  - `val_loss=0.412`
+  - `val/fp_bps=-0.824`
+  - rollout smoke eval：`fp-bps=-0.8228`, `val_loss=0.4133`
+- 结论：alignment 方案已达到“可训练、可 checkpoint、可 rollout eval”的阶段，可以进入正式三窗口实验
+
 ### 2026-03-13 — Local Prediction Memory Decoder
 
 > 状态: 已放弃
