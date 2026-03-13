@@ -141,3 +141,88 @@ bash scripts/phase1-autoregressive-1.9-module-optimization/20260313_local_predic
 2. 结果说明“只收缩 memory 可见性”不足以解决核心问题；主导误差的仍是训练时 `GT counts` memory 与推理时 `predicted expected counts` memory 之间的分布偏移。
 3. 显式 prediction memory 通路即使只保留 local block，仍然会形成过强的局部 teacher-forced 侧信道，导致 teacher forcing 很强、rollout 仍弱。
 4. 因此本轮也不进入主线，保留为已验证但放弃的 1.9 迭代记录。
+
+## 补充讨论：为什么 baseline_v2 / Neuroformer / NDT2 / IBL-MtM 的行为不同
+
+### 1. 为什么 `baseline_v2` 没有出现同等级的 rollout 退化
+
+关键点是：当前仓库里的 `baseline_v2` 并不是“带显式 prediction feedback 的真 rollout 模型”。
+
+- 在 `torch_brain/models/neurohorizon.py` 中，`baseline_v2` 对应的是 `decoder_variant='query_aug'` 且配置里 `feedback_method: none`。
+- 这意味着：
+  - `forward()` 时不会构造任何 feedback；
+  - `generate()` 时同样不会把前一步预测重新编码后喂回 decoder。
+- 因此它的 train / inference 主体几乎是同一个模型：
+  - history events -> POYO latents
+  - learnable future bin queries
+  - history cross-attn + causal self-attn
+  - per-neuron readout
+
+它在评估脚本里虽然也支持 `--rollout`，但这个 rollout 主要只是“按时间步逐步解码同一个 causal decoder”，而不是“每一步再把自己上一步的预测编码成一条新的高容量 side channel 再喂回来”。也就是说：
+
+- `baseline_v2` 的 rollout 误差主要来自 decoder hidden state 的时间传播；
+- `local_prediction_memory` 的 rollout 误差除了 hidden state 传播，还多了一条显式的 prediction-memory 反馈通路，而且这条通路在训练和推理时输入分布不一样。
+
+所以两者不是同强度的问题。`baseline_v2` 更像“弱 AR / causal parallel predictor”，而当前两版 prediction memory 则是“强显式反馈 AR”。后者自然更容易出现 teacher forcing 很好、free rollout 明显变差的现象。
+
+### 2. 为什么当前 benchmark 里的 `Neuroformer` 没有看到这么明显的退化
+
+当前仓库里的 benchmark `Neuroformer` 适配器并不是原论文那种 event-level token autoregressive generation。`neural_benchmark/adapters/neuroformer_adapter.py` 里的实现本质上是：
+
+- 输入是 binned spike counts `[B, T, N]`
+- prediction window 的输入直接置零
+- 用一个 causal transformer 一次性输出整段 future window 的 `log_rate`
+
+也就是说，它更像“GPT-style causal masked one-shot future predictor”，而不是“每预测一个未来步就把该步输出再编码成新的输入 token 继续生成”的完整 generative loop。
+
+因此它没有当前 `prediction_memory` 方案里的两个核心难点：
+
+- 没有单独的 `GT memory -> predicted memory` 替换过程；
+- 没有额外的 structured feedback side channel。
+
+哪怕回到更接近原始 Neuroformer 的真正 event-level AR 模型，通常也还是比现在这个 prediction-memory 方案更容易保持 train / inference 一致性。原因是原始 AR token generation 至少保持了“训练和推理都在同一 token 空间里滚动”，而当前方案是在 decoder 主干之外额外挂了一条 memory encoder 通路：
+
+- 训练时这条通路吃的是 `log1p(GT counts)`；
+- 推理时这条通路吃的是 `log1p(predicted expected counts)`。
+
+这会制造一个更强、更明确的 side-channel mismatch。
+
+### 3. NDT2 和 IBL-MtM 这样的非显式 AR 架构，为什么在 fp-bps 上可能更占优
+
+当前 benchmark 里的 `NDT2` 和 `IBL-MtM` 都不是 rollout-based multi-step generator。
+
+- `NDT2`：future bins 直接置零，使用 bidirectional encoder 一次性预测整个 future window。
+- `IBL-MtM`：future bins 置零，再加 causal mask，但依然是一趟 forward 直接输出整段 future window。
+
+它们在评估时的输入条件与任务定义都是：
+
+- 只看 observation window；
+- 一次性预测 prediction window；
+- 然后直接在 prediction window 上算 `fp-bps / R2 / Poisson NLL`。
+
+从这个指标定义出发，one-shot masked predictor 天然有两个现实优势：
+
+1. 没有 rollout 误差累积。
+2. 训练和推理路径基本一致，不会出现“训练喂 GT side channel，推理换成 predicted side channel”的显式分布跳变。
+
+所以并不是“非 AR 在原理上一定更强”，而是：
+
+- 在当前 Phase 1 的任务形式下，`fp-bps` 只关心“给定观察窗后，你对未来窗 rate/count 的预测是否准确”；
+- 它并不额外奖励“你是否一步一步自回归生成出来”。
+
+因此只要 one-shot masked predictor 能更稳定地拟合 future window，它在这个指标上完全可能优于一个更难训练、更容易 exposure bias 的 AR 架构。
+
+### 4. 当前结果真正说明了什么
+
+综合代码路径和实验结果，当前结论更准确地应该表述为：
+
+- `baseline_v2` 的强项不在于“它是更好的显式 AR”，而在于“它几乎没有显式 prediction-feedback mismatch”。
+- benchmark 的 `Neuroformer / NDT2 / IBL-MtM` 的强项也不在于“它们天然更先进”，而在于“它们的训练-推理一致性更强，且不承担 rollout feedback drift”。
+- 当前两版 `prediction_memory` 失败的根因不是“decoder 必须不能 AR”，而是“我们新增的 AR feedback 通路太容易在 teacher forcing 下变成捷径”。
+
+所以后续优化的正确方向不是继续只改 memory visibility，而是优先处理两件事：
+
+1. 训练时让 memory 输入部分接近推理期分布，而不是纯 `GT counts`。
+2. 主动削弱 memory encoder 这条 side channel 的可靠性，让 decoder 不能把它当作过于确定的局部教师信号。
+
+这也是下一轮 1.9 迭代优先尝试 `mixed GT/predicted memory` 与 `memory-input noise/dropout` 的直接原因。
