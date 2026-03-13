@@ -137,7 +137,7 @@ PerNeuronMLPHead
 > 状态: 验证中
 > 分支: `dev/20260313_prediction_memory_alignment`
 > cc_todo: `cc_todo/phase1-autoregressive/1.9-module-optimization/20260313_prediction_memory_alignment.md`
-> commit: 待填
+> commit: `64415f4`
 
 **想法描述**：
 延续 `local_prediction_memory` 的 decoder 结构，不再继续改 memory 可见性，而是把优化重点转到“训练期 memory 输入对齐”。核心策略是：
@@ -206,6 +206,31 @@ PerNeuronMLPHead
   - `val/fp_bps=-0.824`
   - rollout smoke eval：`fp-bps=-0.8228`, `val_loss=0.4133`
 - 结论：alignment 方案已达到“可训练、可 checkpoint、可 rollout eval”的阶段，可以进入正式三窗口实验
+
+**正式实验结果（300 epochs, rollout eval）**：
+
+| pred_window | teacher-forced fp-bps | rollout fp-bps | vs baseline_v2 | vs 20260313_local |
+|-------------|-----------------------|----------------|----------------|-------------------|
+| 250ms | 0.2758 | 0.1943 | -0.0172 | +0.0322 |
+| 500ms | 0.2831 | 0.1513 | -0.0231 | +0.1618 |
+| 1000ms | 0.2821 | 0.1103 | -0.0214 | +0.3225 |
+
+**结果解读**：
+- 这是当前第一版“显式 prediction feedback”方案中，第一次在三个窗口上都逼近 `baseline_v2`，且差距已经收缩到约 `0.02 fp-bps` 量级。
+- 相比 `20260313_local_prediction_memory`，提升非常显著，尤其长窗口改善最大：
+  - `250ms`: `+0.0322`
+  - `500ms`: `+0.1618`
+  - `1000ms`: `+0.3225`
+- teacher-forced / rollout gap 明显缩小：
+  - `250ms`: `0.0814`
+  - `500ms`: `0.1319`
+  - `1000ms`: `0.1718`
+- 与前两轮不同，本轮 rollout per-bin fp-bps 在三个窗口上都保持为正，说明 mixed-memory + memory regularization 确实缓解了 error accumulation。
+
+**当前判断**：
+- 该方案尚未超过 `baseline_v2`，因此暂不应直接并入主线。
+- 但它已经证明：prediction memory 方向并没有错，真正有效的改动是“训练期 memory 输入对齐”，而不是继续单独调整 memory 可见性。
+- 这轮结果足以保留为强候选分支；下一轮若继续优化，优先级应放在 `mix_prob` 调度、regularization 强度和 bootstrap 策略，而不是再大改 decoder。
 
 ### 2026-03-13 — Local Prediction Memory Decoder
 

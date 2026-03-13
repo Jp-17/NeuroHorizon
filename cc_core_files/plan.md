@@ -723,14 +723,14 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 > 脚本: `scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/`
 > 日志: `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/`
 > 可视化: `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/`
-> commit: 待填
-> 结果: 250ms fp-bps= / 500ms fp-bps= / 1000ms fp-bps=
+> commit: `64415f4`
+> 结果: 250ms fp-bps=0.1943 / 500ms fp-bps=0.1513 / 1000ms fp-bps=0.1103
 
 - 核心设计：在 `local_prediction_memory` 上增加训练期 memory 输入对齐，不再继续改 decoder 结构
 - 训练策略：将 `shift-right GT counts` 与 `shift-right predicted expected counts` 做时间步级混合，并对 memory encoder 输入施加 noise / dropout
 - 设计动机：针对 `20260313_local_prediction_memory` 暴露出的核心 train / inference mismatch，而不是继续只改 memory mask
 - 必做实验保持 1.9 统一规范：10 sessions、连续滑动窗口、obs=500ms、pred=250/500/1000ms
-- 当前进度：功能验证和 250ms 1-epoch smoke run 已通过，准备执行 Step 2 checkpoint 提交与正式三窗口实验
+- 当前结果：相对 `20260313_local_prediction_memory` 大幅改善，并在三个窗口上都逼近 `baseline_v2`；是否继续迭代或转主线由用户决定
 
 
 

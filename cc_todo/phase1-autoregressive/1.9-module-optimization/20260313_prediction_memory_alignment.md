@@ -46,7 +46,9 @@
 - [x] 新增 alignment 版本 smoke / 正式实验脚本
 - [x] 完成功能验证
 - [x] 完成 250ms smoke run
-- [ ] 执行 Step 2 checkpoint commit + push
+- [x] 执行 Step 2 checkpoint commit + push
+- [x] 完成 `250ms / 500ms / 1000ms` 正式实验
+- [ ] 执行 Step 4 results commit + push
 
 ## 预期验证点
 
@@ -102,6 +104,34 @@ python scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction
 
 ## 下一步
 
-1. 执行 Step 2 checkpoint commit + push
-2. 启动 `250ms / 500ms / 1000ms` 三窗口正式实验
-3. 实验完成后汇总 `teacher-forced / rollout gap`、per-bin fp-bps 和相对 `baseline_v2` 的变化
+1. 执行 Step 4 results commit + push
+2. 基于正式结果判断是否继续做下一轮 tuning
+3. 若继续优化，优先尝试 `mix_prob` 调度、regularization 强度和 bootstrap 策略
+
+## 正式实验结果（300 epochs, rollout eval）
+
+- rollout fp-bps：
+  - `250ms = 0.1943`
+  - `500ms = 0.1513`
+  - `1000ms = 0.1103`
+- 相比 `baseline_v2`：
+  - `250ms = -0.0172`
+  - `500ms = -0.0231`
+  - `1000ms = -0.0214`
+- 相比 `20260313_local_prediction_memory`：
+  - `250ms = +0.0322`
+  - `500ms = +0.1618`
+  - `1000ms = +0.3225`
+- teacher-forced / rollout gap：
+  - `250ms = 0.0814`
+  - `500ms = 0.1319`
+  - `1000ms = 0.1718`
+
+## 结果分析
+
+1. 这轮是当前第一版真正接近 `baseline_v2` 的显式 prediction-memory 方案，三个窗口都把差距压到了约 `0.02 fp-bps`。
+2. 和 `20260313_local_prediction_memory` 相比，提升不只是“略好”，而是方向性改善已经非常明确，尤其长窗口提升最大。
+3. 训练期 memory 输入对齐确实击中了核心问题：
+   - rollout gap 大幅缩小
+   - per-bin fp-bps 在三个窗口上都保持正值，不再出现上一轮那种中后段转负崩塌
+4. 当前仍略低于 `baseline_v2`，说明显式 feedback 通路还没有完全把额外复杂度转化成稳定收益；但这已经不再是“失败迭代”，而是一个值得继续细调的强候选方案。

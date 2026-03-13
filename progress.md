@@ -928,3 +928,40 @@
 - 当前 `baseline_v2` 与 benchmark 模型的“rollout”语义和显式 prediction-memory 方案并不一致；在总结文档中已补充代码级区分，避免继续把它们混作同一种 exposure bias 问题
 
 **对应 plan.md 任务**：Phase 1.9.2 Prediction Memory Alignment Training（验证中）
+
+
+---
+
+## 2026-03-13-19h
+
+### 任务：完成 Prediction Memory Alignment 正式实验并整理结果
+
+**完成时间**：2026-03-13-19h
+
+**完成内容**：
+1. 完成 `250ms / 500ms / 1000ms` 三组 300-epoch 正式训练与 rollout 评估
+2. 自动生成 `prediction_memory_alignment_summary.json`，并更新 `results.tsv` 与 1.9 趋势图
+3. 汇总本轮相对 `baseline_v2` 和 `20260313_local_prediction_memory` 的变化幅度
+
+**执行结果**：
+- rollout fp-bps：
+  - `250ms: 0.1943`
+  - `500ms: 0.1513`
+  - `1000ms: 0.1103`
+- 相比 `baseline_v2`：
+  - `250ms: -0.0172`
+  - `500ms: -0.0231`
+  - `1000ms: -0.0214`
+- 相比 `20260313_local_prediction_memory`：
+  - `250ms: +0.0322`
+  - `500ms: +0.1618`
+  - `1000ms: +0.3225`
+- teacher-forced / rollout gap：
+  - `250ms: 0.0814`
+  - `500ms: 0.1319`
+  - `1000ms: 0.1718`
+
+**遇到的问题**：
+- alignment 方案虽然显著改善了显式 prediction feedback 的 rollout 稳定性，但目前三个窗口仍略低于 `baseline_v2`，说明 mixed-memory 和 regularization 已经抓住主矛盾，但超参和训练策略还有继续细调空间
+
+**对应 plan.md 任务**：Phase 1.9.2 Prediction Memory Alignment Training（正式结果已完成，等待用户决定是否继续优化）
