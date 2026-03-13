@@ -132,6 +132,77 @@ PerNeuronMLPHead
 
 （按时间倒序排列，新的改进想法添加在此处）
 
+### 2026-03-13 — Prediction Memory Alignment Tuning
+
+> 状态: 验证中
+> 分支: `dev/20260313_prediction_memory_alignment_tuning`
+> cc_todo: `cc_todo/phase1-autoregressive/1.9-module-optimization/20260313_prediction_memory_alignment_tuning.md`
+> commit: 待填
+
+**想法描述**：
+在 `20260313_prediction_memory_alignment` 的基础上做一轮纯超参级小范围 tuning，不再修改 decoder 结构和训练逻辑，只调整三项训练期参数：
+
+- `prediction_memory_train_mix_prob: 0.25 -> 0.35`
+- `prediction_memory_input_dropout: 0.10 -> 0.05`
+- `prediction_memory_input_noise_std: 0.05 -> 0.03`
+
+**动机与目的**：
+- 上一轮已经证明“训练期 memory 输入对齐”是有效方向，三个窗口都已逼近 `baseline_v2`。
+- 当前剩余差距约为 `0.02 fp-bps`，更像是超参平衡问题，而不是架构问题。
+- 现象上看：
+  - rollout gap 已明显缩小，说明 `mix_prob=0.25` 已经起作用；
+  - 但 teacher-forced 指标仍显著高于 rollout，说明可以再适度加强 alignment；
+  - 与此同时，rollout 已经全程保持正值，说明不需要再维持上一轮那样偏强的 memory regularization。
+- 因此本轮采用“更强一点的对齐、更轻一点的正则”作为最小调参方向。
+
+**新方案定义**：
+- decoder 结构保持 `local_prediction_memory`
+- mixed-memory 训练逻辑保持不变
+- 只改三项超参：
+  - 更高的 `mix_prob`，让训练期 memory 更接近推理期分布
+  - 更低的 input dropout / noise，减少对 memory 信息量的额外抑制
+
+**为什么这是合理的小步调参**：
+- 它不会引入新的结构变量，结果可直接归因于当前三项超参的平衡变化。
+- 如果性能提升，说明上一轮主要受限于 regularization 过强或 alignment 不够。
+- 如果性能退化，也能反向说明上一轮已经接近当前训练策略的较优平衡点。
+
+**批判性分析**：
+- 优点：
+  - 范围小，实验解释性强
+  - 不用重新理解新结构，能直接复用上一轮全部验证脚本和实验协议
+  - 如果成功，能快速把显式 prediction feedback 推到接近或超过 `baseline_v2`
+- 风险：
+  - `mix_prob` 过高可能让早期训练过度依赖尚不稳定的 predicted memory
+  - 减弱 noise/dropout 也可能让 model 重新变得过度信赖 memory side channel
+- 替代方案：
+  - 保持当前 regularization，只单独上调 `mix_prob`
+  - 对 `mix_prob` 做 epoch schedule，而不是直接固定更高值
+
+**修改方案**：
+- 新增 tuning 版模型配置与训练配置
+- 新建独立的 1.9 迭代脚本目录、日志目录和结果目录
+- 先做功能验证和 250ms smoke run，再跑 `250ms / 500ms / 1000ms` 正式实验
+
+**基本功能验证方案**：
+- 验证 tuning 配置中的三项超参值已正确生效
+- 复用上一轮 mixed-memory / regularization 的机制验证，确认主逻辑未被破坏
+- 250ms smoke run 完成训练、checkpoint 保存和 rollout eval
+
+**当前验证结果**：
+- tuning 功能验证通过：
+  - `tuned_mix_prob=0.35`
+  - `tuned_input_dropout=0.05`
+  - `tuned_input_noise_std=0.03`
+  - `target_independence_delta=0.000000`
+  - `train_eval_memory_delta=0.008230`
+- 250ms smoke run 通过：
+  - `train_loss=0.418`
+  - `val_loss=0.411`
+  - `val/fp_bps=-0.823`
+  - rollout smoke eval：`fp-bps=-0.8217`, `val_loss=0.4132`
+- 结论：这组 tuning 超参已经达到“可训练、可 checkpoint、可 rollout eval”的阶段，可以进入正式三窗口实验
+
 ### 2026-03-13 — Prediction Memory Alignment Training
 
 > 状态: 验证中

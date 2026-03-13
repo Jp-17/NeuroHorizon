@@ -469,6 +469,102 @@
 - **依赖**：poyo conda 环境
 - **备注**：对应 plan.md 1.9.2 的 `20260313_prediction_memory_alignment`
 
+### verify_prediction_memory_alignment_tuning.py（1.9 Alignment Tuning 功能验证）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/verify_prediction_memory_alignment_tuning.py`
+- **功能用途**：验证 tuning 版三项超参已正确生效，并复用上一轮 mixed-memory / regularization 机制验证
+- **创建时间**：2026-03-13
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/verify_prediction_memory_alignment_tuning.py
+  ```
+- **输出**：终端打印 tuning 超参值与机制验证结果
+- **依赖**：poyo conda 环境
+- **备注**：对应 plan.md 1.9.2 的 `20260313_prediction_memory_alignment_tuning`
+
+### run_prediction_memory_alignment_tuning_smoke.sh（1.9 Alignment Tuning Smoke Run）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/run_prediction_memory_alignment_tuning_smoke.sh`
+- **功能用途**：执行 tuning 方案的最小链路验证
+  - 运行 tuning 功能验证脚本
+  - 跑 250ms 1-epoch smoke train
+  - 跑 250ms rollout smoke eval
+- **创建时间**：2026-03-13
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/run_prediction_memory_alignment_tuning_smoke.sh
+  ```
+- **输出**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/250ms/`
+- **依赖**：poyo conda 环境
+- **备注**：Step 2 checkpoint 前的最小可运行性验证
+
+### run_prediction_memory_alignment_tuning_experiments.sh（1.9 Alignment Tuning 正式实验）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/run_prediction_memory_alignment_tuning_experiments.sh`
+- **功能用途**：并行启动 `250ms / 500ms / 1000ms` 三个 tuning 正式实验，并在训练完成后自动执行 teacher-forced / rollout eval 与结果收集
+- **创建时间**：2026-03-13
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/run_prediction_memory_alignment_tuning_experiments.sh
+  ```
+- **输出**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/{250ms,500ms,1000ms}/`
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/prediction_memory_alignment_tuning_summary.json`
+- **依赖**：poyo conda 环境
+- **备注**：沿用 1.9 统一三窗口协议
+
+### monitor_prediction_memory_alignment_tuning_progress.py（1.9 Alignment Tuning 进度监控）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/monitor_prediction_memory_alignment_tuning_progress.py`
+- **功能用途**：周期性读取三窗口 tuning 实验的 `metrics.csv` 和 `job.pid`，估算每个窗口的 epoch 进度与 ETA，并写入统一 `progress_status.md`
+- **创建时间**：2026-03-13
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/monitor_prediction_memory_alignment_tuning_progress.py --interval-sec 600
+  ```
+- **输入**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/*/lightning_logs/version_*/metrics.csv`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/*/job.pid`
+- **输出**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/progress_status.md`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/progress_monitor.log`
+- **依赖**：Python 标准库
+- **备注**：用于正式对比实验期间的 ETA 跟踪，不修改训练结果本身
+
+### collect_prediction_memory_alignment_tuning_results.py（1.9 Alignment Tuning 结果汇总）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/collect_prediction_memory_alignment_tuning_results.py`
+- **功能用途**：汇总 tuning 版评估 JSON，并自动完成 1.9 收尾
+  - 读取 teacher-forced / rollout 评估结果
+  - 与 `baseline_v2` 做对比并生成 summary JSON
+  - 追加或更新 `results.tsv`
+  - 调用 `plot_optimization_progress.py` 刷新趋势图
+- **创建时间**：2026-03-13
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/collect_prediction_memory_alignment_tuning_results.py
+  ```
+- **输入**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/*/eval_{teacher_forced,rollout}.json`
+  - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+- **输出**：
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/prediction_memory_alignment_tuning_summary.json`
+  - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/optimization_progress.{png,pdf}`
+- **依赖**：Python 标准库
+- **备注**：默认将 `rollout` 的 fp-bps 作为 1.9 tuning 方案的正式记录值
+
 ### run_prediction_memory_alignment_smoke.sh（1.9 Alignment Smoke Run）
 
 - **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/run_prediction_memory_alignment_smoke.sh`

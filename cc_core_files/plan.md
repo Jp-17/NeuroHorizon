@@ -732,6 +732,23 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 - 必做实验保持 1.9 统一规范：10 sessions、连续滑动窗口、obs=500ms、pred=250/500/1000ms
 - 当前结果：相对 `20260313_local_prediction_memory` 大幅改善，并在三个窗口上都逼近 `baseline_v2`；是否继续迭代或转主线由用户决定
 
+##### 20260313_prediction_memory_alignment_tuning -- Prediction Memory Alignment Tuning
+> 状态: 验证中
+> 分支: `dev/20260313_prediction_memory_alignment_tuning`
+> 文档: `cc_core_files/model.md` 中“2026-03-13 — Prediction Memory Alignment Tuning”
+> 任务记录: `cc_todo/phase1-autoregressive/1.9-module-optimization/20260313_prediction_memory_alignment_tuning.md`
+> 脚本: `scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/`
+> 日志: `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/`
+> 可视化: `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/`
+> commit: 待填
+> 结果: 250ms fp-bps= / 500ms fp-bps= / 1000ms fp-bps=
+
+- 核心设计：保持上一轮 alignment 训练逻辑不变，只做小范围超参调优
+- 调参内容：`mix_prob 0.25 -> 0.35`，`dropout 0.10 -> 0.05`，`noise_std 0.05 -> 0.03`
+- 设计动机：上一轮已逼近 `baseline_v2`，当前更值得测试的是 alignment 强度与 regularization 强度的平衡，而不是继续改结构
+- 必做实验保持 1.9 统一规范：10 sessions、连续滑动窗口、obs=500ms、pred=250/500/1000ms
+- 当前进度：tuning 版功能验证和 250ms smoke run 已通过，准备执行 Step 2 checkpoint 提交与正式三窗口实验
+
 
 
 ---

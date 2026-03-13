@@ -1,0 +1,99 @@
+# Phase 1.9 模块优化：Prediction Memory Alignment Tuning
+
+**日期**：2026-03-13
+**模块名**：`prediction_memory_alignment_tuning`
+**状态**：验证中
+**分支**：`dev/20260313_prediction_memory_alignment_tuning`
+
+## 改进摘要
+
+本轮迭代完全基于 `20260313_prediction_memory_alignment`，不再调整结构和训练逻辑，只做一轮纯超参级小范围 tuning：
+
+- `prediction_memory_train_mix_prob: 0.25 -> 0.35`
+- `prediction_memory_input_dropout: 0.10 -> 0.05`
+- `prediction_memory_input_noise_std: 0.05 -> 0.03`
+
+## 设计动机
+
+上一轮已经把显式 prediction feedback 的 rollout 表现推到了接近 `baseline_v2` 的水平，剩余差距稳定在约 `0.02 fp-bps`。当前更合理的下一步不是继续改结构，而是测试 alignment 强度与 regularization 强度之间的平衡是否仍偏保守。
+
+本轮的假设是：
+
+1. `mix_prob=0.25` 仍略低，训练期 memory 和推理期 memory 的分布还可以再靠近一些；
+2. 上一轮的 `dropout/noise` 已完成“防止 side-channel 作弊”的主要任务，现在可能开始过度抑制 memory 有效信息；
+3. 因此应尝试“更强一点的对齐、更轻一点的正则”。
+
+## 新方案定义
+
+- decoder 结构保持 `local_prediction_memory`
+- mixed-memory 训练逻辑保持不变
+- 只调整三项超参：
+  - `mix_prob=0.35`
+  - `input_dropout=0.05`
+  - `input_noise_std=0.03`
+
+## 实施清单
+
+- [x] 新增 tuning 版模型配置
+- [x] 新增 tuning 版验证脚本
+- [x] 新增 tuning 版 smoke / 正式实验脚本
+- [x] 完成功能验证
+- [x] 完成 250ms smoke run
+- [ ] 执行 Step 2 checkpoint commit + push
+
+## 预期验证点
+
+1. tuning 版三项超参值已正确生效
+2. mixed-memory / regularization 基础机制未被破坏
+3. 250ms smoke run 可训练、可保存 checkpoint、可 rollout eval
+4. 若 smoke 正常，再执行 `250ms / 500ms / 1000ms` 正式实验
+
+## 预期对比目标
+
+- 相比 `20260313_prediction_memory_alignment`：
+  - 希望 rollout fp-bps 至少在 2/3 个窗口上继续提升
+  - 希望进一步缩小与 `baseline_v2` 的约 `0.02 fp-bps` 差距
+
+## 当前验证结果
+
+### 功能验证
+
+- tuning 超参验证通过：
+  - `tuned_mix_prob=0.35`
+  - `tuned_input_dropout=0.05`
+  - `tuned_input_noise_std=0.03`
+- mixed-memory / regularization 机制验证通过：
+  - `target_independence_delta=0.000000`
+  - `train_eval_memory_delta=0.008230`
+
+执行命令：
+
+```bash
+conda activate poyo
+cd /root/autodl-tmp/NeuroHorizon
+python scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/verify_prediction_memory_alignment_tuning.py
+```
+
+### 250ms smoke run（1 epoch）
+
+- 配置：
+  - `train_1p9_prediction_memory_alignment_tuning_250ms.yaml`
+  - override: `epochs=1 eval_epochs=1 batch_size=256 eval_batch_size=256 num_workers=0`
+- 训练结果：
+  - `train_loss=0.418`
+  - `val_loss=0.411`
+  - `val/r2=0.000`
+  - `val/fp_bps=-0.823`
+- rollout smoke eval：
+  - `fp-bps=-0.8217`
+  - `R2=0.0002`
+  - `val_loss=0.4132`
+- 结论：
+  - tuning 版已达到“可训练、可保存 checkpoint、可 rollout eval”的最小可用状态
+  - 与上一轮 alignment 的 1-epoch 链路表现一致，没有出现明显回归
+
+## 下一步
+
+1. 执行 Step 2 checkpoint commit + push
+2. 启动 `250ms / 500ms / 1000ms` 三窗口正式实验
+3. 对比 `20260313_prediction_memory_alignment`，判断这组超参是否进一步缩小与 `baseline_v2` 的差距

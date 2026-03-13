@@ -965,3 +965,43 @@
 - alignment 方案虽然显著改善了显式 prediction feedback 的 rollout 稳定性，但目前三个窗口仍略低于 `baseline_v2`，说明 mixed-memory 和 regularization 已经抓住主矛盾，但超参和训练策略还有继续细调空间
 
 **对应 plan.md 任务**：Phase 1.9.2 Prediction Memory Alignment Training（正式结果已完成，等待用户决定是否继续优化）
+
+
+---
+
+## 2026-03-13-20h
+
+### 任务：启动 Prediction Memory Alignment Tuning 新迭代并完成最小验证
+
+**完成时间**：2026-03-13-20h
+
+**完成内容**：
+1. 基于 `dev/20260313_prediction_memory_alignment` 新建分支 `dev/20260313_prediction_memory_alignment_tuning`
+2. 新增一轮纯超参级 tuning：
+   - `mix_prob 0.25 -> 0.35`
+   - `input_dropout 0.10 -> 0.05`
+   - `input_noise_std 0.05 -> 0.03`
+3. 补齐 1.9 文档、配置和脚本：
+   - `cc_core_files/model.md`
+   - `cc_core_files/plan.md`
+   - `cc_todo/phase1-autoregressive/1.9-module-optimization/20260313_prediction_memory_alignment_tuning.md`
+   - `scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/`
+4. 完成功能验证和 250ms smoke run
+
+**执行结果**：
+- tuning 功能验证通过：
+  - `tuned_mix_prob=0.35`
+  - `tuned_input_dropout=0.05`
+  - `tuned_input_noise_std=0.03`
+  - `target_independence_delta=0.000000`
+  - `train_eval_memory_delta=0.008230`
+- 250ms smoke run 通过：
+  - `train_loss=0.418`
+  - `val_loss=0.411`
+  - `val/fp_bps=-0.823`
+  - rollout smoke eval：`fp-bps=-0.8217`, `val_loss=0.4132`
+
+**遇到的问题**：
+- 本轮不改主代码，因此主要风险转到配置名、脚本路径和日志目录命名冲突；已通过单独的新模块名与 smoke run 验证排除
+
+**对应 plan.md 任务**：Phase 1.9.2 Prediction Memory Alignment Tuning（验证中）
