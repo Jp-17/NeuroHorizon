@@ -2,7 +2,7 @@
 
 **日期**：2026-03-13
 **模块名**：`local_prediction_memory`
-**状态**：验证中
+**状态**：已放弃
 **分支**：`dev/20260313_local_prediction_memory`
 
 ## 改进摘要
@@ -110,3 +110,34 @@ conda activate poyo
 cd /root/autodl-tmp/NeuroHorizon
 bash scripts/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/run_local_prediction_memory_experiments.sh
 ```
+
+
+## 正式实验结果（300 epochs）
+
+- rollout fp-bps：
+  - `250ms = 0.1621`
+  - `500ms = -0.0105`
+  - `1000ms = -0.2122`
+- 相比 `baseline_v2`：
+  - `250ms = -0.0494`
+  - `500ms = -0.1849`
+  - `1000ms = -0.3439`
+- 相比 `20260312_prediction_memory_decoder`：
+  - `250ms = +0.0135`
+  - `500ms = +0.0048`
+  - `1000ms = +0.0468`
+- teacher-forced / rollout gap：
+  - `250ms = 0.1248`
+  - `500ms = 0.2951`
+  - `1000ms = 0.4853`
+- 首次转负 bin：
+  - `250ms`: 无
+  - `500ms`: `bin 12`
+  - `1000ms`: `bin 11`
+
+## 结论与分析
+
+1. `local_prediction_memory` 确实比上一轮 full-history structured memory 更稳，但提升很有限。
+2. 结果说明“只收缩 memory 可见性”不足以解决核心问题；主导误差的仍是训练时 `GT counts` memory 与推理时 `predicted expected counts` memory 之间的分布偏移。
+3. 显式 prediction memory 通路即使只保留 local block，仍然会形成过强的局部 teacher-forced 侧信道，导致 teacher forcing 很强、rollout 仍弱。
+4. 因此本轮也不进入主线，保留为已验证但放弃的 1.9 迭代记录。

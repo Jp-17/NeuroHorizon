@@ -850,3 +850,37 @@
 - 由于 `20260312` 与 `20260313` 共用了部分文档和模型文件，需要先把共享文件按轮次拆开后再分别提交；已通过临时备份和文件级回切解决
 
 **对应 plan.md 任务**：Phase 1.9.0 执行规范更新 + Phase 1.9.2 Local Prediction Memory Decoder（验证中）
+
+
+---
+
+## 2026-03-13-03h
+
+### 任务：完成 Local Prediction Memory 正式实验并归档结果
+
+**完成时间**：2026-03-13-03h
+
+**完成内容**：
+1. 完成 `250ms / 500ms / 1000ms` 三组 300-epoch 正式训练与 rollout 评估
+2. 生成 `local_prediction_memory_summary.json`，更新 `results.tsv` 和 1.9 趋势图
+3. 将 `Local Prediction Memory Decoder` 在 `model.md` / `plan.md` / `cc_todo` / `results.md` 中正式标记为失败迭代并记录原因
+4. 归纳本轮相对 `20260312_prediction_memory_decoder` 的改善幅度和相对 `baseline_v2` 的剩余差距
+
+**执行结果**：
+- rollout fp-bps：
+  - `250ms: 0.1621`
+  - `500ms: -0.0105`
+  - `1000ms: -0.2122`
+- 相比 `20260312_prediction_memory_decoder`：
+  - `250ms: +0.0135`
+  - `500ms: +0.0048`
+  - `1000ms: +0.0468`
+- 相比 `baseline_v2`：
+  - `250ms: -0.0494`
+  - `500ms: -0.1849`
+  - `1000ms: -0.3439`
+
+**遇到的问题**：
+- local-only memory 虽然削弱了上一轮的全历史错误传播，但 teacher forcing 与 rollout 的分布偏移仍是主导问题，导致长窗口自由 rollout 依旧明显崩塌
+
+**对应 plan.md 任务**：Phase 1.9.2 Local Prediction Memory Decoder（已放弃）

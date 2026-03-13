@@ -134,10 +134,10 @@ PerNeuronMLPHead
 
 ### 2026-03-13 — Local Prediction Memory Decoder
 
-> 状态: 验证中
+> 状态: 已放弃
 > 分支: `dev/20260313_local_prediction_memory`
 > cc_todo: `cc_todo/phase1-autoregressive/1.9-module-optimization/20260313_local_prediction_memory.md`
-> commit: （待提交）
+> commit: `22faac6`
 
 **想法描述**：
 保留 structured prediction memory 的思想，但将其收缩为“local-only”反馈：每个 query bin 只访问紧邻上一步的 `K` 个 prediction memory tokens，不再检索整段历史 memory。
@@ -184,19 +184,37 @@ PerNeuronMLPHead
 - `forward()` 与 `generate()` 仍不等价
 - 250ms smoke run 能完成训练、保存 checkpoint、跑 rollout eval
 
-**当前进展（2026-03-13 凌晨）**：
-- 功能验证已通过：
-  - local mask block 可见性正确
-  - `shift-right` 生效
-  - `forward()` 与 `generate()` 不再等价
-- 250ms 1-epoch smoke run 已通过：
-  - `train_loss=0.418`
-  - `val_loss=0.412`
-  - `val/fp_bps=-0.825`
-  - rollout smoke fp-bps=`-0.8234`
-- 结论：
-  - 新 variant 的代码链路、训练链路、rollout eval 链路均已跑通
-  - 目前还不能判断它是否优于 `20260312_prediction_memory_decoder`，因为正式 300-epoch 实验尚未开始
+**正式实验结果（300 epochs, rollout eval）**：
+
+| pred_window | teacher-forced fp-bps | rollout fp-bps | vs baseline_v2 | vs 20260312 |
+|-------------|-----------------------|----------------|----------------|-------------|
+| 250ms | 0.2869 | 0.1621 | -0.0494 | +0.0135 |
+| 500ms | 0.2846 | -0.0105 | -0.1849 | +0.0048 |
+| 1000ms | 0.2732 | -0.2122 | -0.3439 | +0.0468 |
+
+**关键观察**：
+- local-only memory 相比 `20260312_prediction_memory_decoder` 确实带来了小幅 rollout 改善，尤其 `1000ms` 从 `-0.2590` 提升到 `-0.2122`。
+- 但改进幅度不足以改变结论：相对 `baseline_v2`，三个窗口仍然全部退化。
+- teacher-forced / rollout gap 仍然很大：
+  - `250ms`: `0.1248`
+  - `500ms`: `0.2951`
+  - `1000ms`: `0.4853`
+- long horizon 的 rollout 仍明显崩塌：
+  - `500ms` 从 bin `12` 开始转负
+  - `1000ms` 从 bin `11` 开始转负
+  - `250ms` 虽然没有转负，但后段已明显衰减到接近零增益
+
+**为什么它仍然比 baseline_v2 差**：
+- 第一，local-only mask 只削弱了“全历史 memory 检索”，但没有消除最核心的 train/inference mismatch：训练时 memory 输入仍是 `log1p(GT counts)`，推理时仍是 `log1p(predicted expected counts)`。
+- 第二，decoder 仍然存在一条显式、容量不小的 prediction-memory 通路。即使只看上一步，模型依旧会倾向依赖这条局部 teacher-forced 侧信道，而不是仅依赖 history latents 和 hidden state。
+- 第三，结果说明“full-history retrieval” 不是唯一问题。把 memory 收缩到 local block 后，rollout 稳定性有所改善，但核心 exposure bias 仍然存在，尤其在 `500ms/1000ms` 长窗口里仍会持续累积。
+- 第四，`baseline_v2` 的单向量 bottleneck 虽然表达力较弱，但反而更稳；当前显式 structured memory 仍然没有把“更强的反馈通路”转化成“更强的自由 rollout”。
+
+**结论**：
+- `Local Prediction Memory Decoder` 比上一轮 `20260312_prediction_memory_decoder` 更合理，但仍不足以替代 `baseline_v2`。
+- 本轮 1.9 迭代结论是：local-only structured memory 只能部分缓解 error accumulation，不能根治 prediction feedback 的分布偏移问题。
+- 该方案保留为已验证但放弃的迭代记录，不合并为主线。
+- 下一轮如果继续推进，应优先动训练/推理对齐策略，而不是继续只在 memory 可见性上做结构收缩。
 
 ### 2026-03-12 — Structured Prediction Memory Decoder
 
