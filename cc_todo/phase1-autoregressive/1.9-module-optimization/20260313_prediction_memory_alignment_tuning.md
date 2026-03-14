@@ -39,7 +39,9 @@
 - [x] 新增 tuning 版 smoke / 正式实验脚本
 - [x] 完成功能验证
 - [x] 完成 250ms smoke run
-- [ ] 执行 Step 2 checkpoint commit + push
+- [x] 执行 Step 2 checkpoint commit + push
+- [x] 完成 `250ms / 500ms / 1000ms` 正式实验
+- [ ] 执行 Step 4 results commit + push
 
 ## 预期验证点
 
@@ -94,6 +96,32 @@ python scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction
 
 ## 下一步
 
-1. 执行 Step 2 checkpoint commit + push
-2. 启动 `250ms / 500ms / 1000ms` 三窗口正式实验
-3. 对比 `20260313_prediction_memory_alignment`，判断这组超参是否进一步缩小与 `baseline_v2` 的差距
+1. 执行 Step 4 results commit + push
+2. 判断是否继续做下一轮更细粒度 tuning
+3. 若继续优化，优先测试窗口依赖的 `mix_prob / regularization` 组合
+
+## 正式实验结果（300 epochs, rollout eval）
+
+- rollout fp-bps：
+  - `250ms = 0.2004`
+  - `500ms = 0.1526`
+  - `1000ms = 0.1218`
+- 相比 `baseline_v2`：
+  - `250ms = -0.0111`
+  - `500ms = -0.0218`
+  - `1000ms = -0.0099`
+- 相比 `20260313_prediction_memory_alignment`：
+  - `250ms = +0.0060`
+  - `500ms = +0.0013`
+  - `1000ms = +0.0115`
+- teacher-forced / rollout gap：
+  - `250ms = 0.0711`
+  - `500ms = 0.1197`
+  - `1000ms = 0.1656`
+
+## 结果分析
+
+1. 这轮 tuning 是有效的，但收益是“小幅继续推进”，不是跳变式提升。
+2. `250ms` 和 `1000ms` 继续改善，`500ms` 基本持平，说明“更强对齐 + 更轻正则”总体方向正确，但窗口间最佳平衡可能并不完全一致。
+3. 当前最好的结果来自 `1000ms`，已经把与 `baseline_v2` 的差距压到 `0.0099 fp-bps`。
+4. 相比上一轮 alignment，三个窗口都没有退化，因此这组超参可以视为当前显式 prediction-memory 路线上的新 best-known setting。

@@ -137,7 +137,7 @@ PerNeuronMLPHead
 > 状态: 验证中
 > 分支: `dev/20260313_prediction_memory_alignment_tuning`
 > cc_todo: `cc_todo/phase1-autoregressive/1.9-module-optimization/20260313_prediction_memory_alignment_tuning.md`
-> commit: 待填
+> commit: `dd424ce`
 
 **想法描述**：
 在 `20260313_prediction_memory_alignment` 的基础上做一轮纯超参级小范围 tuning，不再修改 decoder 结构和训练逻辑，只调整三项训练期参数：
@@ -202,6 +202,34 @@ PerNeuronMLPHead
   - `val/fp_bps=-0.823`
   - rollout smoke eval：`fp-bps=-0.8217`, `val_loss=0.4132`
 - 结论：这组 tuning 超参已经达到“可训练、可 checkpoint、可 rollout eval”的阶段，可以进入正式三窗口实验
+
+**正式实验结果（300 epochs, rollout eval）**：
+
+| pred_window | teacher-forced fp-bps | rollout fp-bps | vs baseline_v2 | vs 20260313_alignment |
+|-------------|-----------------------|----------------|----------------|-----------------------|
+| 250ms | 0.2715 | 0.2004 | -0.0111 | +0.0060 |
+| 500ms | 0.2722 | 0.1526 | -0.0218 | +0.0013 |
+| 1000ms | 0.2875 | 0.1218 | -0.0099 | +0.0115 |
+
+**结果解读**：
+- 小范围 tuning 是有效的，但收益集中在 `250ms` 和 `1000ms`，`500ms` 基本持平。
+- 相比 `20260313_prediction_memory_alignment`，三个窗口都没有退化：
+  - `250ms`: `+0.0060`
+  - `500ms`: `+0.0013`
+  - `1000ms`: `+0.0115`
+- 相比 `baseline_v2`，差距继续缩小：
+  - `250ms`: `-0.0111`
+  - `500ms`: `-0.0218`
+  - `1000ms`: `-0.0099`
+- teacher-forced / rollout gap 再次小幅收缩：
+  - `250ms`: `0.0711`
+  - `500ms`: `0.1197`
+  - `1000ms`: `0.1656`
+
+**当前判断**：
+- 这轮 tuning 证明上一轮的方向是对的，而且 `mix_prob` 提高、`noise/dropout` 降低的组合整体上是正收益。
+- 当前最接近 `baseline_v2` 的窗口已经变成 `1000ms`，差距不到 `0.01 fp-bps`。
+- 由于 `500ms` 收益很有限，这更像是“同一方向上的细化成功”，而不是已经找到最终最优点；如果继续推进，下一轮应优先围绕 `mix_prob` 和 regularization 的窗口依赖性做更细调优。
 
 ### 2026-03-13 — Prediction Memory Alignment Training
 

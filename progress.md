@@ -1005,3 +1005,40 @@
 - 本轮不改主代码，因此主要风险转到配置名、脚本路径和日志目录命名冲突；已通过单独的新模块名与 smoke run 验证排除
 
 **对应 plan.md 任务**：Phase 1.9.2 Prediction Memory Alignment Tuning（验证中）
+
+
+---
+
+## 2026-03-14-03h
+
+### 任务：完成 Prediction Memory Alignment Tuning 正式实验并整理结果
+
+**完成时间**：2026-03-14-03h
+
+**完成内容**：
+1. 完成 `250ms / 500ms / 1000ms` 三组 300-epoch tuning 正式训练与 rollout 评估
+2. 自动生成 `prediction_memory_alignment_tuning_summary.json`，并更新 `results.tsv` 与 1.9 趋势图
+3. 汇总本轮相对 `baseline_v2` 和 `20260313_prediction_memory_alignment` 的变化幅度
+
+**执行结果**：
+- rollout fp-bps：
+  - `250ms: 0.2004`
+  - `500ms: 0.1526`
+  - `1000ms: 0.1218`
+- 相比 `baseline_v2`：
+  - `250ms: -0.0111`
+  - `500ms: -0.0218`
+  - `1000ms: -0.0099`
+- 相比 `20260313_prediction_memory_alignment`：
+  - `250ms: +0.0060`
+  - `500ms: +0.0013`
+  - `1000ms: +0.0115`
+- teacher-forced / rollout gap：
+  - `250ms: 0.0711`
+  - `500ms: 0.1197`
+  - `1000ms: 0.1656`
+
+**遇到的问题**：
+- 这轮 tuning 的收益已经进入“边际改善”阶段，尤其 `500ms` 基本不动；后续如果继续优化，可能需要按窗口分开调 `mix_prob` 与 regularization，而不是维持一套全窗口统一超参
+
+**对应 plan.md 任务**：Phase 1.9.2 Prediction Memory Alignment Tuning（正式结果已完成，等待用户决定是否继续优化）
