@@ -1141,3 +1141,34 @@
 
 **遇到的问题**：
 - 视频生成和神经活动预测虽然在 rollout 失稳问题上同构，但在状态变量、全局锚点和不确定性来源上差异很大；因此本轮评审的关键收获不是“找到了可直接复刻的模块”，而是明确了应优先借鉴“训练和记忆机制”，而不是照搬视频 token / frame 级结构
+
+
+---
+
+## 2026-03-16-14h
+
+### 任务：从流式视频生成技术到神经活动预测的迁移可行性分析
+
+**完成时间**：2026-03-16-14h
+
+**完成内容**：
+
+基于对自回归流式视频生成领域前沿技术（Self-Forcing, Rolling Forcing, MemFlow, Deep Forcing, Reward Forcing, Causal Forcing 等）的系统调研，以及对 NeuroHorizon 代码架构的逐模块映射分析，撰写了一份技术迁移可行性深度分析文档：
+
+**`video_ar_transfer_claude.md`**（约 393 行）
+- 建立了 AR 视频生成与 AR 神经活动预测的 10 维系统性类比映射
+- 对 6 大技术逐一分析了适配性、具体改造方案（映射到代码 8 个插入点）、预期收益和风险
+- 推荐优先级排序：Self-Forcing(1) > Streaming Long Tuning(2) > Rolling Forcing(3) > EMA-Sink(4) > Global Sink(5) > MemFlow(6)
+- 将 4 轮 AR 实验的失败/改进模式映射到视频领域的对应经验
+- 关键结论：视频技术可帮助缩小 explicit AR 与 baseline_v2 的差距，但 AR 反馈对 neural data 的增量贡献可能本身有限（因时间冗余度远低于视频）
+- 建议的实施路线：Self-Forcing 分布匹配训练 + Streaming Long Tuning + EMA-Sink 组合
+
+**参考文献**：Self-Forcing (arXiv:2506.08009), Rolling Forcing (arXiv:2509.25161), MemFlow (arXiv:2512.14699), Deep Forcing (arXiv:2512.05081), Reward Forcing (arXiv:2512.04678), Causal Forcing (arXiv:2602.02214), EAG (arXiv:2511.17606)
+
+**执行结果**：
+- 文档成功写入 `cc_todo/20260316-review/video_ar_transfer_claude.md`
+- 无乱码（已验证）
+
+**遇到的问题**：无
+
+**对应 plan.md 任务**：不直接对应 plan.md 中的代码任务，属于技术方向调研
