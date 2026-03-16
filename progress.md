@@ -1172,3 +1172,29 @@
 **遇到的问题**：无
 
 **对应 plan.md 任务**：不直接对应 plan.md 中的代码任务，属于技术方向调研
+
+
+---
+
+## 2026-03-16-19h09
+
+### 任务：审查 1.8.3 benchmark 对比实验的实现与结果有效性
+
+**完成时间**：2026-03-16-19h09
+
+**完成内容**：
+1. 系统审查 plan.md 中 1.8.3、主记录文档、neural_benchmark 适配/训练/可视化代码、phase1_benchmark 结果文件、results.md 与 1.3.4 / 1.4 / 1.5 下游复用脚本
+2. 新增审计报告：cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md
+3. 在审计报告中按严重度给出批判性结论和修正建议，重点覆盖数据使用逻辑、模型适配逻辑、评估处理逻辑与结果传播链
+
+**执行结果**：
+- 结论一：当前 1.8.3 不能被视为正式 benchmark 对比；更准确的定位是“受 NDT2 / Neuroformer / IBL-MtM 启发的简化版内部 baseline”
+- 结论二：文档声称的“同一 test intervals + 统一四指标评估”与真实代码不符；当前结果实质上是 validation 上的选择结果
+- 结论三：benchmark 与 NeuroHorizon 1.3.4 的 continuous eval 并非同一采样协议，不能直接写成“完全同条件对比”
+- 结论四：问题已经传播到 results.md、1.3.4 benchmark 对比图、1.4 / 1.5 可视化脚本，相关强结论应降级或回收
+- 无乱码，已检查 cc_core_files、cc_todo/phase*、cc_todo/20260316-review
+
+**遇到的问题**：
+- 远程命令写入 Markdown 时，本地 shell 会提前解释反引号，首次写入失败；改为先在本地生成临时文件，再通过 scp 推送到远程后解决
+
+**对应 plan.md 任务**：Phase 1 → 1.8.3 审计复核（不新增实验，仅补充严格审查结论）
