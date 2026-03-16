@@ -1115,3 +1115,29 @@
 **遇到的问题**：无
 
 **对应 plan.md 任务**：不直接对应 plan.md 中的代码任务，属于项目方向性讨论与评审
+
+---
+
+## 2026-03-16-15h12
+
+### 任务：完成视频生成方法迁移视角下的 long-horizon forecasting 补充评审
+
+**完成时间**：2026-03-16-15h12
+
+**完成内容**：
+1. 新增 `cc_todo/20260316-review/20260316-video-generation-transfer-review_codex.md`，系统讨论当前神经活动自回归预测与流式视频生成在 `exposure bias / rollout drift / memory design` 层面的结构对应
+2. 结合外部方法资料，逐项评审 `self-forcing`、`rolling forcing`、`global sink frame`、`MemFlow / memory bank` 对当前 `NeuroHorizon` 的可迁移性
+3. 将外部方法翻译为当前项目下的 3 组最小实验方向：
+   - `latent self-forcing`
+   - `chunkwise rolling forecast`
+   - `global anchor + causal latent bank`
+
+**执行结果**：
+- 结论一：当前 `prediction_memory_alignment` 系列已经属于弱版 video-style forcing，但 forcing 的状态变量仍停留在 `raw count / expected count` 层级，尚未真正解决 long-horizon rollout stability
+- 结论二：最值得优先借鉴的是 `self-forcing`，但应翻译为 `latent self-forcing`，而不是继续对 raw count feedback 做更强 mixing
+- 结论三：`rolling forcing` 在当前项目中更合理的落地方式是 `chunkwise autoregressive rollout`，以减少 `500ms / 1000ms` 预测时的深链条误差累积
+- 结论四：`global sink frame` 不能直接照搬，更合理的神经版本是来自 observation history 的 `global anchor latent`
+- 结论五：`MemFlow` 式 memory bank 只能以 `causal latent memory bank` 的形式谨慎尝试，不能把当前 raw count prediction-memory 继续做大
+
+**遇到的问题**：
+- 视频生成和神经活动预测虽然在 rollout 失稳问题上同构，但在状态变量、全局锚点和不确定性来源上差异很大；因此本轮评审的关键收获不是“找到了可直接复刻的模块”，而是明确了应优先借鉴“训练和记忆机制”，而不是照搬视频 token / frame 级结构
