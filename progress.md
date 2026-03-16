@@ -1198,3 +1198,44 @@
 - 远程命令写入 Markdown 时，本地 shell 会提前解释反引号，首次写入失败；改为先在本地生成临时文件，再通过 scp 推送到远程后解决
 
 **对应 plan.md 任务**：Phase 1 → 1.8.3 审计复核（不新增实验，仅补充严格审查结论）
+
+
+---
+
+## 2026-03-16-16h
+
+### 任务：Option D 展开 — 隐空间动力学模型与扩散模型方案详细设计
+
+**完成时间**：2026-03-16-16h
+
+**完成内容**：
+
+将 neurips_innovation_claude.md 中的 Option D（Pivot to Latent Dynamics / Diffusion Decoder）展开为两个具体可执行的技术方案，并补充了 6.3 节的额外实验清单。
+
+**产出文档**：`cc_todo/20260316-review/option_d_implementation_claude.md`（556 行）
+
+**方案 1: 隐空间动力学模型（Latent Dynamics Decoder）**
+- 基于 POSSM (NeurIPS 2025) 启发，引入 SSM backbone (S4D/GRU/Mamba)
+- 架构：POYO+ Encoder -> Attention Pooling -> SSM Dynamics -> PerNeuronMLPHead
+- 推荐 S4D 作为起步（M1 旋转动力学是准线性的）
+- 预期 1000ms fp-bps: 0.15-0.18（vs baseline_v2 的 0.1317）
+- 实现周期：3-4 周
+
+**方案 2: 扩散模型生成器（Latent Diffusion Decoder）**
+- 基于 LDNS (NeurIPS 2024 Spotlight) 启发
+- 架构：Count Autoencoder + Conditional DDPM conditioned on POYO+ latents
+- 当前无论文用 diffusion 做 spike forward prediction（研究空白）
+- 预期 1000ms fp-bps: 0.14-0.17
+- 实现周期：4-6 周
+
+**推荐路线**：优先做方案 1（更快、更低风险），方案 2 作为补充对比
+
+**6.3 额外实验**：6 个实验的详细设计已补充（non-causal ablation, encoder ablation, additional dataset, bin size ablation, iso-parameter, visualization）
+
+**执行结果**：
+- 文档成功写入，无乱码
+- 内容涵盖：POSSM/LDNS/LFADS/NEDS/EAG 等文献调研 + 具体架构设计 + 训练策略 + 预期性能 + 风险分析 + 实验清单
+
+**遇到的问题**：无
+
+**对应 plan.md 任务**：不直接对应 plan.md 代码任务，属于新方向的实施方案设计
