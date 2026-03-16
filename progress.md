@@ -1239,3 +1239,30 @@
 **遇到的问题**：无
 
 **对应 plan.md 任务**：不直接对应 plan.md 代码任务，属于新方向的实施方案设计
+
+
+---
+
+## 2026-03-16-22h22
+
+### 任务：审查 plan.md 中 1.2 基础功能验证与 1.3 预测窗口实验的 v2 代码与评估流程
+
+**完成时间**：2026-03-16-22h22
+
+**完成内容**：
+1. 系统审查 `plan.md` 中 `1.2` / `1.3` 对应的真实代码路径，包括 `neurohorizon.py`、`autoregressive_decoder.py`、`neurohorizon_metrics.py`、`train.py`、`trial_sampler.py`、`eval_phase1_v2.py`、`eval_psth.py` 与相关测试脚本
+2. 核查 v2 baseline 的数据处理、sampler 行为、target 构造、null model 计算、fp-bps / R² / PSTH-R² 的实现与结果聚合方式
+3. 新增严格审查文档：`cc_todo/20260316-review/20260316-plan-md-v2-code-review_codex.md`
+
+**执行结果**：
+- 结论一：当前 v2 baseline 的数据流、loss 和 fp-bps 指标实现整体合理，作为 Phase 1 baseline 成立
+- 结论二：`1.3.4` 主表结果更准确地说是 teacher-forced 条件下的 causal future-bin prediction，而不是严格的 open-loop rollout benchmark
+- 结论三：`eval_phase1_v2.py` 里的连续评估结果使用 batch-level 简单平均，不是全局累计聚合；PSTH-R² 在主脚本中实际先做了 neuron mean，和 `psth_r2()` 的完整 neuron 维实现存在口径漂移
+- 结论四：`PerNeuronMLPHead` 是合理 baseline，但不是最优输出头；更值得优先修的是 rollout-first 评估协议，而不是继续把 `1.2/1.3` 过度表述为“已严格验证的长时程 AR 生成”
+- 无乱码，已准备按远程规范提交
+
+**遇到的问题**：
+- 远程仓库中已存在未提交修改：`cc_todo/20260316-review/neurips_innovation_claude.md`；本次未触碰该文件，提交时将只纳入本次新增 review 文档与 `progress.md`
+- 远程追加 `progress.md` 时，本地 shell 会提前解释 Markdown 里的反引号；改为先生成临时文件再推送到远程后解决
+
+**对应 plan.md 任务**：Phase 1 → 1.2 / 1.3 的代码与评估流程审计复核（不新增实验，仅补充严格审查结论）
