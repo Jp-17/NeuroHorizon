@@ -1072,3 +1072,46 @@
 
 **遇到的问题**：
 - 当前项目的主要不确定点已不再是“是否做 AR”，而是“什么层级的状态变量和什么训练目标最适合 long-horizon rollout”；评审结论已将主问题重新收敛到 `long-horizon neural forecasting` 本身，而非继续围绕 count-level prediction memory 做小修小补
+
+
+---
+
+## 2026-03-16-12h
+
+### 任务：项目研究方向深度讨论与评审
+
+**完成时间**：2026-03-16-12h
+
+**完成内容**：
+
+基于对项目全部实验数据（Phase 1 的 4 轮 prediction feedback 优化、baseline_v2 benchmark 对比、ablation studies）和代码架构的深入分析，对三个核心研究方向问题进行了充分讨论，产出三份深度分析文档：
+
+1. **`ar_effectiveness_claude.md`**（约 26KB）
+   - 系统分析了 AR 生成在长时程神经活动预测中的有效性
+   - 核心结论：显式 AR 反馈在 4 轮实验中均未超越 baseline_v2（无反馈模型）
+   - 分析了 exposure bias、高维随机过程、信息瓶颈等根本性挑战
+   - 提出 causal self-attention 的实际作用是 temporal regularization 而非 genuine AR generation
+   - 对比了 bin-level AR 与 spike-level AR（Neuroformer）的 trade-off
+
+2. **`neurips_innovation_claude.md`**（约 25KB）
+   - 评估了项目当前的实际贡献（encoder 迁移、PerNeuronMLPHead、benchmark、exposure bias 分析）
+   - 分析了以 AR 为核心创新叙事的风险（reviewer 可能的 5 个关键质疑）
+   - 提出了 4 种 reframing 方案（Foundation model / Systematic study / AR failure analysis / Pivot to new approach）
+   - 给出了针对 NeurIPS 2026 / ICLR 2027 / Nature Methods 的差异化发表策略
+   - 包含具体的额外实验清单和时间线规划
+
+3. **`long_horizon_prediction_claude.md`**（约 33KB）
+   - 论证了长时程预测（500ms-1s+）作为研究问题的意义（BCI 应用、科学理解、文献 gap）
+   - 详细分析了 4 个技术方向：Latent Dynamics Model / 继续优化 AR / Diffusion&Flow Matching / Behavioral Covariates
+   - 对各方向进行了 8 维对比评估（创新性、难度、性能预期、兼容性、NeurIPS 叙事强度等）
+   - 推荐 Latent Dynamics Model（Neural ODE/SDE + POYO+ encoder）为最优路径
+   - 给出了具体的实现路线图和 3 阶段推荐路径
+
+**执行结果**：
+- 三份文档均成功写入 `cc_todo/20260316-review/` 目录
+- 无乱码（已通过 grep 验证）
+- 总结：当前 AR 方案的实验证据不支持其作为核心创新，建议考虑 Latent Dynamics 方向或重新 framing 论文叙事
+
+**遇到的问题**：无
+
+**对应 plan.md 任务**：不直接对应 plan.md 中的代码任务，属于项目方向性讨论与评审
