@@ -1042,3 +1042,33 @@
 - 这轮 tuning 的收益已经进入“边际改善”阶段，尤其 `500ms` 基本不动；后续如果继续优化，可能需要按窗口分开调 `mix_prob` 与 regularization，而不是维持一套全窗口统一超参
 
 **对应 plan.md 任务**：Phase 1.9.2 Prediction Memory Alignment Tuning（正式结果已完成，等待用户决定是否继续优化）
+
+---
+
+## 2026-03-16-12h16
+
+### 任务：完成 long-horizon forecasting 路线评审并形成 Codex review 文档
+
+**完成时间**：2026-03-16-12h16
+
+**完成内容**：
+1. 基于 `results.tsv`、`model.md`、`plan.md`、`progress.md` 和当前 `neurohorizon.py` / `autoregressive_decoder.py` 实现，完成一次面向 long-horizon forecasting 的系统评审
+2. 在 `cc_todo/20260316-review/20260316-neurohorizon-long-horizon-review_codex.md` 中整理三部分内容：
+   - 对当前 output-side autoregressive 路线的判断
+   - 与 `NDT2 / NDT-MTM / Neuroformer / one-step forecast` 的比较判断
+   - 面向 NeurIPS 的论文定位与研究转向建议
+3. 输出下一步最小实验矩阵：`latent feedback`、`direct multi-horizon objective`、`behavior-conditioned / auxiliary forecast`
+
+**执行结果**：
+- 明确确认当前最强 rollout 结果仍为 `baseline_v2`：
+  - `250ms: 0.2115`
+  - `500ms: 0.1744`
+  - `1000ms: 0.1317`
+- 当前显式 prediction-memory 最优版本 `prediction_memory_alignment_tuning` 为：
+  - `250ms: 0.2004`
+  - `500ms: 0.1526`
+  - `1000ms: 0.1218`
+- 结论：当前 output-side explicit AR feedback 已证明“可被修复到接近 baseline”，但尚未证明比 baseline 更强；后续应优先验证反馈表征层级、multi-horizon 目标和行为/隐变量辅助建模，而不是继续做大量纯超参搜索
+
+**遇到的问题**：
+- 当前项目的主要不确定点已不再是“是否做 AR”，而是“什么层级的状态变量和什么训练目标最适合 long-horizon rollout”；评审结论已将主问题重新收敛到 `long-horizon neural forecasting` 本身，而非继续围绕 count-level prediction memory 做小修小补
