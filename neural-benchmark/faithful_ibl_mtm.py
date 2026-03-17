@@ -6,8 +6,8 @@ minimum compatibility layer needed to:
 
 1. materialize canonical Perich-Miller windows from the shared protocol
 2. feed binned counts into the original NDT1 + stitching + session prompting path
-3. train with the upstream SSL Poisson NLL objective under forward-pred masking
-4. evaluate with the unified continuous and trial-aligned protocol
+3. train with the upstream SSL multi-mask Poisson NLL objective
+4. evaluate with the unified held-out one-step forward-pred protocol
 """
 
 from __future__ import annotations
@@ -81,6 +81,8 @@ class FaithfulIBLMtMConfig:
     n_heads: int = 8
     embed_mult: int = 2
     stitch_channels: Optional[int] = None
+    mask_ratio: float = 0.3
+    train_mask_mode: str = "combined"
 
 
 class FaithfulIBLMtMWindowDataset(TorchDataset):
@@ -216,6 +218,41 @@ def heldout_forward_pred(spikes: torch.Tensor, obs_bins: int) -> Dict[str, torch
     }
 
 
+def batch_has_region_annotations(batch: Mapping[str, object]) -> bool:
+    regions = batch.get("neuron_regions", [])
+    if not regions:
+        return False
+    unique = {
+        str(region)
+        for sample_regions in regions
+        for region in sample_regions
+        if str(region).strip() and str(region).lower() != "unknown"
+    }
+    return len(unique) > 1
+
+
+def choose_training_masking_mode(
+    model,
+    batch: Mapping[str, object],
+    *,
+    train_mask_mode: str,
+    base_mask_ratio: float,
+) -> str:
+    if train_mask_mode in {"combined", "all"}:
+        masking_schemes = ["neuron", "causal"]
+        if train_mask_mode == "all" and batch_has_region_annotations(batch):
+            masking_schemes += ["intra-region", "inter-region"]
+        masking_mode = random.choice(masking_schemes)
+    else:
+        masking_mode = train_mask_mode
+
+    if masking_mode == "causal":
+        model.encoder.masker.ratio = 0.6
+    else:
+        model.encoder.masker.ratio = float(base_mask_ratio)
+    return masking_mode
+
+
 def set_global_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -281,10 +318,10 @@ def create_faithful_ibl_mtm_model(
     NDT1_MODULE.include_eids = list(session_ids)
     config = update_ibl_config(config_path, None)
     config.encoder.stitching = True
-    config.encoder.masker.force_active = False
-    config.encoder.masker.mode = "forward-pred"
-    config.encoder.masker.ratio = 0.0
-    config.encoder.masker.timesteps = list(range(spec.obs_bins, spec.total_bins))
+    config.encoder.masker.force_active = True
+    config.encoder.masker.mode = bridge_cfg.train_mask_mode
+    config.encoder.masker.ratio = float(bridge_cfg.mask_ratio)
+    config.encoder.masker.timesteps = None
     config.encoder.context.forward = 0
     config.encoder.context.backward = -1
     config.encoder.embedder.use_prompt = True
@@ -319,20 +356,26 @@ def create_faithful_ibl_mtm_model(
         )
     finally:
         os.chdir(cwd)
-    model.encoder.mask = False
     return model
 
 
-def run_ibl_forward(
+def run_ibl_train_forward(
     model,
     batch: Mapping[str, object],
     *,
-    spec: BenchmarkProtocolSpec,
+    train_mask_mode: str,
+    base_mask_ratio: float,
 ):
-    mask_result = heldout_forward_pred(batch["spikes_data"], spec.obs_bins)
-    masking_mode = "causal" if getattr(model, "use_prompt", False) else model.encoder.masker.mode
+    model.encoder.mask = True
+    model.encoder.masker.force_active = True
+    masking_mode = choose_training_masking_mode(
+        model,
+        batch,
+        train_mask_mode=train_mask_mode,
+        base_mask_ratio=base_mask_ratio,
+    )
     outputs = model(
-        mask_result["spikes"],
+        batch["spikes_data"],
         time_attn_mask=batch["time_attn_mask"],
         space_attn_mask=batch["space_attn_mask"],
         spikes_timestamps=batch["spikes_timestamps"],
@@ -340,10 +383,40 @@ def run_ibl_forward(
         targets=batch["target"],
         neuron_regions=batch["neuron_regions"],
         masking_mode=masking_mode,
-        eval_mask=mask_result["eval_mask"],
         num_neuron=int(batch["n_units"][0].item()),
         eid=batch["eid"][0],
     )
+    return outputs, masking_mode
+
+
+def run_ibl_eval_forward(
+    model,
+    batch: Mapping[str, object],
+    *,
+    spec: BenchmarkProtocolSpec,
+):
+    mask_result = heldout_forward_pred(batch["spikes_data"], spec.obs_bins)
+    prev_mask = model.encoder.mask
+    prev_force_active = model.encoder.masker.force_active
+    model.encoder.mask = False
+    model.encoder.masker.force_active = False
+    try:
+        outputs = model(
+            mask_result["spikes"],
+            time_attn_mask=batch["time_attn_mask"],
+            space_attn_mask=batch["space_attn_mask"],
+            spikes_timestamps=batch["spikes_timestamps"],
+            spikes_spacestamps=batch["spikes_spacestamps"],
+            targets=batch["target"],
+            neuron_regions=batch["neuron_regions"],
+            masking_mode="causal" if getattr(model, "use_prompt", False) else "forward-pred",
+            eval_mask=mask_result["eval_mask"],
+            num_neuron=int(batch["n_units"][0].item()),
+            eid=batch["eid"][0],
+        )
+    finally:
+        model.encoder.mask = prev_mask
+        model.encoder.masker.force_active = prev_force_active
     return outputs
 
 
@@ -353,7 +426,7 @@ def predict_ibl_logrates(
     *,
     spec: BenchmarkProtocolSpec,
 ) -> torch.Tensor:
-    outputs = run_ibl_forward(model, batch, spec=spec)
+    outputs = run_ibl_eval_forward(model, batch, spec=spec)
     return outputs.preds[:, spec.obs_bins : spec.obs_bins + spec.pred_bins, :]
 
 
@@ -377,7 +450,7 @@ def evaluate_faithful_ibl_loader(
     with torch.no_grad():
         for batch in dataloader:
             batch = move_batch_to_device(batch, device)
-            outputs = run_ibl_forward(model, batch, spec=spec)
+            outputs = run_ibl_eval_forward(model, batch, spec=spec)
             pred = outputs.preds[:, spec.obs_bins : spec.obs_bins + spec.pred_bins, :]
             target = batch["target"][:, spec.obs_bins : spec.obs_bins + spec.pred_bins, :]
             batch_size, pred_bins, n_units = pred.shape
@@ -544,7 +617,12 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
     )
 
     batch = move_batch_to_device(next(iter(train_loader)), device)
-    outputs = run_ibl_forward(model, batch, spec=spec)
+    outputs, masking_mode = run_ibl_train_forward(
+        model,
+        batch,
+        train_mask_mode=bridge_cfg.train_mask_mode,
+        base_mask_ratio=bridge_cfg.mask_ratio,
+    )
     optimizer.zero_grad(set_to_none=True)
     outputs.loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), bridge_cfg.grad_clip)
@@ -573,6 +651,7 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
         "bridge_config": asdict(bridge_cfg),
         "train_batch_shape": list(batch["spikes_data"].shape),
         "train_loss": float(outputs.loss.detach().cpu().item()),
+        "train_masking_mode": masking_mode,
         "valid_metrics": valid_metrics,
         "trial_metrics": trial_metrics,
     }
@@ -604,6 +683,8 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         n_heads=args.n_heads,
         embed_mult=args.embed_mult,
         stitch_channels=args.stitch_channels,
+        mask_ratio=args.mask_ratio,
+        train_mask_mode=args.train_mask_mode,
     )
     output_dir = (
         Path(args.output_dir)
@@ -723,10 +804,16 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         model.train()
         train_loss_sum = 0.0
         train_examples = 0.0
+        train_mask_counts: Dict[str, int] = {}
         for batch in train_loader:
             batch = move_batch_to_device(batch, device)
             optimizer.zero_grad(set_to_none=True)
-            outputs = run_ibl_forward(model, batch, spec=spec)
+            outputs, masking_mode = run_ibl_train_forward(
+                model,
+                batch,
+                train_mask_mode=bridge_cfg.train_mask_mode,
+                base_mask_ratio=bridge_cfg.mask_ratio,
+            )
             outputs.loss.backward()
             if bridge_cfg.grad_clip > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), bridge_cfg.grad_clip)
@@ -734,6 +821,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
             scheduler.step()
             train_loss_sum += float(outputs.loss.detach().cpu().item())
             train_examples += float(outputs.n_examples.detach().cpu().item())
+            train_mask_counts[masking_mode] = train_mask_counts.get(masking_mode, 0) + 1
 
         valid_metrics = evaluate_faithful_ibl_loader(
             model,
@@ -752,6 +840,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
                 "valid_fp_bps": float(valid_metrics["fp_bps"]),
                 "valid_r2": float(valid_metrics["r2"]),
                 "lr": get_current_lr(optimizer),
+                "train_mask_counts": dict(train_mask_counts),
             }
         )
         save_checkpoint(
@@ -818,7 +907,8 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         test_metrics=test_metrics,
         notes=[
             "Faithful bridge keeps upstream IBL-MtM NDT1 + stitching + session prompting core.",
-            "Training and evaluation use explicit forward_pred masking on canonical windows.",
+            "Training keeps the upstream SSL multi-mask objective and samples mask modes per batch.",
+            "Held-out evaluation uses explicit one-step forward-pred masking on canonical windows.",
             "Batches are session-pure so upstream eid/session-token assumptions remain valid.",
         ],
     )
@@ -829,6 +919,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         "Upstream NDT1 core retained.",
         "Perich-Miller adaptation replaces IBL EID list with canonical recording IDs at runtime.",
         "Stitching target channels are adapted to the Perich-Miller max unit count.",
+        "Region-based masks are only activated when real region annotations are available; otherwise training falls back to the upstream combined neuron/causal scheme.",
     ]
     write_json(output_dir / "results.json", payload)
     print(json.dumps(payload, indent=2))
@@ -845,7 +936,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--ibl-config",
         type=str,
-        default=f"{IBL_ROOT}/src/configs/ndt1_stitching_prompting_eval.yaml",
+        default=f"{IBL_ROOT}/src/configs/ndt1_stitching_prompting.yaml",
     )
     parser.add_argument("--output-dir", type=str, default=None)
     parser.add_argument("--seed", type=int, default=42)
@@ -868,6 +959,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n-heads", type=int, default=8)
     parser.add_argument("--embed-mult", type=int, default=2)
     parser.add_argument("--stitch-channels", type=int, default=None)
+    parser.add_argument("--mask-ratio", type=float, default=0.3)
+    parser.add_argument(
+        "--train-mask-mode",
+        type=str,
+        default="combined",
+        choices=["combined", "all", "neuron", "causal", "intra-region", "inter-region"],
+    )
     return parser.parse_args()
 
 

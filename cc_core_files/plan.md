@@ -639,13 +639,18 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 > - 2026-03-17 已完成 **NDT2 variable-length tokenization / padding 修复**：旧 faithful bridge 将所有 session 强行扩成全局 `72-channel` flat tokens，且 `pad_token=20` 会在 `max_spatial_tokens=9` 的 mixed-session batch 上触发 position 越界；修复后 full-data 250ms 重跑得到 `f8align_pad8_e10: -0.6707 / 0.0575` 与 `projectfix_pad8_e10: -0.6570 / -0.5924`，说明此前 `causalfix_e20` 的 near-zero 结果已被 data-path bug 污染，不能再作为主参考
 > - 2026-03-18 已完成 **IBL-MtM faithful bridge smoke + 250ms debug e1**（`neural-benchmark/faithful_ibl_mtm.py`）：上游 `NDT1 + stitching + session prompting` 已能在 canonical windows 上跑通 train / best-valid / held-out test / trial-eval，但 debug 结果仍显著为负（test `fp-bps = -7.4991`）
 > - 2026-03-18 已完成 **Neuroformer faithful bridge smoke + 250ms debug e1**（`neural-benchmark/faithful_neuroformer.py`）：上游 `Tokenizer + Neuroformer.forward + autoregressive generation` 已能在 canonical windows 上跑通 train / best-valid / held-out test / trial-eval，但 debug 结果更负（test `fp-bps = -14.2368`）
+> - 2026-03-18 已完成 **三模型严格适配复核**：NDT2 保持 upstream `ShuffleInfill`；IBL-MtM 已恢复 upstream SSL multi-mask 训练并将 one-step fp 限定在 held-out eval；Neuroformer 已补齐 `rollout / true_past` 双推理模式
+> - 2026-03-18 已完成 **IBL-MtM faithful 250ms full-data multimask e1**：`results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_multimask_e1/results.json`，held-out test `fp-bps = -2.9547`
+> - 2026-03-18 已完成 **Neuroformer dual-mode smoke 复核**：`rollout / true_past` 双模式都能在统一 held-out eval 上产出结果
+> - 2026-03-18 已确认 **Neuroformer 250ms formal full-data dual-mode eval 的运行成本 blocker**：full-data e1 超过 `30 min` 仍未产出最终 `results.json`；收紧到 `max_generate_steps=192` 后仍在 `13+ min` 时未到 checkpoint，因此 `500ms / 1000ms` 暂不启动
 > - **faithful reproduction of original NDT2 / IBL-MtM / Neuroformer 仍未完成为正式 benchmark 结果**，当前三条 faithful 线都只到“pipeline 打通 / debug negative stage”，因此主任务继续保持打开
 
 - [x] 旧 1.8.3 pipeline 审计与 legacy 降级
 - [x] legacy checkpoint 的 protocol-fix valid/test/PSTH 重评估
 - [x] NDT2 faithful runner（smoke → train/held-out test/trial-eval）与 250ms causal-fix 初步重跑
-- [x] IBL-MtM faithful bridge（smoke + 250ms debug e1）
-- [x] Neuroformer faithful bridge（smoke + 250ms debug e1）
+- [x] IBL-MtM faithful bridge（smoke + 250ms debug e1 + 250ms full-data multimask e1）
+- [x] Neuroformer faithful bridge（smoke + 250ms debug e1 + dual-mode smoke revalidation）
+- [ ] Neuroformer 250ms full-data dual-mode formal eval（runtime blocker 待解）
 - [ ] 原始 benchmark 模型的 formal faithful reproduction（NDT2 / IBL-MtM / Neuroformer）
 
 

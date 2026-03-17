@@ -1534,6 +1534,44 @@
 - trial-aligned 统一评估要求 batch 内保留 full-window `spike_counts` 再由评估函数切 prediction 部分；最初只存了 pred-only target，导致 shape 不匹配  
   已改为同时存 `full-window spike_counts` 与 `pred-only target_counts`
 
+## 2026-03-18 1.8.3 严格适配复核与 250ms 先行验证
+
+**完成内容**：
+1. 对 NDT2 / IBL-MtM / Neuroformer 三条 faithful 线做了严格复核，重新确认：
+   - 三模型都继续使用与 NeuroHorizon 相同的数据源 / split / held-out eval / metric
+   - NDT2 继续保留 upstream `ShuffleInfill`
+   - IBL-MtM 已从 fixed `forward-pred` 训练修正回 upstream SSL multi-mask 训练
+   - Neuroformer 已补齐 `rollout` 与 `true_past` 两种正式推理模式
+2. 完成 IBL-MtM `250ms` full-data multimask e1：
+   - `results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_multimask_e1/results.json`
+   - held-out test `fp-bps = -2.9547`
+   - held-out trial `fp-bps = -1.9327`
+   - epoch 1 train mask 计数：`causal = 550`, `neuron = 573`
+3. 完成 Neuroformer dual-mode smoke 复核：
+   - `results/logs/phase1_benchmark_faithful_neuroformer_smoke_dualmode_v2/smoke.json`
+   - valid rollout / true_past `fp-bps = -13.8295 / -10.9855`
+4. 对 Neuroformer `250ms` full-data formal dual-mode eval 做了两轮尝试：
+   - `phase1_benchmark_repro_faithful_neuroformer_250ms_dualmode_e1`：训练后进入 held-out generation，累计超过 `30 min` 仍未产出 `results.json`
+   - 统计 250ms test 窗口真实 event：`mean=64.0`, `p95=113`, `p99=134.9`, `max=167`
+   - 按此收紧到 `max_generate_steps = 192` 再跑 `phase1_benchmark_repro_faithful_neuroformer_250ms_dualmode_e1_g192`，`13+ min` 仍未到 checkpoint，确认 runtime 已是 formal 250ms blocker
+5. 已同步更新：
+   - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
+   - `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
+   - `cc_core_files/results.md`
+   - `cc_core_files/scripts.md`
+   - `cc_core_files/plan.md`
+
+**关键判断**：
+1. NDT2 与 IBL-MtM 当前都已经达到“实现语义对齐，可以继续以 250ms 为 gate 做正式 benchmark”的阶段，但结果仍显著为负
+2. Neuroformer 当前已经达到“语义对齐”，但还没有达到“250ms formal full-data dual-mode eval 可稳定完成”的阶段
+3. 因此 1.8.3 仍然保持打开，且 `500ms / 1000ms` 暂不启动
+
+**遇到的问题与解决**：
+- IBL-MtM faithful 之前把训练固定成 `forward-pred`，不符合“保留 upstream multi-mask 训练”要求  
+  已改为 combined multi-mask 训练，held-out eval 才单独做 one-step `forward_pred`
+- Neuroformer `true_past` 原本也是逐 token 重跑模型，formal eval 代价过高  
+  已改为直接复用 teacher-forced 前向输出解码，但 full-data dual-mode formal 仍然过慢，现阶段应把运行成本视为正式 blocker
+
 ## 2026-03-18 02:50
 
 **任务**：补充 `cc_todo/20260316-review/QA_codex.md`，扩写 NeuroHorizon 主 `fp-bps` 的合理性判断、建议新增的 IBL-MtM 对齐 comparison metric，以及项目内部数据组织 / evaluation / AR decoder / `PerNeuronMLPHead` 的实现说明

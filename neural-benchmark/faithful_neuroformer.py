@@ -404,64 +404,63 @@ def decode_token(tokenizer: Tokenizer, token_type: str, token_id: int):
     return tokenizer.itos[token_type][int(token_id)]
 
 
-def generate_sample_counts(
-    model: Neuroformer,
-    tokenizer: Tokenizer,
+def build_generation_inputs(
     sample_x: Mapping[str, torch.Tensor],
-    valid_unit_ids: torch.Tensor,
+    current_ids: Sequence[int],
+    current_dts: Sequence[int],
     *,
+    pad_id_token: int,
+    pad_dt_token: int,
+    block_size: int,
+    device: torch.device,
+) -> Dict[str, torch.Tensor]:
+    trimmed_ids = list(current_ids)[-block_size:]
+    trimmed_dts = list(current_dts)[-block_size:]
+    pad_n = max(block_size - len(trimmed_ids), 0)
+    return {
+        "id_prev": sample_x["id_prev"].unsqueeze(0),
+        "dt_prev": sample_x["dt_prev"].unsqueeze(0),
+        "id": torch.tensor(trimmed_ids + [pad_id_token] * pad_n, device=device, dtype=torch.long).unsqueeze(0),
+        "dt": torch.tensor(trimmed_dts + [pad_dt_token] * pad_n, device=device, dtype=torch.float32).unsqueeze(0),
+        "pad": torch.tensor([pad_n], device=device, dtype=torch.long),
+    }
+
+
+def select_next_tokens(
+    model: Neuroformer,
+    x: Mapping[str, torch.Tensor],
+    valid_id_tokens: Sequence[int],
+    *,
+    eos_id_token: int,
+    device: torch.device,
+) -> Tuple[int, int]:
+    preds, _, _ = model(x, None)
+    step_index = int(x["id"].shape[1] - int(x["pad"][0].item()) - 1)
+    id_logits = preds["id"][0, step_index].clone()
+    dt_logits = preds["dt"][0, step_index].clone()
+    invalid = torch.ones_like(id_logits, dtype=torch.bool, device=device)
+    for token in valid_id_tokens:
+        token = int(token)
+        if 0 <= token < invalid.numel():
+            invalid[token] = False
+    invalid[eos_id_token] = False
+    id_logits[invalid] = float("-inf")
+    next_id = int(torch.argmax(id_logits).item())
+    next_dt = int(torch.argmax(dt_logits).item())
+    return next_id, next_dt
+
+
+def collect_predicted_counts(
+    predicted_events: Sequence[Tuple[int, int]],
+    *,
+    tokenizer: Tokenizer,
+    valid_unit_ids: Sequence[int],
     spec: BenchmarkProtocolSpec,
     channel_capacity: int,
-    max_generate_steps: int,
-    device: torch.device,
 ) -> torch.Tensor:
-    model.eval()
-    valid_unit_ids = valid_unit_ids.detach().cpu().tolist()
-    valid_unit_ids = [int(x) for x in valid_unit_ids if isinstance(x, (int, np.integer)) or int(x) >= 0]
-    valid_id_tokens = set(list(tokenizer.encode(valid_unit_ids, "ID"))) if valid_unit_ids else set()
-    eos_id_token = tokenizer.stoi["ID"]["EOS"]
-    sos_id_token = tokenizer.stoi["ID"]["SOS"]
-    eos_dt_token = tokenizer.stoi["dt"].get("EOS", max(tokenizer.stoi["dt"].values()))
-    current_ids = [sos_id_token]
-    current_dts = [0]
-    pad_id_token = tokenizer.stoi["ID"]["PAD"]
-    pad_dt_token = tokenizer.stoi["dt"]["PAD"]
-    block_size = int(model.config.block_size.id)
-
-    with torch.no_grad():
-        for _ in range(max_generate_steps):
-            trimmed_ids = current_ids[-block_size:]
-            trimmed_dts = current_dts[-block_size:]
-            pad_n = max(block_size - len(trimmed_ids), 0)
-            x = {
-                "id_prev": sample_x["id_prev"].unsqueeze(0),
-                "dt_prev": sample_x["dt_prev"].unsqueeze(0),
-                "id": torch.tensor(trimmed_ids + [pad_id_token] * pad_n, device=device, dtype=torch.long).unsqueeze(0),
-                "dt": torch.tensor(trimmed_dts + [pad_dt_token] * pad_n, device=device, dtype=torch.float32).unsqueeze(0),
-                "pad": torch.tensor([pad_n], device=device, dtype=torch.long),
-            }
-            preds, _, _ = model(x, None)
-            step_index = len(trimmed_ids) - 1
-            id_logits = preds["id"][0, step_index].clone()
-            dt_logits = preds["dt"][0, step_index].clone()
-            invalid = torch.ones_like(id_logits, dtype=torch.bool)
-            for token in valid_id_tokens:
-                if 0 <= int(token) < invalid.numel():
-                    invalid[int(token)] = False
-            invalid[eos_id_token] = False
-            id_logits[invalid] = float("-inf")
-            next_id = int(torch.argmax(id_logits).item())
-            next_dt = int(torch.argmax(dt_logits).item())
-            if next_id == eos_id_token or next_dt == eos_dt_token:
-                break
-            current_ids.append(next_id)
-            current_dts.append(next_dt)
-            if len(current_ids) >= max_generate_steps:
-                break
-
     local_unit_lookup = {int(unit_id): idx for idx, unit_id in enumerate(valid_unit_ids)}
     pred_counts = np.zeros((spec.pred_bins, channel_capacity), dtype=np.float32)
-    for id_token, dt_token in zip(current_ids[1:], current_dts[1:]):
+    for id_token, dt_token in predicted_events:
         decoded_id = decode_token(tokenizer, "ID", id_token)
         decoded_dt = decode_token(tokenizer, "dt", dt_token)
         if decoded_id in {"SOS", "EOS", "PAD"}:
@@ -481,6 +480,169 @@ def generate_sample_counts(
     return torch.log(torch.from_numpy(pred_counts))
 
 
+def decode_teacher_forced_logrates(
+    preds: Mapping[str, torch.Tensor],
+    tokenizer: Tokenizer,
+    batch: Mapping[str, object],
+    *,
+    spec: BenchmarkProtocolSpec,
+    channel_capacity: int,
+) -> torch.Tensor:
+    eos_id_token = tokenizer.stoi["ID"]["EOS"]
+    pad_id_token = tokenizer.stoi["ID"]["PAD"]
+    eos_dt_token = tokenizer.stoi["dt"].get("EOS", max(tokenizer.stoi["dt"].values()))
+    pad_dt_token = tokenizer.stoi["dt"]["PAD"]
+    outputs = []
+
+    for i in range(batch["unit_ids"].shape[0]):
+        valid_unit_ids = [int(x) for x in batch["unit_ids"][i][batch["unit_mask"][i]].detach().cpu().tolist() if int(x) >= 0]
+        valid_id_tokens = [int(x) for x in tokenizer.encode(valid_unit_ids, "ID")] if valid_unit_ids else []
+        predicted_events: List[Tuple[int, int]] = []
+        for step in range(batch["y"]["id"].shape[1]):
+            true_id = int(batch["y"]["id"][i, step].item())
+            true_dt = int(batch["y"]["dt"][i, step].item())
+            if true_id in {eos_id_token, pad_id_token}:
+                break
+            if true_dt in {eos_dt_token, pad_dt_token}:
+                break
+            id_logits = preds["id"][i, step].clone()
+            dt_logits = preds["dt"][i, step].clone()
+            invalid = torch.ones_like(id_logits, dtype=torch.bool)
+            for token in valid_id_tokens:
+                if 0 <= token < invalid.numel():
+                    invalid[token] = False
+            invalid[eos_id_token] = False
+            id_logits[invalid] = float("-inf")
+            next_id = int(torch.argmax(id_logits).item())
+            next_dt = int(torch.argmax(dt_logits).item())
+            if next_id != eos_id_token and next_dt != eos_dt_token:
+                predicted_events.append((next_id, next_dt))
+        outputs.append(
+            collect_predicted_counts(
+                predicted_events,
+                tokenizer=tokenizer,
+                valid_unit_ids=valid_unit_ids,
+                spec=spec,
+                channel_capacity=channel_capacity,
+            )
+        )
+    return torch.stack(outputs, dim=0)
+
+
+def generate_true_past_logrates(
+    model: Neuroformer,
+    tokenizer: Tokenizer,
+    batch: Mapping[str, object],
+    *,
+    spec: BenchmarkProtocolSpec,
+    channel_capacity: int,
+) -> torch.Tensor:
+    model_device = next(iter(model.parameters())).device
+    batch = move_batch_to_device(batch, model_device)
+    preds, _, _ = model(batch["x"], batch["y"])
+    return decode_teacher_forced_logrates(
+        preds,
+        tokenizer,
+        batch,
+        spec=spec,
+        channel_capacity=channel_capacity,
+    ).to(model_device)
+
+
+def generate_sample_counts(
+    model: Neuroformer,
+    tokenizer: Tokenizer,
+    sample_x: Mapping[str, torch.Tensor],
+    sample_y: Mapping[str, torch.Tensor],
+    valid_unit_ids: torch.Tensor,
+    *,
+    spec: BenchmarkProtocolSpec,
+    channel_capacity: int,
+    max_generate_steps: int,
+    device: torch.device,
+    true_past: bool,
+) -> torch.Tensor:
+    model.eval()
+    valid_unit_ids = [int(x) for x in valid_unit_ids.detach().cpu().tolist() if int(x) >= 0]
+    valid_id_tokens = [int(x) for x in tokenizer.encode(valid_unit_ids, "ID")] if valid_unit_ids else []
+    eos_id_token = tokenizer.stoi["ID"]["EOS"]
+    sos_id_token = tokenizer.stoi["ID"]["SOS"]
+    eos_dt_token = tokenizer.stoi["dt"].get("EOS", max(tokenizer.stoi["dt"].values()))
+    pad_id_token = tokenizer.stoi["ID"]["PAD"]
+    pad_dt_token = tokenizer.stoi["dt"]["PAD"]
+    block_size = int(model.config.block_size.id)
+    predicted_events: List[Tuple[int, int]] = []
+
+    with torch.no_grad():
+        if true_past:
+            current_ids = [sos_id_token]
+            current_dts = [0]
+            true_ids = sample_y["id"].detach().cpu().tolist()
+            true_dts = sample_y["dt"].detach().cpu().tolist()
+            for step, (true_id, true_dt) in enumerate(zip(true_ids, true_dts), start=1):
+                if step > max_generate_steps:
+                    break
+                if int(true_id) in {eos_id_token, pad_id_token}:
+                    break
+                if int(true_dt) in {eos_dt_token, pad_dt_token}:
+                    break
+                x = build_generation_inputs(
+                    sample_x,
+                    current_ids,
+                    current_dts,
+                    pad_id_token=pad_id_token,
+                    pad_dt_token=pad_dt_token,
+                    block_size=block_size,
+                    device=device,
+                )
+                next_id, next_dt = select_next_tokens(
+                    model,
+                    x,
+                    valid_id_tokens,
+                    eos_id_token=eos_id_token,
+                    device=device,
+                )
+                if next_id != eos_id_token and next_dt != eos_dt_token:
+                    predicted_events.append((next_id, next_dt))
+                current_ids.append(int(true_id))
+                current_dts.append(int(true_dt))
+        else:
+            current_ids = [sos_id_token]
+            current_dts = [0]
+            for step in range(max_generate_steps):
+                x = build_generation_inputs(
+                    sample_x,
+                    current_ids,
+                    current_dts,
+                    pad_id_token=pad_id_token,
+                    pad_dt_token=pad_dt_token,
+                    block_size=block_size,
+                    device=device,
+                )
+                next_id, next_dt = select_next_tokens(
+                    model,
+                    x,
+                    valid_id_tokens,
+                    eos_id_token=eos_id_token,
+                    device=device,
+                )
+                if next_id == eos_id_token or next_dt == eos_dt_token:
+                    break
+                predicted_events.append((next_id, next_dt))
+                current_ids.append(next_id)
+                current_dts.append(next_dt)
+                if step + 1 >= max_generate_steps:
+                    break
+
+    return collect_predicted_counts(
+        predicted_events,
+        tokenizer=tokenizer,
+        valid_unit_ids=valid_unit_ids,
+        spec=spec,
+        channel_capacity=channel_capacity,
+    )
+
+
 def generate_neuroformer_logrates(
     model: Neuroformer,
     tokenizer: Tokenizer,
@@ -490,23 +652,35 @@ def generate_neuroformer_logrates(
     channel_capacity: int,
     max_generate_steps: int,
     device: torch.device,
+    true_past: bool,
 ) -> torch.Tensor:
+    if true_past:
+        return generate_true_past_logrates(
+            model,
+            tokenizer,
+            batch,
+            spec=spec,
+            channel_capacity=channel_capacity,
+        )
     outputs = []
     unit_ids = batch["unit_ids"]
     unit_mask = batch["unit_mask"]
     for i in range(unit_ids.shape[0]):
         valid_unit_ids = unit_ids[i][unit_mask[i]]
         sample_x = {key: value[i].to(device) for key, value in batch["x"].items()}
+        sample_y = {key: value[i].to(device) for key, value in batch["y"].items()}
         outputs.append(
             generate_sample_counts(
                 model,
                 tokenizer,
                 sample_x,
+                sample_y,
                 valid_unit_ids,
                 spec=spec,
                 channel_capacity=channel_capacity,
                 max_generate_steps=max_generate_steps,
                 device=device,
+                true_past=true_past,
             )
         )
     return torch.stack(outputs, dim=0).to(device)
@@ -522,6 +696,7 @@ def evaluate_faithful_neuroformer_loader(
     null_lookup: torch.Tensor,
     device: torch.device,
     max_generate_steps: int,
+    true_past: bool,
 ) -> Dict[str, object]:
     all_logrates = []
     all_targets = []
@@ -537,15 +712,25 @@ def evaluate_faithful_neuroformer_loader(
             preds, _, loss_dict = model(batch["x"], batch["y"])
             teacher_forced_loss += float(compute_total_loss(loss_dict).detach().cpu().item())
             teacher_forced_batches += 1
-            logrates = generate_neuroformer_logrates(
-                model,
-                tokenizer,
-                batch,
-                spec=spec,
-                channel_capacity=channel_capacity,
-                max_generate_steps=max_generate_steps,
-                device=device,
-            )
+            if true_past:
+                logrates = decode_teacher_forced_logrates(
+                    preds,
+                    tokenizer,
+                    batch,
+                    spec=spec,
+                    channel_capacity=channel_capacity,
+                ).to(device)
+            else:
+                logrates = generate_neuroformer_logrates(
+                    model,
+                    tokenizer,
+                    batch,
+                    spec=spec,
+                    channel_capacity=channel_capacity,
+                    max_generate_steps=max_generate_steps,
+                    device=device,
+                    true_past=False,
+                )
             all_logrates.append(logrates.cpu())
             all_targets.append(batch["target_counts"].cpu())
             all_unit_ids.append(batch["unit_ids"].cpu())
@@ -560,6 +745,7 @@ def evaluate_faithful_neuroformer_loader(
     )
     metrics["n_samples"] = int(sum(x.shape[0] for x in all_logrates))
     metrics["teacher_forced_loss"] = float(teacher_forced_loss / max(teacher_forced_batches, 1))
+    metrics["inference_mode"] = "true_past" if true_past else "rollout"
     return metrics
 
 
@@ -571,6 +757,7 @@ def build_trial_model_fn(
     channel_capacity: int,
     max_generate_steps: int,
     device: torch.device,
+    true_past: bool,
 ):
     def predict(batch: Mapping[str, object]) -> torch.Tensor:
         return generate_neuroformer_logrates(
@@ -581,6 +768,7 @@ def build_trial_model_fn(
             channel_capacity=channel_capacity,
             max_generate_steps=max_generate_steps,
             device=device,
+            true_past=true_past,
         )
 
     return predict
@@ -703,7 +891,7 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
     torch.nn.utils.clip_grad_norm_(model.parameters(), bridge_cfg.grad_norm_clip)
     optimizer.step()
 
-    valid_metrics = evaluate_faithful_neuroformer_loader(
+    valid_metrics_rollout = evaluate_faithful_neuroformer_loader(
         model,
         tokenizer,
         valid_loader,
@@ -712,8 +900,20 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
         null_lookup=null_lookup,
         device=device,
         max_generate_steps=bridge_cfg.max_generate_steps,
+        true_past=False,
     )
-    trial_metrics = evaluate_trial_aligned_loader(
+    valid_metrics_true_past = evaluate_faithful_neuroformer_loader(
+        model,
+        tokenizer,
+        valid_loader,
+        spec=spec,
+        channel_capacity=channel_capacity,
+        null_lookup=null_lookup,
+        device=device,
+        max_generate_steps=bridge_cfg.max_generate_steps,
+        true_past=True,
+    )
+    trial_metrics_rollout = evaluate_trial_aligned_loader(
         build_trial_model_fn(
             model,
             tokenizer,
@@ -721,6 +921,22 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
             channel_capacity=channel_capacity,
             max_generate_steps=bridge_cfg.max_generate_steps,
             device=device,
+            true_past=False,
+        ),
+        trial_loader,
+        spec,
+        null_lookup,
+        device,
+    )
+    trial_metrics_true_past = evaluate_trial_aligned_loader(
+        build_trial_model_fn(
+            model,
+            tokenizer,
+            spec=spec,
+            channel_capacity=channel_capacity,
+            max_generate_steps=bridge_cfg.max_generate_steps,
+            device=device,
+            true_past=True,
         ),
         trial_loader,
         spec,
@@ -735,8 +951,10 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
         "train_id_shape": list(batch["x"]["id"].shape),
         "train_prev_id_shape": list(batch["x"]["id_prev"].shape),
         "train_loss": float(total_loss.detach().cpu().item()),
-        "valid_metrics": valid_metrics,
-        "trial_metrics": trial_metrics,
+        "valid_metrics_rollout": valid_metrics_rollout,
+        "valid_metrics_true_past": valid_metrics_true_past,
+        "trial_metrics_rollout": trial_metrics_rollout,
+        "trial_metrics_true_past": trial_metrics_true_past,
     }
     output_dir = Path(args.output_dir or f"{REPO_ROOT}/results/logs/phase1_benchmark_faithful_neuroformer_smoke")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -915,6 +1133,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
             null_lookup=null_lookup,
             device=device,
             max_generate_steps=bridge_cfg.max_generate_steps,
+            true_past=False,
         )
         mean_train_loss = float(loss_total / max(loss_steps, 1))
         final_epoch_metrics = dict(valid_metrics)
@@ -965,7 +1184,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
 
     best_state = torch.load(best_checkpoint_path, map_location=device)
     model.load_state_dict(best_state["model_state_dict"])
-    test_metrics = evaluate_faithful_neuroformer_loader(
+    test_metrics_rollout = evaluate_faithful_neuroformer_loader(
         model,
         tokenizer,
         test_loader,
@@ -974,8 +1193,20 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         null_lookup=null_lookup,
         device=device,
         max_generate_steps=bridge_cfg.max_generate_steps,
+        true_past=False,
     )
-    trial_metrics = evaluate_trial_aligned_loader(
+    test_metrics_true_past = evaluate_faithful_neuroformer_loader(
+        model,
+        tokenizer,
+        test_loader,
+        spec=spec,
+        channel_capacity=channel_capacity,
+        null_lookup=null_lookup,
+        device=device,
+        max_generate_steps=bridge_cfg.max_generate_steps,
+        true_past=True,
+    )
+    trial_metrics_rollout = evaluate_trial_aligned_loader(
         build_trial_model_fn(
             model,
             tokenizer,
@@ -983,6 +1214,22 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
             channel_capacity=channel_capacity,
             max_generate_steps=bridge_cfg.max_generate_steps,
             device=device,
+            true_past=False,
+        ),
+        test_trial_loader,
+        spec,
+        null_lookup,
+        device,
+    )
+    trial_metrics_true_past = evaluate_trial_aligned_loader(
+        build_trial_model_fn(
+            model,
+            tokenizer,
+            spec=spec,
+            channel_capacity=channel_capacity,
+            max_generate_steps=bridge_cfg.max_generate_steps,
+            device=device,
+            true_past=True,
         ),
         test_trial_loader,
         spec,
@@ -997,20 +1244,29 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         best_epoch=best_epoch,
         best_valid_metrics=best_valid_metrics,
         final_epoch_metrics=final_epoch_metrics or best_valid_metrics,
-        test_metrics=test_metrics,
+        test_metrics={
+            "rollout": test_metrics_rollout,
+            "true_past": test_metrics_true_past,
+        },
         notes=[
             "Faithful bridge keeps upstream Neuroformer tokenization and id/dt loss path.",
             "Evaluation uses autoregressive generation and 20 ms count re-binning.",
+            "Held-out test reports both rollout (true_past=False) and oracle-history (true_past=True) modes.",
             "Visual and behavior branches are disabled because Perich-Miller has no matching inputs.",
         ],
     )
-    payload["trial_aligned_test_metrics"] = dict(trial_metrics)
+    payload["selection_metric_mode"] = "rollout"
+    payload["trial_aligned_test_metrics"] = {
+        "rollout": dict(trial_metrics_rollout),
+        "true_past": dict(trial_metrics_true_past),
+    }
     payload["history"] = history
     payload["bridge_config"] = asdict(bridge_cfg)
     payload["model_fidelity_notes"] = [
         "Upstream Tokenizer and Neuroformer core retained.",
         "Compatibility layer maps Perich-Miller raw spike events into ID/dt token streams.",
         "Generation is session-constrained at decode time so predictions stay within the current recording vocabulary.",
+        "Both rollout and true_past inference modes are evaluated on the same held-out windows.",
     ]
     write_json(output_dir / "results.json", payload)
     print(json.dumps(payload, indent=2))
