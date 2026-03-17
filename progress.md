@@ -1488,3 +1488,48 @@
 **对应记录文件**：
 - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
 - `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
+
+
+## 2026-03-18 1.8.3 faithful IBL-MtM / Neuroformer bridge
+
+**完成内容**：
+1. 新增 `neural-benchmark/faithful_ibl_mtm.py`：
+   - 直接接入上游 `NDT1 + stitching + session prompting + ssl/PoissonNLL`
+   - 用 canonical windows 驱动 train / best-valid / held-out test / trial-aligned eval
+   - 训练与评估统一使用显式 `forward_pred` heldout mask；batch 改成 session-pure
+2. 新增 `neural-benchmark/faithful_neuroformer.py`：
+   - 直接接入上游 `Tokenizer + Neuroformer.forward + autoregressive generation`
+   - 关闭视觉 / 行为分支，只保留 neural token generation 主体
+   - generation 后 re-bin 到 `20ms` counts，再接统一 continuous / trial-aligned eval
+3. 完成两条 faithful 线的 smoke：
+   - IBL-MtM smoke：valid `fp-bps = -7.9962`，trial `fp-bps = -11.3897`
+   - Neuroformer smoke：valid `fp-bps = -13.8177`，trial `fp-bps = -10.8324`
+4. 完成两条 faithful 线的 250ms limited-window debug e1：
+   - IBL-MtM：`results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_debug_e1/results.json`
+     - best-valid/test `fp-bps = -7.0094 / -7.4991`
+     - test `PSTH-R² = -40.8050`
+   - Neuroformer：`results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_debug_e1/results.json`
+     - best-valid/test `fp-bps = -14.0545 / -14.2368`
+     - test `teacher_forced_loss = 3.5635`
+     - test `PSTH-R² = -1475.9126`
+5. 已同步更新：
+   - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
+   - `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
+   - `cc_core_files/results.md`
+   - `cc_core_files/scripts.md`
+   - `cc_core_files/plan.md`
+
+**关键判断**：
+1. IBL-MtM / Neuroformer faithful 都已经从“简化替身模型”推进到“上游核心模型 + compatibility bridge”阶段
+2. 但当前两条 faithful 线都只到 `smoke + 250ms debug negative stage`，距离正式 benchmark 结果还差很远
+3. 当前最直接的结论不是“NeuroHorizon 优于它们”，而是“faithful pipeline 已打通，但结果仍显著失败，需要继续查 fidelity / objective / protocol mismatch”
+
+**遇到的问题与解决**：
+- IBL-MtM 上游 `NDT1.__init__` 依赖相对路径 `src/configs/ndt1.yaml`，直接从项目根执行会失败  
+  已在 faithful bridge 中对模型实例化增加临时切换到上游仓库根目录的 compatibility 处理
+- Neuroformer 在无视觉输入时，`FeatureEncoder.forward()` 对 `visual=None` 处理不完整  
+  已在 bridge 中加入最薄的 no-vision compatibility patch，只修空值分支，不改动 neural 主路径
+- Neuroformer autoregressive decode 不能直接用变长前缀；其 `pos_emb` 假定当前 `id` 序列始终等于固定 `block_size`  
+  已改为“固定 block_size + pad + 从最后一个非 pad 位置取 logits”的 decode 方式
+- trial-aligned 统一评估要求 batch 内保留 full-window `spike_counts` 再由评估函数切 prediction 部分；最初只存了 pred-only target，导致 shape 不匹配  
+  已改为同时存 `full-window spike_counts` 与 `pred-only target_counts`

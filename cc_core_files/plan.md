@@ -553,12 +553,16 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 > - 2026-03-17 已完成 **NDT2 faithful 250ms full-data 初步重跑**：修复 `causal=False` fidelity bug 后，20 epoch held-out test `fp-bps = -0.0078`、`PSTH-R² = 0.3833`；虽较错误配置显著提升，但仍明显低于 legacy NDT2-like `0.1791 / 0.6710`
 > - 2026-03-17 已完成 **NDT2 optimizer/scheduler 对齐实验**：直接复用上游 `configure_optimizers()` + `accumulate=16` 的 60 epoch 结果仅 `fp-bps = -0.7156`；缩放 warmup 后仍为 `-0.6779`，说明“完整上游预训练时标直接迁移”在当前 benchmark 上明显欠拟合
 > - 2026-03-17 已完成 **NDT2 variable-length tokenization / padding 修复**：旧 faithful bridge 将所有 session 强行扩成全局 `72-channel` flat tokens，且 `pad_token=20` 会在 `max_spatial_tokens=9` 的 mixed-session batch 上触发 position 越界；修复后 full-data 250ms 重跑得到 `f8align_pad8_e10: -0.6707 / 0.0575` 与 `projectfix_pad8_e10: -0.6570 / -0.5924`，说明此前 `causalfix_e20` 的 near-zero 结果已被 data-path bug 污染，不能再作为主参考
-> - **faithful reproduction of original NDT2 / IBL-MtM / Neuroformer 尚未完成**，因此主任务重新打开
+> - 2026-03-18 已完成 **IBL-MtM faithful bridge smoke + 250ms debug e1**（`neural-benchmark/faithful_ibl_mtm.py`）：上游 `NDT1 + stitching + session prompting` 已能在 canonical windows 上跑通 train / best-valid / held-out test / trial-eval，但 debug 结果仍显著为负（test `fp-bps = -7.4991`）
+> - 2026-03-18 已完成 **Neuroformer faithful bridge smoke + 250ms debug e1**（`neural-benchmark/faithful_neuroformer.py`）：上游 `Tokenizer + Neuroformer.forward + autoregressive generation` 已能在 canonical windows 上跑通 train / best-valid / held-out test / trial-eval，但 debug 结果更负（test `fp-bps = -14.2368`）
+> - **faithful reproduction of original NDT2 / IBL-MtM / Neuroformer 仍未完成为正式 benchmark 结果**，当前三条 faithful 线都只到“pipeline 打通 / debug negative stage”，因此主任务继续保持打开
 
 - [x] 旧 1.8.3 pipeline 审计与 legacy 降级
 - [x] legacy checkpoint 的 protocol-fix valid/test/PSTH 重评估
 - [x] NDT2 faithful runner（smoke → train/held-out test/trial-eval）与 250ms causal-fix 初步重跑
-- [ ] 原始 benchmark 模型的 faithful reproduction（NDT2 / IBL-MtM / Neuroformer）
+- [x] IBL-MtM faithful bridge（smoke + 250ms debug e1）
+- [x] Neuroformer faithful bridge（smoke + 250ms debug e1）
+- [ ] 原始 benchmark 模型的 formal faithful reproduction（NDT2 / IBL-MtM / Neuroformer）
 
 
 **数据集详情**：

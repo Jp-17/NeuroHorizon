@@ -988,3 +988,37 @@
 - **输出**：`results/logs/phase1_benchmark_repro_faithful_ndt2_*`（`results.json`, `best_model.pt`, `last_model.pt`）
 - **依赖**：benchmark-env conda 环境，`neural_benchmark/repro_protocol.py`
 - **备注**：当前结果表明 faithful NDT2 在修正后的 canonical protocol 上仍显著为负，1.8.3 尚未完成
+
+
+### faithful_ibl_mtm.py（1.8.3 IBL-MtM faithful bridge）
+
+- **路径**：`neural-benchmark/faithful_ibl_mtm.py`
+- **功能用途**：
+  - 以 canonical benchmark protocol 驱动上游 `NDT1 + stitching + session prompting`
+  - 使用显式 `forward_pred` mask 做训练 / valid / held-out test / trial-aligned eval
+- **使用方式**：
+  ```bash
+  cd /root/autodl-tmp/NeuroHorizon
+  /root/miniconda3/bin/conda run -n benchmark-env     python neural-benchmark/faithful_ibl_mtm.py --mode smoke
+
+  /root/miniconda3/bin/conda run -n benchmark-env     python neural-benchmark/faithful_ibl_mtm.py     --mode train --pred-window 0.25 --epochs 1 --batch-size 8     --max-train-windows 64 --max-valid-windows 16 --max-test-windows 16 --max-trial-windows 8     --output-dir results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_debug_e1
+  ```
+- **输出**：`results/logs/phase1_benchmark_repro_faithful_ibl_mtm_*`（`results.json`, `best_model.pt`, `last_model.pt`）
+- **备注**：当前只完成 smoke + 1-epoch debug，结果仍显著为负
+
+### faithful_neuroformer.py（1.8.3 Neuroformer faithful bridge）
+
+- **路径**：`neural-benchmark/faithful_neuroformer.py`
+- **功能用途**：
+  - 以 canonical benchmark protocol 驱动上游 `Tokenizer + Neuroformer.forward + autoregressive generation`
+  - 关闭视觉 / 行为分支，保留 neural token generation 主体
+  - decode 后 re-bin 到 `20ms` counts，再接统一 held-out continuous / trial-aligned eval
+- **使用方式**：
+  ```bash
+  cd /root/autodl-tmp/NeuroHorizon
+  /root/miniconda3/bin/conda run -n benchmark-env     python neural-benchmark/faithful_neuroformer.py --mode smoke
+
+  /root/miniconda3/bin/conda run -n benchmark-env     python neural-benchmark/faithful_neuroformer.py     --mode train --pred-window 0.25 --epochs 1 --batch-size 8     --max-train-windows 32 --max-valid-windows 8 --max-test-windows 8 --max-trial-windows 4     --output-dir results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_debug_e1
+  ```
+- **输出**：`results/logs/phase1_benchmark_repro_faithful_neuroformer_*`（`results.json`, `best_model.pt`, `last_model.pt`）
+- **备注**：当前只完成 smoke + 1-epoch debug；当前结果提示 no-vision compatibility 与 count-based eval mismatch 很强
