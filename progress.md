@@ -1431,3 +1431,47 @@
 - full-data 训练下 DataLoader 吞吐偏低，已补加 `pin_memory` 和 `persistent_workers`
 
 **对应 plan.md 任务**：Phase 1 → 1.8.3（NDT2 faithful runner 已落地并完成 250ms causal-fix 初步重跑；原始 benchmark faithful reproduction 仍待继续）
+
+
+---
+
+## 2026-03-17-23h10
+
+### 任务：继续审查 NDT2 faithful 250ms 的训练规程，对齐上游 optimizer/scheduler 并验证时标失配
+
+**完成时间**：2026-03-17-23h10
+
+**完成内容**：
+1. 继续修改 `neural-benchmark/faithful_ndt2.py`
+   - `train` 模式接入上游 `model.configure_optimizers()`
+   - 新增 `--accumulate-batches`
+   - 新增 `--lr-schedule / --lr-ramp-steps / --lr-decay-steps / --lr-min`
+   - checkpoint 补存 scheduler state
+   - `results.json` 新增 `train_protocol`、`lr`、`n_optimizer_steps`
+2. 完成两组 full-data 250ms 对照实验：
+   - `results/logs/phase1_benchmark_repro_faithful_ndt2_250ms_optalign_acc16_e60/`
+   - `results/logs/phase1_benchmark_repro_faithful_ndt2_250ms_optalign_acc16_scaledwarmup_e60/`
+3. 同步更新：
+   - `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
+   - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
+   - `cc_core_files/scripts.md`
+   - `cc_core_files/results.md`
+   - `cc_core_files/plan.md`
+
+**执行结果**：
+- 小样本 `optalign_trainverify_250ms` 已确认新的 optimizer/scheduler/accumulation 链路工作正常
+- 直接复用上游 `configure_optimizers()` + `accumulate=16` 的 60 epoch 结果为：
+  - best valid `fp-bps = -0.7006`
+  - held-out test `fp-bps = -0.7156`
+  - test `PSTH-R² = 0.1747`
+- 将 warmup 缩放到 `lr_ramp_steps=5, lr_decay_steps=60` 后结果仅改善到：
+  - best valid `fp-bps = -0.6641`
+  - held-out test `fp-bps = -0.6779`
+  - test `PSTH-R² = 0.1746`
+- 结论：对当前 benchmark 而言，**完整上游预训练时标直接迁移明显欠拟合**；当前阶段仍应以 `phase1_benchmark_repro_faithful_ndt2_250ms_causalfix_e20` 作为更可用的 faithful NDT2 250ms 参考
+
+**遇到的问题与解决**：
+- 仅凭“更忠实地照搬上游 optimizer/scheduler”并未改善结果，反而显著变差；因此将问题进一步收敛为“训练时标与当前数据规模失配”，而不是继续把代码 fidelity 和训练规程 fidelity 混成一个问题
+- 为后续更细粒度排查，已把 lr 和 optimizer step 数显式写入 history / results schema
+
+**对应 plan.md 任务**：Phase 1 → 1.8.3（NDT2 faithful 250ms 训练规程审查继续推进；确认上游 optimizer/scheduler 直迁在当前 benchmark 上欠拟合）

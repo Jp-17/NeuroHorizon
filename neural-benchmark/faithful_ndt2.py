@@ -87,6 +87,11 @@ class FaithfulNDT2Config:
     mask_ratio: float = 0.5
     lr: float = 5e-4
     weight_decay: float = 1e-2
+    lr_schedule: str = "cosine_warmup"
+    lr_ramp_init_factor: float = 0.1
+    lr_ramp_steps: int = 50
+    lr_decay_steps: int = 1000
+    lr_min: float = 1e-6
     pad_token: int = 20
 
 
@@ -260,6 +265,11 @@ def create_faithful_ndt2_model(
         decoder_layers=2,
         lr_init=config.lr,
         weight_decay=config.weight_decay,
+        lr_schedule=config.lr_schedule,
+        lr_ramp_init_factor=config.lr_ramp_init_factor,
+        lr_ramp_steps=config.lr_ramp_steps,
+        lr_decay_steps=config.lr_decay_steps,
+        lr_min=config.lr_min,
         dropout=config.dropout,
         session_embed_strategy=EmbedStrat.token,
         subject_embed_strategy=EmbedStrat.none,
@@ -506,20 +516,47 @@ def save_checkpoint(
     epoch: int,
     model: BrainBertInterface,
     optimizer: torch.optim.Optimizer,
+    scheduler: Optional[object],
     valid_metrics: Mapping[str, object],
     train_loss: float,
+    n_optimizer_steps: int,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "epoch": int(epoch),
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "valid_metrics": dict(valid_metrics),
+        "train_loss": float(train_loss),
+        "n_optimizer_steps": int(n_optimizer_steps),
+    }
+    if scheduler is not None and hasattr(scheduler, "state_dict"):
+        payload["scheduler_state_dict"] = scheduler.state_dict()
     torch.save(
-        {
-            "epoch": int(epoch),
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "valid_metrics": dict(valid_metrics),
-            "train_loss": float(train_loss),
-        },
+        payload,
         path,
     )
+
+
+def resolve_optimizer_bundle(
+    model: BrainBertInterface,
+) -> Tuple[torch.optim.Optimizer, Optional[object]]:
+    bundle = model.configure_optimizers()
+    if isinstance(bundle, dict):
+        return bundle["optimizer"], bundle.get("lr_scheduler")
+    if isinstance(bundle, (list, tuple)):
+        if not bundle:
+            raise ValueError("configure_optimizers() returned an empty sequence.")
+        optimizer = bundle[0]
+        scheduler = bundle[1] if len(bundle) > 1 else None
+        return optimizer, scheduler
+    return bundle, None
+
+
+def get_current_lr(optimizer: torch.optim.Optimizer) -> float:
+    if not optimizer.param_groups:
+        return float("nan")
+    return float(optimizer.param_groups[0]["lr"])
 
 
 def run_train(args: argparse.Namespace) -> Dict[str, object]:
@@ -539,6 +576,11 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         mask_ratio=args.mask_ratio,
         lr=args.lr,
         weight_decay=args.weight_decay,
+        lr_schedule=args.lr_schedule,
+        lr_ramp_init_factor=args.lr_ramp_init_factor,
+        lr_ramp_steps=args.lr_ramp_steps,
+        lr_decay_steps=args.lr_decay_steps,
+        lr_min=args.lr_min,
     )
     output_dir = (
         Path(args.output_dir)
@@ -635,11 +677,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         channel_capacity=channel_capacity,
         config=bridge_cfg,
     ).to(device)
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=bridge_cfg.lr,
-        weight_decay=bridge_cfg.weight_decay,
-    )
+    optimizer, scheduler = resolve_optimizer_bundle(model)
     null_rates = compute_raw_null_rates(
         datasets["train"],
         global_unit_index=global_unit_index,
@@ -654,24 +692,38 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
     history = []
     best_checkpoint_path = output_dir / "best_model.pt"
     last_checkpoint_path = output_dir / "last_model.pt"
+    accumulate_batches = max(int(args.accumulate_batches), 1)
+    total_optimizer_steps = 0
 
     for epoch in range(1, args.epochs + 1):
         epoch_losses = []
-        for batch in train_loader:
+        optimizer.zero_grad(set_to_none=True)
+        for batch_idx, batch in enumerate(train_loader, start=1):
             batch = move_batch_to_device(batch, device)
-            optimizer.zero_grad(set_to_none=True)
             train_loss = compute_train_loss(model, batch)
-            train_loss.backward()
-            if args.grad_clip > 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-            optimizer.step()
+            (train_loss / accumulate_batches).backward()
+            should_step = (
+                batch_idx % accumulate_batches == 0
+                or batch_idx == len(train_loader)
+            )
+            if should_step:
+                if args.grad_clip > 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
+                total_optimizer_steps += 1
             epoch_losses.append(float(train_loss.detach().cpu().item()))
+
+        if scheduler is not None:
+            scheduler.step()
 
         mean_train_loss = float(sum(epoch_losses) / max(len(epoch_losses), 1))
         epoch_record: Dict[str, object] = {
             "epoch": int(epoch),
             "mean_train_loss": mean_train_loss,
             "n_train_batches": len(epoch_losses),
+            "n_optimizer_steps": int(total_optimizer_steps),
+            "lr": get_current_lr(optimizer),
         }
 
         if epoch % args.eval_every == 0 or epoch == args.epochs:
@@ -695,8 +747,10 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
                     epoch=epoch,
                     model=model,
                     optimizer=optimizer,
+                    scheduler=scheduler,
                     valid_metrics=valid_metrics,
                     train_loss=mean_train_loss,
+                    n_optimizer_steps=total_optimizer_steps,
                 )
 
         save_checkpoint(
@@ -704,8 +758,10 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
             epoch=epoch,
             model=model,
             optimizer=optimizer,
+            scheduler=scheduler,
             valid_metrics=epoch_record.get("valid_metrics", final_valid_metrics or {}),
             train_loss=mean_train_loss,
+            n_optimizer_steps=total_optimizer_steps,
         )
         history.append(epoch_record)
         print(json.dumps(epoch_record, ensure_ascii=False))
@@ -727,8 +783,10 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
             epoch=best_epoch,
             model=model,
             optimizer=optimizer,
+            scheduler=scheduler,
             valid_metrics=best_valid_metrics,
             train_loss=float(history[-1]["mean_train_loss"]),
+            n_optimizer_steps=total_optimizer_steps,
         )
     if final_valid_metrics is None:
         final_valid_metrics = dict(best_valid_metrics)
@@ -791,6 +849,14 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         "test_continuous": len(test_records),
         "test_trial_aligned": len(test_trial_records),
     }
+    payload["train_protocol"] = {
+        "batch_size": int(args.batch_size),
+        "accumulate_batches": int(accumulate_batches),
+        "effective_batch_size": int(args.batch_size * accumulate_batches),
+        "optimizer_name": optimizer.__class__.__name__,
+        "scheduler_name": None if scheduler is None else scheduler.__class__.__name__,
+        "scheduler_from_model_config": True,
+    }
     payload["history"] = history
     payload["checkpoint_paths"] = {
         "best_model": str(best_checkpoint_path),
@@ -798,6 +864,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
     }
     payload["model_fidelity_notes"] = list(payload["notes"])
     payload["best_valid_fp_bps"] = best_valid_fp_bps
+    payload["total_optimizer_steps"] = int(total_optimizer_steps)
     write_json(output_dir / "results.json", payload)
     print(
         json.dumps(
@@ -832,6 +899,11 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
         mask_ratio=args.mask_ratio,
         lr=args.lr,
         weight_decay=args.weight_decay,
+        lr_schedule=args.lr_schedule,
+        lr_ramp_init_factor=args.lr_ramp_init_factor,
+        lr_ramp_steps=args.lr_ramp_steps,
+        lr_decay_steps=args.lr_decay_steps,
+        lr_min=args.lr_min,
     )
 
     datasets = load_split_datasets(dataset_config=args.dataset_config)
@@ -969,12 +1041,18 @@ def main() -> None:
     parser.add_argument("--n-heads", type=int, default=4)
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--neurons-per-token", type=int, default=8)
-    parser.add_argument("--mask-ratio", type=float, default=0.25)
+    parser.add_argument("--mask-ratio", type=float, default=0.5)
     parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-2)
+    parser.add_argument("--lr-schedule", type=str, default="cosine_warmup")
+    parser.add_argument("--lr-ramp-init-factor", type=float, default=0.1)
+    parser.add_argument("--lr-ramp-steps", type=int, default=50)
+    parser.add_argument("--lr-decay-steps", type=int, default=1000)
+    parser.add_argument("--lr-min", type=float, default=1e-6)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--eval-every", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--accumulate-batches", type=int, default=16)
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output-dir", type=str, default=None)

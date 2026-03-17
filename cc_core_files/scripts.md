@@ -980,6 +980,7 @@
   - 将 binned spike counts 转成 NDT2 原生 flat token 格式
   - 直接实例化上游 `BrainBertInterface` + `ShuffleInfill`
   - 支持 `smoke` 与 `train` 两种模式
+  - `train` 模式支持 `accumulate_batches`，并直接复用上游 `configure_optimizers()` 返回的 optimizer / scheduler
   - `train` 模式统一保存 `best_valid_metrics`、`final_epoch_metrics`、`test_metrics`、checkpoint 和 history
   - 连续评估与 trial-aligned 评估统一走 canonical protocol
 - **创建时间**：2026-03-17
@@ -991,6 +992,11 @@
   /root/miniconda3/bin/conda run -n benchmark-env python neural-benchmark/faithful_ndt2.py \
     --mode train --pred-window 0.25 --batch-size 16 --num-workers 4 --epochs 20 --eval-every 1 \
     --output-dir results/logs/phase1_benchmark_repro_faithful_ndt2_250ms_causalfix_e20
+
+  /root/miniconda3/bin/conda run -n benchmark-env python neural-benchmark/faithful_ndt2.py \
+    --mode train --pred-window 0.25 --batch-size 16 --num-workers 4 --epochs 60 --eval-every 5 \
+    --accumulate-batches 16 --lr-ramp-steps 5 --lr-decay-steps 60 \
+    --output-dir results/logs/phase1_benchmark_repro_faithful_ndt2_250ms_optalign_acc16_scaledwarmup_e60
   ```
 - **输出**：
   - `results/logs/phase1_benchmark_faithful_ndt2_smoke/smoke.json`
@@ -999,6 +1005,7 @@
 - **备注**：
   - 2026-03-17 已扩展为正式 train/valid/test/trial-eval runner
   - `phase1_benchmark_repro_faithful_ndt2_250ms/` 是早期 `causal=False` 的保真性错误试跑，仅保留作审计对照
+  - `phase1_benchmark_repro_faithful_ndt2_250ms_optalign_acc16_e60/` 和 `..._scaledwarmup_e60/` 是 optimizer/scheduler 对齐实验，当前均明显差于 `causalfix_e20`
   - 当前可引用的 NDT2 faithful 250ms 结果以 `phase1_benchmark_repro_faithful_ndt2_250ms_causalfix_e20/` 为准，但 1.8.3 主任务仍未完成
 
 ### phase1_benchmark_compare.py（1.3.4 legacy benchmark 对比可视化）
