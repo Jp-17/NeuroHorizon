@@ -65,7 +65,7 @@
 
 **遇到的问题**：无
 
-**对应 plan.md 任务**：不直接对应 plan.md ��的代码任务，属于项目管理文档建设
+**对应 plan.md 任务**：不直接对应 plan.md 中的代码任务，属于项目管理文档建设
 
 ---
 
@@ -312,7 +312,7 @@
 
 2. **0.1.2 SPINT + Neuroformer 论文精读**
    - SPINT（IDEncoder）：网络结构为"1层cross-attn + 2×三层FC"，输入统计特征（firing rate + variance + spike counts），Dynamic Channel Dropout 是跨 session 鲁棒性的关键；若 33d MLP 方案效果不佳可借鉴其 cross-attn 结构
-   - Neuroformer：三阶段处理（对比对齐→跨模态融合→因果解码）��逐 spike 自回归（vs NeuroHorizon 的 bin-level 预测），需对比学习预训练（vs NeuroHorizon 直接用 DINOv2 更简洁）
+   - Neuroformer：三阶段处理（对比对齐→跨模态融合→因果解码），逐 spike 自回归（vs NeuroHorizon 的 bin-level 预测），需对比学习预训练（vs NeuroHorizon 直接用 DINOv2 更简洁）
 
 3. **0.1.3 后续阶段代码改造建议**（基于 0.1.1 + 0.1.2 产出）
    - Phase 1 关键发现：`rotary_attn_pytorch_func` 和 `rotary_attn_xformers_func` 均只处理 1D kv-padding mask，causal mask（2D 上三角）需扩展 mask reshape 逻辑；两个后端（pytorch + xformers）需同时修改
@@ -1533,3 +1533,28 @@
   已改为“固定 block_size + pad + 从最后一个非 pad 位置取 logits”的 decode 方式
 - trial-aligned 统一评估要求 batch 内保留 full-window `spike_counts` 再由评估函数切 prediction 部分；最初只存了 pred-only target，导致 shape 不匹配  
   已改为同时存 `full-window spike_counts` 与 `pred-only target_counts`
+
+## 2026-03-18 02:50
+
+**任务**：补充 `cc_todo/20260316-review/QA_codex.md`，扩写 NeuroHorizon 主 `fp-bps` 的合理性判断、建议新增的 IBL-MtM 对齐 comparison metric，以及项目内部数据组织 / evaluation / AR decoder / `PerNeuronMLPHead` 的实现说明
+
+**完成内容**：
+1. 在 Q1 末尾新增主指标判断：
+   - 明确当前 `global spike-weighted + train-null fp-bps` 适合作为 NeuroHorizon 主指标
+   - 逐维度讨论 neuron / time / batch / session / null baseline 的合理性与边界
+2. 在 Q1 中补充建议新增的对比指标定义：
+   - `per-neuron mean fp-bps`
+   - `eval-split per-neuron null`
+   - 明确其定位是 IBL-MtM / NLB 风格 compatibility metric，而不是主指标替代
+3. 新增 NeuroHorizon 自身实现补充章节：
+   - dataset / sampler / split / trial metadata 的组织方式
+   - continuous 与 trial-aligned 的样本分布差异
+   - validation/test 与离线 `eval_phase1_v2.py` 的 metric 计算链路
+   - `AutoregressiveDecoder`、`generate()` 与 `PerNeuronMLPHead` 的职责分工
+
+**执行结果**：
+- `QA_codex.md` 现在不仅回答“当前实现是什么”，也明确回答“是否合理、是否要改、若与 IBL-MtM 对齐应如何并列报告”
+- 文档中已把“项目内主结论口径”和“外部 benchmark 对齐口径”拆开，避免后续讨论时再把 metric 差异误当作模型差异
+
+**遇到的问题与解决**：
+- 这次补充不是单纯加观点，而是要把观点和当前代码实现逐条绑死；为避免把 decoder / sampler / null 逻辑说偏，先重新核对了 `train.py`、`dataset.py`、`sampler.py`、`neurohorizon.py`、`neurohorizon_metrics.py` 与 `eval_phase1_v2.py` 的真实实现，再回写文档
