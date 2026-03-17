@@ -960,3 +960,31 @@
   - results/figures/phase1_sessions/（1.5 session count 对比图）
 - **依赖**：poyo conda 环境（matplotlib, numpy）
 - **备注**：对应 plan.md 任务 1.4、1.5 可视化
+
+### faithful_ndt2.py（1.8.3 NDT2 faithful reproduction runner）
+
+- **路径**：`neural-benchmark/faithful_ndt2.py`
+- **功能用途**：以 canonical benchmark protocol 驱动上游 `BrainBertInterface` 的 faithful NDT2 训练/评估
+  - 构造 Perich-Miller continuous / trial-aligned canonical windows
+  - 将 binned counts 转成 NDT2 `serve_tokenized_flat` 输入
+  - 运行 `smoke` / `train` / `best-valid` checkpoint selection / held-out `test` continuous / `trial-aligned` eval
+- **创建时间**：2026-03-17
+- **最新修正**：2026-03-17
+  - 修正 per-session variable-length flat tokenization，不再把所有 session 强行扩到全局 `channel_capacity`
+  - 修正 mixed-session batch 的 padding，新增 `pad_token < max_spatial_tokens` 保护
+  - 默认配置对齐到上游 `flat_enc_dec/f8`（`token spike embedding`, `dropout=0.1`, `ramp/decay=100/2500`）
+- **使用方式**：
+  ```bash
+  cd /root/autodl-tmp/NeuroHorizon
+  /root/miniconda3/bin/conda run -n benchmark-env \
+    python neural-benchmark/faithful_ndt2.py --mode smoke
+
+  /root/miniconda3/bin/conda run -n benchmark-env \
+    python neural-benchmark/faithful_ndt2.py \
+    --mode train --pred-window 0.25 --batch-size 16 --num-workers 4 \
+    --epochs 10 --eval-every 1 \
+    --output-dir results/logs/phase1_benchmark_repro_faithful_ndt2_250ms_f8align_pad8_e10
+  ```
+- **输出**：`results/logs/phase1_benchmark_repro_faithful_ndt2_*`（`results.json`, `best_model.pt`, `last_model.pt`）
+- **依赖**：benchmark-env conda 环境，`neural_benchmark/repro_protocol.py`
+- **备注**：当前结果表明 faithful NDT2 在修正后的 canonical protocol 上仍显著为负，1.8.3 尚未完成

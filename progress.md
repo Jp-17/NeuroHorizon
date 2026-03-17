@@ -1390,3 +1390,57 @@
 
 **对应记录文件**：
 - `cc_todo/20260316-review/QA_codex.md`
+
+## 2026-03-17 | jp-video-1 | 1.8.3 faithful NDT2 数据路径修正 + 250ms 二次重跑
+
+继续推进 NeuroHorizon 的 1.8.3 faithful benchmark 主线，重点不是继续调 optimizer，而是回到 Claude 补充审查里提到的数据适配细节，重新核对 NDT2 faithful bridge 的 flat tokenization 与 padding 是否真正贴近上游 `serve_tokenized_flat` 行为。
+
+**完成内容**：
+1. 继续调研上游 NDT2 配置与任务路径：
+   - 阅读 `context_general_bci/config/exp/nlb/rtt_5.yaml`
+   - 阅读 `config/exp/flat/rtt_m25.yaml`
+   - 阅读 `config/exp/arch_rtt/single_ndt2_nlb_r300.yaml`
+   - 阅读 `task_io.py`, `model.py`, `dataset.py`
+   - 确认 `heldout_decoding` 在部分 NLB 配置中存在，但更接近 flat-token RTT 的官方路径允许只走 `ShuffleInfill`
+2. 修正 `neural-benchmark/faithful_ndt2.py` 的关键数据路径问题：
+   - per-session variable-length flat tokenization，不再把所有 session 强行扩到全局 `72-channel` token 序列
+   - `collate_faithful_ndt2_batch()` 改为合法 pad token padding
+   - 新增 `pad_token < max_spatial_tokens` 保护，修复 mixed-session batch 上的 `position` padding 越界
+   - 默认配置进一步对齐到上游 `flat_enc_dec/f8`：`token spike embedding`, `dropout=0.1`, `lr_ramp_steps=100`, `lr_decay_steps=2500`
+3. 完成多轮 250ms 验证与 full-data 重跑：
+   - `results/logs/phase1_benchmark_faithful_ndt2_f8align_trainverify_250ms/`
+   - `results/logs/phase1_benchmark_faithful_ndt2_f8align_trainverify_acc1_250ms/`
+   - `results/logs/phase1_benchmark_repro_faithful_ndt2_250ms_f8align_pad8_e10/`
+   - `results/logs/phase1_benchmark_repro_faithful_ndt2_250ms_projectfix_pad8_e10/`
+4. 同步更新记录文档：
+   - `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
+   - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
+   - `cc_core_files/plan.md`
+   - `cc_core_files/results.md`
+   - `cc_core_files/scripts.md`
+
+**关键结果**：
+- `f8align_trainverify_acc1_250ms`：best valid `fp-bps = -3.4261`，test `fp-bps = -3.5676`
+- `phase1_benchmark_repro_faithful_ndt2_250ms_f8align_pad8_e10`：
+  - best valid `fp-bps = -0.6806`
+  - held-out test `fp-bps = -0.6707`
+  - test `PSTH-R² = 0.0575`
+- `phase1_benchmark_repro_faithful_ndt2_250ms_projectfix_pad8_e10`：
+  - best valid `fp-bps = -0.6557`
+  - held-out test `fp-bps = -0.6570`
+  - test `PSTH-R² = -0.5924`
+
+**结论更新**：
+1. 旧 `causalfix_e20` 的 `-0.0078 / 0.3833` 不能再作为 faithful NDT2 主参考；修正 tokenization/padding 后，full-data 250ms 结果稳定落在 `-0.66 ~ -0.67`
+2. 这说明旧 near-zero 结果被错误 data path 污染，1.8.3 的 NDT2 faithful 结论需要整体下调
+3. `heldout_decoding` 不是当前最高优先级问题；更需要优先回答的是 canonical forward prediction benchmark 与上游 RTT 自监督目标的 objective-level mismatch
+
+**遇到的问题与解决**：
+- full-data `f8align_e10` 首次运行触发 CUDA `indexSelectLargeIndex` / `device-side assert`  
+  原因是旧 `pad_token=20` 对 mixed-session batch 的 `position` padding 越界；已改为合法 `pad_token=8` 并增加显式保护
+- 初始小样本 trainverify 使用默认 `accumulate=16` 导致实际 optimizer step 过少  
+  已补跑 `accumulate=1` 对照，用于区分“训练规程欠拟合”与“代码链路报错”
+
+**对应记录文件**：
+- `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
+- `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`

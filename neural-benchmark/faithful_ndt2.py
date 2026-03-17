@@ -82,17 +82,19 @@ class FaithfulNDT2Config:
     hidden_size: int = 256
     n_layers: int = 6
     n_heads: int = 4
-    dropout: float = 0.2
+    dropout: float = 0.1
     neurons_per_token: int = 8
     mask_ratio: float = 0.5
     lr: float = 5e-4
     weight_decay: float = 1e-2
     lr_schedule: str = "cosine_warmup"
     lr_ramp_init_factor: float = 0.1
-    lr_ramp_steps: int = 50
-    lr_decay_steps: int = 1000
+    lr_ramp_steps: int = 100
+    lr_decay_steps: int = 2500
     lr_min: float = 1e-6
-    pad_token: int = 20
+    pad_token: int = 8
+    max_neuron_count: int = 21
+    spike_embed_style: str = "token"
 
 
 def round_up_channels(n_units: int, neurons_per_token: int) -> int:
@@ -102,17 +104,19 @@ def round_up_channels(n_units: int, neurons_per_token: int) -> int:
 def tokenize_spike_counts(
     spike_counts: np.ndarray,
     *,
-    channel_capacity: int,
     neurons_per_token: int,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Match NDT2's flat tokenization layout for spike counts."""
     n_time, n_units = spike_counts.shape
-    padded = np.zeros((n_time, channel_capacity), dtype=np.float32)
+    padded_units = round_up_channels(n_units, neurons_per_token)
+    padded = np.zeros((n_time, padded_units), dtype=np.int64)
     padded[:, :n_units] = spike_counts
 
-    n_tokens = channel_capacity // neurons_per_token
+    n_tokens = padded_units // neurons_per_token
     tokenized = padded.reshape(n_time, n_tokens, neurons_per_token)
-    flat_spikes = torch.from_numpy(tokenized.reshape(n_time * n_tokens, neurons_per_token, 1))
+    flat_spikes = torch.from_numpy(
+        tokenized.reshape(n_time * n_tokens, neurons_per_token, 1)
+    )
 
     time_index = torch.arange(n_time, dtype=torch.long).unsqueeze(1).expand(n_time, n_tokens)
     position_index = torch.arange(n_tokens, dtype=torch.long).unsqueeze(0).expand(n_time, n_tokens)
@@ -140,6 +144,7 @@ class FaithfulNDT2WindowDataset(TorchDataset):
         session_to_idx: Mapping[str, int],
         channel_capacity: int,
         neurons_per_token: int,
+        pad_token: int,
     ) -> None:
         self.tb_dataset = tb_dataset
         self.records = list(records)
@@ -148,6 +153,7 @@ class FaithfulNDT2WindowDataset(TorchDataset):
         self.session_to_idx = session_to_idx
         self.channel_capacity = channel_capacity
         self.neurons_per_token = neurons_per_token
+        self.pad_token = int(pad_token)
 
     def __len__(self) -> int:
         return len(self.records)
@@ -166,7 +172,6 @@ class FaithfulNDT2WindowDataset(TorchDataset):
 
         flat_spikes, flat_time, flat_position, flat_channel_counts = tokenize_spike_counts(
             spike_counts,
-            channel_capacity=self.channel_capacity,
             neurons_per_token=self.neurons_per_token,
         )
 
@@ -200,14 +205,32 @@ class FaithfulNDT2WindowDataset(TorchDataset):
                 float("nan") if window["go_cue_time_s"] is None else float(window["go_cue_time_s"]),
                 dtype=torch.float32,
             ),
+            "pad_token": torch.tensor(self.pad_token, dtype=torch.long),
         }
 
 
 def collate_faithful_ndt2_batch(batch: Sequence[Mapping[object, object]]) -> Dict[object, object]:
-    spikes = pad_sequence([item[DataKey.spikes] for item in batch], batch_first=True, padding_value=0)
-    times = pad_sequence([item[DataKey.time] for item in batch], batch_first=True, padding_value=0)
-    positions = pad_sequence([item[DataKey.position] for item in batch], batch_first=True, padding_value=0)
-    channel_counts = pad_sequence([item[CHANNEL_KEY] for item in batch], batch_first=True, padding_value=0)
+    pad_token = int(batch[0]["pad_token"])
+    spikes = pad_sequence(
+        [item[DataKey.spikes] for item in batch],
+        batch_first=True,
+        padding_value=pad_token,
+    )
+    times = pad_sequence(
+        [item[DataKey.time] for item in batch],
+        batch_first=True,
+        padding_value=pad_token,
+    )
+    positions = pad_sequence(
+        [item[DataKey.position] for item in batch],
+        batch_first=True,
+        padding_value=pad_token,
+    )
+    channel_counts = pad_sequence(
+        [item[CHANNEL_KEY] for item in batch],
+        batch_first=True,
+        padding_value=pad_token,
+    )
     lengths = torch.stack([item[LENGTH_KEY] for item in batch])
     sessions = torch.stack([item[MetaKey.session] for item in batch])
 
@@ -228,6 +251,7 @@ def collate_faithful_ndt2_batch(batch: Sequence[Mapping[object, object]]) -> Dic
         "split": [item["split"] for item in batch],
         "target_id": torch.stack([item["target_id"] for item in batch]),
         "go_cue_time_s": torch.stack([item["go_cue_time_s"] for item in batch]),
+        "pad_token": torch.tensor(pad_token, dtype=torch.long),
     }
 
 
@@ -238,11 +262,17 @@ def create_faithful_ndt2_model(
     channel_capacity: int,
     config: FaithfulNDT2Config,
 ) -> BrainBertInterface:
+    max_spatial_tokens = channel_capacity // config.neurons_per_token
+    if config.pad_token >= max_spatial_tokens:
+        raise ValueError(
+            f"pad_token={config.pad_token} must be smaller than max_spatial_tokens={max_spatial_tokens} "
+            "because the same pad value is also used for padded position indices."
+        )
     task_cfg = TaskConfig(
         tasks=[ModelTask.shuffle_infill],
         task_weights=[1.0],
         mask_ratio=config.mask_ratio,
-        outputs=[Output.logrates, Output.spikes],
+        outputs=[Output.logrates],
         metrics=[],
     )
     transformer_cfg = TransformerConfig(
@@ -254,7 +284,7 @@ def create_faithful_ndt2_model(
         transform_space=True,
         flat_encoder=True,
         embed_space=True,
-        max_spatial_tokens=channel_capacity // config.neurons_per_token,
+        max_spatial_tokens=max_spatial_tokens,
     )
     model_cfg = ModelConfig(
         hidden_size=config.hidden_size,
@@ -277,8 +307,9 @@ def create_faithful_ndt2_model(
         array_embed_strategy=EmbedStrat.none,
         readout_strategy=EmbedStrat.none,
         transform_space=True,
-        spike_embed_style=EmbedStrat.project,
+        spike_embed_style=getattr(EmbedStrat, config.spike_embed_style),
         neurons_per_token=config.neurons_per_token,
+        max_neuron_count=config.max_neuron_count,
         # The upstream f8 architecture preset enables causal decoding for
         # next-bin prediction; keep that behavior in the faithful bridge.
         causal=True,
@@ -463,6 +494,7 @@ def build_window_loader(
     session_to_idx: Mapping[str, int],
     channel_capacity: int,
     neurons_per_token: int,
+    pad_token: int,
     batch_size: int,
     shuffle: bool,
     num_workers: int,
@@ -476,6 +508,7 @@ def build_window_loader(
             session_to_idx,
             channel_capacity,
             neurons_per_token,
+            pad_token,
         ),
         batch_size=batch_size,
         shuffle=shuffle,
@@ -581,6 +614,9 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         lr_ramp_steps=args.lr_ramp_steps,
         lr_decay_steps=args.lr_decay_steps,
         lr_min=args.lr_min,
+        pad_token=args.pad_token,
+        max_neuron_count=args.max_neuron_count,
+        spike_embed_style=args.spike_embed_style,
     )
     output_dir = (
         Path(args.output_dir)
@@ -630,6 +666,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         session_to_idx=session_to_idx,
         channel_capacity=channel_capacity,
         neurons_per_token=bridge_cfg.neurons_per_token,
+        pad_token=bridge_cfg.pad_token,
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.num_workers,
@@ -642,6 +679,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         session_to_idx=session_to_idx,
         channel_capacity=channel_capacity,
         neurons_per_token=bridge_cfg.neurons_per_token,
+        pad_token=bridge_cfg.pad_token,
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
@@ -654,6 +692,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         session_to_idx=session_to_idx,
         channel_capacity=channel_capacity,
         neurons_per_token=bridge_cfg.neurons_per_token,
+        pad_token=bridge_cfg.pad_token,
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
@@ -666,6 +705,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         session_to_idx=session_to_idx,
         channel_capacity=channel_capacity,
         neurons_per_token=bridge_cfg.neurons_per_token,
+        pad_token=bridge_cfg.pad_token,
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
@@ -833,6 +873,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         },
         notes=[
             "Uses upstream BrainBertInterface with ShuffleInfill instead of the legacy simplified baseline.",
+            "Model defaults are aligned to the official flat_enc_dec/f8 NDT2 configuration (token spike embedding, causal decoding, mask_ratio=0.5).",
             "Canonical windows, null model, and test evaluation follow neural_benchmark.repro_protocol.",
             "This bridge preserves NDT2 flat-token input formatting and session token embeddings.",
         ],
@@ -904,6 +945,9 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
         lr_ramp_steps=args.lr_ramp_steps,
         lr_decay_steps=args.lr_decay_steps,
         lr_min=args.lr_min,
+        pad_token=args.pad_token,
+        max_neuron_count=args.max_neuron_count,
+        spike_embed_style=args.spike_embed_style,
     )
 
     datasets = load_split_datasets(dataset_config=args.dataset_config)
@@ -925,6 +969,7 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
             session_to_idx,
             channel_capacity,
             bridge_cfg.neurons_per_token,
+            bridge_cfg.pad_token,
         ),
         batch_size=args.batch_size,
         shuffle=False,
@@ -940,6 +985,7 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
             session_to_idx,
             channel_capacity,
             bridge_cfg.neurons_per_token,
+            bridge_cfg.pad_token,
         ),
         batch_size=args.batch_size,
         shuffle=False,
@@ -1039,15 +1085,18 @@ def main() -> None:
     parser.add_argument("--hidden-size", type=int, default=256)
     parser.add_argument("--n-layers", type=int, default=6)
     parser.add_argument("--n-heads", type=int, default=4)
-    parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--neurons-per-token", type=int, default=8)
     parser.add_argument("--mask-ratio", type=float, default=0.5)
+    parser.add_argument("--spike-embed-style", choices=["token", "project"], default="token")
+    parser.add_argument("--pad-token", type=int, default=8)
+    parser.add_argument("--max-neuron-count", type=int, default=21)
     parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-2)
     parser.add_argument("--lr-schedule", type=str, default="cosine_warmup")
     parser.add_argument("--lr-ramp-init-factor", type=float, default=0.1)
-    parser.add_argument("--lr-ramp-steps", type=int, default=50)
-    parser.add_argument("--lr-decay-steps", type=int, default=1000)
+    parser.add_argument("--lr-ramp-steps", type=int, default=100)
+    parser.add_argument("--lr-decay-steps", type=int, default=2500)
     parser.add_argument("--lr-min", type=float, default=1e-6)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--eval-every", type=int, default=1)
