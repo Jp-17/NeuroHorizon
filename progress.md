@@ -1346,3 +1346,42 @@
 - 远程非交互 shell 中 `conda` 不在 PATH，改为直接使用 `/root/miniconda3/bin/conda run -n benchmark-env ...`
 
 **对应 plan.md 任务**：Phase 1 → 1.8.3（legacy benchmark 审计回收 + protocol-fix 重评估；faithful reproduction 待继续）
+
+
+---
+
+## 2026-03-17-18h20
+
+### 任务：启动 NDT2 faithful reproduction，完成第一版 bridge smoke
+
+**完成时间**：2026-03-17-18h20
+
+**完成内容**：
+1. 新增 `neural-benchmark/faithful_ndt2.py`
+   - canonical windows -> NDT2 flat token conversion
+   - 直接实例化上游 `BrainBertInterface`
+   - 使用原生 `ShuffleInfill`
+   - 提供 smoke CLI
+2. 运行 faithful NDT2 smoke：
+   - 命令：`/root/miniconda3/bin/conda run -n benchmark-env python neural-benchmark/faithful_ndt2.py --mode smoke --batch-size 2 --train-windows 4 --valid-windows 4 --eval-batches 1`
+   - 结果文件：`results/logs/phase1_benchmark_faithful_ndt2_smoke/smoke.json`
+3. 同步更新：
+   - `cc_core_files/scripts.md`
+   - `cc_core_files/results.md`
+   - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
+   - `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
+
+**执行结果**：
+- NDT2 faithful bridge smoke 已通过
+- 关键 smoke 输出：
+  - `train_batch_shape = [2, 333, 8, 1]`
+  - `valid_pred_shape = [2, 12, 72]`
+  - `train_loss_after_one_step = 1.3230`
+- 指标仍为负值（随机初始化 + 1 步训练），但已确认上游 NDT2 路径可以在 canonical windows 上完成 `loss -> backward -> predict -> metrics` 全链路
+
+**遇到的问题与解决**：
+- `ShuffleInfill` 原生实现要求 `cfg.encode_decode=True`；已在 faithful bridge 配置中显式启用
+- faithful dataset 同样遇到 `250ms` 条件 `38 -> 37` rounding mismatch；已在 dataset 入口统一截断到 `spec.total_bins`
+- 运行时有来自其他依赖包的 PyTorch / transformers 提示，但不影响 NDT2 bridge 实际执行
+
+**对应 plan.md 任务**：Phase 1 → 1.8.3（faithful reproduction 主线，NDT2 bridge smoke 已完成，正式训练待继续）

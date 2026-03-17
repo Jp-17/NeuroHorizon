@@ -548,6 +548,7 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 > **状态说明**：
 > - 2026-03-12 的“完成”记录已被审计降级为 **legacy simplified baselines**，不再视为正式 benchmark 完成态
 > - 2026-03-17 已完成 legacy checkpoint 的 **protocol-fix reevaluation**（统一 valid/test continuous + trial-aligned 评估）
+> - 2026-03-17 已完成 **NDT2 faithful bridge smoke**（`neural-benchmark/faithful_ndt2.py`），确认上游 `BrainBertInterface` 已能在 canonical windows 上跑通 loss / predict / metric 链路
 > - **faithful reproduction of original NDT2 / IBL-MtM / Neuroformer 尚未完成**，因此主任务重新打开
 
 - [x] 旧 1.8.3 pipeline 审计与 legacy 降级

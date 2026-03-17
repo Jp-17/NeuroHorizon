@@ -972,6 +972,23 @@
   - `results/figures/phase1_benchmark_protocolfix/protocolfix_test_psth_r2.png`
 - **备注**：用于审计回收与结果对照，不用于宣称原始 benchmark 模型优劣
 
+### faithful_ndt2.py（1.8.3 faithful NDT2 bridge + smoke）
+
+- **路径**：`neural-benchmark/faithful_ndt2.py`
+- **功能用途**：为 NDT2 faithful reproduction 提供第一条可运行 bridge
+  - 按 `repro_protocol.py` 生成 canonical windows
+  - 将 binned spike counts 转成 NDT2 原生 flat token 格式
+  - 直接实例化上游 `BrainBertInterface` + `ShuffleInfill`
+  - 提供 smoke CLI，验证 train loss / predict logrates / protocol metrics 全链路
+- **创建时间**：2026-03-17
+- **使用方式**：
+  ```bash
+  /root/miniconda3/bin/conda run -n benchmark-env python neural-benchmark/faithful_ndt2.py \
+    --mode smoke --batch-size 2 --train-windows 4 --valid-windows 4 --eval-batches 1
+  ```
+- **输出**：`results/logs/phase1_benchmark_faithful_ndt2_smoke/smoke.json`
+- **备注**：当前仅完成 faithful bridge smoke，不代表 NDT2 正式 benchmark 训练已经完成
+
 ### phase1_benchmark_compare.py（1.3.4 legacy benchmark 对比可视化）
 
 - **路径**：`scripts/analysis/neurohorizon/phase1_benchmark_compare.py`
