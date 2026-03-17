@@ -333,7 +333,7 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 
 - [x] Benchmark 对比分析（直接引用 1.8.3 结果，无需重训）
 
-#### 1.3.5 [ ] IBL-MtM 风格 bps 对照指标（`ibl_mtm_bps`）
+#### 1.3.5 [x] IBL-MtM 风格 bps 对照指标（`ibl_mtm_bps`）
 > 依赖：`cc_todo/20260316-review/QA_codex.md` §1.8（尤其 §3.3）
 > 产出：更新后的 `eval_v2_{valid,test}_results.json`（新增 `continuous.ibl_mtm_bps` 字段），`results/logs/phase1_v2_metric_extension_comparison/`
 > 记录：`cc_todo/phase1-autoregressive/20260318-phase1-1.3.5-ibl-metric.md`
@@ -364,11 +364,24 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 - `ibl_mtm_bps`
 - `R-squared`
 
-- [ ] 250ms-cont：valid/test `fp-bps` + `ibl_mtm_bps`
-- [ ] 500ms-cont：valid/test `fp-bps` + `ibl_mtm_bps`
-- [ ] 1000ms-cont：valid/test `fp-bps` + `ibl_mtm_bps`
-- [ ] 汇总：`results/logs/phase1_v2_metric_extension_comparison/comparison.{json,md}`
-- [ ] 分析：两种 bps 口径是否对窗口排序和相对衰减给出一致结论
+**结果概览**：
+
+| 条件 | valid fp-bps | valid ibl_mtm_bps | test fp-bps | test ibl_mtm_bps |
+|------|--------------|-------------------|-------------|------------------|
+| 250ms-cont | 0.2164 | 0.2234 | 0.2223 | 0.2321 |
+| 500ms-cont | 0.1823 | 0.1609 | 0.1740 | 0.1555 |
+| 1000ms-cont | 0.1374 | 0.0381 | 0.1348 | 0.0532 |
+
+**结论**：
+1. 两种指标对 `250ms > 500ms > 1000ms` 的窗口排序保持一致
+2. `ibl_mtm_bps` 在 `1000ms` 上下降更剧烈，说明 per-neuron mean + eval-split null 口径对低发放率 / 难预测 neuron 更敏感
+3. 因此 `ibl_mtm_bps` 可作为与 IBL-MtM paper 更接近的 comparison metric，但不应替代主 `fp-bps`
+
+- [x] 250ms-cont：valid/test `fp-bps` + `ibl_mtm_bps`
+- [x] 500ms-cont：valid/test `fp-bps` + `ibl_mtm_bps`
+- [x] 1000ms-cont：valid/test `fp-bps` + `ibl_mtm_bps`
+- [x] 汇总：`results/logs/phase1_v2_metric_extension_comparison/comparison.{json,md}`
+- [x] 分析：两种 bps 口径是否对窗口排序和相对衰减给出一致结论
 
 #### 1.3.6 [ ] baseline_v2 non-causal ablation（双向 decoder）
 > 依赖：`cc_todo/20260316-review/neurips_innovation_claude.md` §2.2
