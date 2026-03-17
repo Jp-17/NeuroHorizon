@@ -29,6 +29,125 @@ def poisson_nll_elementwise(
     return torch.exp(log_rate) - target * log_rate
 
 
+def fp_bps_stats(
+    log_rate: torch.Tensor,
+    target: torch.Tensor,
+    null_log_rates: torch.Tensor,
+    mask: Optional[torch.Tensor] = None,
+):
+    """Sufficient statistics for globally aggregated fp-bps."""
+    B, T, N = log_rate.shape
+    null_expanded = null_log_rates.unsqueeze(1).expand(B, T, N)
+
+    nll_model = poisson_nll_elementwise(log_rate, target)
+    nll_null = poisson_nll_elementwise(null_expanded, target)
+
+    if mask is not None:
+        mask_3d = mask.unsqueeze(1).expand(B, T, N)
+        nll_model_sum = nll_model[mask_3d].sum(dtype=torch.float64)
+        nll_null_sum = nll_null[mask_3d].sum(dtype=torch.float64)
+        total_spikes = target[mask_3d].sum(dtype=torch.float64)
+    else:
+        nll_model_sum = nll_model.sum(dtype=torch.float64)
+        nll_null_sum = nll_null.sum(dtype=torch.float64)
+        total_spikes = target.sum(dtype=torch.float64)
+
+    return nll_model_sum, nll_null_sum, total_spikes
+
+
+def finalize_fp_bps_from_stats(
+    nll_model_sum: torch.Tensor,
+    nll_null_sum: torch.Tensor,
+    total_spikes: torch.Tensor,
+) -> torch.Tensor:
+    """Finalize fp-bps from globally accumulated statistics."""
+    if total_spikes <= 0:
+        return torch.zeros((), device=nll_model_sum.device, dtype=torch.float64)
+    return (nll_null_sum - nll_model_sum) / (total_spikes * math.log(2))
+
+
+def fp_bps_per_bin_stats(
+    log_rate: torch.Tensor,
+    target: torch.Tensor,
+    null_log_rates: torch.Tensor,
+    mask: Optional[torch.Tensor] = None,
+):
+    """Per-bin sufficient statistics for globally aggregated fp-bps."""
+    B, T, N = log_rate.shape
+    null_expanded = null_log_rates.unsqueeze(1).expand(B, T, N)
+
+    nll_model = poisson_nll_elementwise(log_rate, target)
+    nll_null = poisson_nll_elementwise(null_expanded, target)
+
+    model_sums = torch.zeros(T, device=log_rate.device, dtype=torch.float64)
+    null_sums = torch.zeros(T, device=log_rate.device, dtype=torch.float64)
+    spike_sums = torch.zeros(T, device=log_rate.device, dtype=torch.float64)
+
+    for t in range(T):
+        if mask is not None:
+            mask_t = mask
+            model_sums[t] = nll_model[:, t, :][mask_t].sum(dtype=torch.float64)
+            null_sums[t] = nll_null[:, t, :][mask_t].sum(dtype=torch.float64)
+            spike_sums[t] = target[:, t, :][mask_t].sum(dtype=torch.float64)
+        else:
+            model_sums[t] = nll_model[:, t, :].sum(dtype=torch.float64)
+            null_sums[t] = nll_null[:, t, :].sum(dtype=torch.float64)
+            spike_sums[t] = target[:, t, :].sum(dtype=torch.float64)
+
+    return model_sums, null_sums, spike_sums
+
+
+def finalize_fp_bps_per_bin_from_stats(
+    model_sums: torch.Tensor,
+    null_sums: torch.Tensor,
+    spike_sums: torch.Tensor,
+) -> torch.Tensor:
+    """Finalize per-bin fp-bps from globally accumulated statistics."""
+    denom = spike_sums * math.log(2)
+    result = torch.zeros_like(model_sums)
+    valid = spike_sums > 0
+    result[valid] = (null_sums[valid] - model_sums[valid]) / denom[valid]
+    return result
+
+
+def r2_stats(
+    pred_rate: torch.Tensor,
+    target: torch.Tensor,
+    mask: Optional[torch.Tensor] = None,
+):
+    """Sufficient statistics for globally aggregated R-squared."""
+    if mask is not None:
+        mask_3d = mask.unsqueeze(1).expand_as(pred_rate)
+        pred_flat = pred_rate[mask_3d]
+        tgt_flat = target[mask_3d]
+    else:
+        pred_flat = pred_rate.reshape(-1)
+        tgt_flat = target.reshape(-1)
+
+    pred_flat = pred_flat.to(torch.float64)
+    tgt_flat = tgt_flat.to(torch.float64)
+
+    ss_res = ((pred_flat - tgt_flat) ** 2).sum()
+    target_sum = tgt_flat.sum()
+    target_sq_sum = (tgt_flat**2).sum()
+    count = torch.tensor(float(tgt_flat.numel()), device=pred_rate.device, dtype=torch.float64)
+    return ss_res, target_sum, target_sq_sum, count
+
+
+def finalize_r2_from_stats(
+    ss_res: torch.Tensor,
+    target_sum: torch.Tensor,
+    target_sq_sum: torch.Tensor,
+    count: torch.Tensor,
+) -> torch.Tensor:
+    """Finalize R-squared from globally accumulated statistics."""
+    if count <= 0:
+        return torch.zeros((), device=ss_res.device, dtype=torch.float64)
+    mean = target_sum / count
+    ss_tot = target_sq_sum - 2 * mean * target_sum + count * (mean**2)
+    return 1 - ss_res / (ss_tot + 1e-8)
+
+
 def fp_bps(
     log_rate: torch.Tensor,
     target: torch.Tensor,
@@ -50,29 +169,17 @@ def fp_bps(
     Returns:
         Scalar fp-bps
     """
-    B, T, N = log_rate.shape
-
-    # Expand null rates: [B, N] -> [B, 1, N] -> [B, T, N]
-    null_expanded = null_log_rates.unsqueeze(1).expand(B, T, N)
-
-    nll_model = poisson_nll_elementwise(log_rate, target)
-    nll_null = poisson_nll_elementwise(null_expanded, target)
-
-    if mask is not None:
-        # mask [B, N] -> [B, T, N]
-        mask_3d = mask.unsqueeze(1).expand(B, T, N)
-        nll_model = nll_model[mask_3d]
-        nll_null = nll_null[mask_3d]
-        total_spikes = target[mask_3d].sum()
-    else:
-        nll_model = nll_model.reshape(-1)
-        nll_null = nll_null.reshape(-1)
-        total_spikes = target.sum()
-
-    if total_spikes < 1:
-        return torch.tensor(0.0, device=log_rate.device)
-
-    return (nll_null.sum() - nll_model.sum()) / (total_spikes * math.log(2))
+    nll_model_sum, nll_null_sum, total_spikes = fp_bps_stats(
+        log_rate,
+        target,
+        null_log_rates,
+        mask,
+    )
+    return finalize_fp_bps_from_stats(
+        nll_model_sum,
+        nll_null_sum,
+        total_spikes,
+    ).to(log_rate.dtype)
 
 
 def fp_bps_per_bin(
@@ -92,31 +199,17 @@ def fp_bps_per_bin(
     Returns:
         [T] tensor of per-bin fp-bps values
     """
-    B, T, N = log_rate.shape
-    null_expanded = null_log_rates.unsqueeze(1).expand(B, T, N)
-
-    nll_model = poisson_nll_elementwise(log_rate, target)
-    nll_null = poisson_nll_elementwise(null_expanded, target)
-
-    results = []
-    for t in range(T):
-        if mask is not None:
-            nll_m_t = nll_model[:, t, :][mask]
-            nll_n_t = nll_null[:, t, :][mask]
-            spikes_t = target[:, t, :][mask].sum()
-        else:
-            nll_m_t = nll_model[:, t, :].reshape(-1)
-            nll_n_t = nll_null[:, t, :].reshape(-1)
-            spikes_t = target[:, t, :].sum()
-
-        if spikes_t < 1:
-            results.append(torch.tensor(0.0, device=log_rate.device))
-        else:
-            results.append(
-                (nll_n_t.sum() - nll_m_t.sum()) / (spikes_t * math.log(2))
-            )
-
-    return torch.stack(results)
+    model_sums, null_sums, spike_sums = fp_bps_per_bin_stats(
+        log_rate,
+        target,
+        null_log_rates,
+        mask,
+    )
+    return finalize_fp_bps_per_bin_from_stats(
+        model_sums,
+        null_sums,
+        spike_sums,
+    ).to(log_rate.dtype)
 
 
 def r2_score(
@@ -134,17 +227,13 @@ def r2_score(
     Returns:
         Scalar R-squared
     """
-    if mask is not None:
-        mask_3d = mask.unsqueeze(1).expand_as(pred_rate)
-        pred_flat = pred_rate[mask_3d]
-        tgt_flat = target[mask_3d]
-    else:
-        pred_flat = pred_rate.reshape(-1)
-        tgt_flat = target.reshape(-1)
-
-    ss_res = ((pred_flat - tgt_flat) ** 2).sum()
-    ss_tot = ((tgt_flat - tgt_flat.mean()) ** 2).sum()
-    return 1 - ss_res / (ss_tot + 1e-8)
+    ss_res, target_sum, target_sq_sum, count = r2_stats(pred_rate, target, mask)
+    return finalize_r2_from_stats(
+        ss_res,
+        target_sum,
+        target_sq_sum,
+        count,
+    ).to(pred_rate.dtype)
 
 
 def firing_rate_correlation(

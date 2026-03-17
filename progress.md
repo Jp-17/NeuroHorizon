@@ -1266,3 +1266,41 @@
 - 远程追加 `progress.md` 时，本地 shell 会提前解释 Markdown 里的反引号；改为先生成临时文件再推送到远程后解决
 
 **对应 plan.md 任务**：Phase 1 → 1.2 / 1.3 的代码与评估流程审计复核（不新增实验，仅补充严格审查结论）
+
+
+---
+
+## 2026-03-17-14h45
+
+### 任务：修正 v2 评估协议并启动 1.3.4 evalfix 全量重跑
+
+**当前状态时间**：2026-03-17-14h45
+
+**已完成内容**：
+1. 修正 continuous validation / test 的采样协议：`examples/neurohorizon/train.py` 和 `scripts/analysis/neurohorizon/eval_phase1_v2.py` 统一改为 `SequentialFixedWindowSampler`
+2. 修正 continuous 指标聚合：`fp-bps / R²` 改为全局累计版，`torch_brain/utils/neurohorizon_metrics.py` 增加 stats/finalize helpers
+3. 统一 trial-aligned 主 PSTH 指标为 `per_neuron_psth_r2`，同步修改 `eval_phase1_v2.py`、`eval_psth.py`、`phase1_v2_visualize.py`
+4. 新增 evalfix 配置与脚本：
+   - `examples/neurohorizon/configs/train_v2_evalfix_{250,500,1000}ms{,_trial}.yaml`
+   - `scripts/analysis/neurohorizon/run_phase1_v2_evalfix.sh`
+   - `scripts/analysis/neurohorizon/compare_phase1_v2_evalfix.py`
+5. 同步更新文档：
+   - `cc_core_files/plan.md`
+   - `cc_core_files/results.md`
+   - `cc_core_files/scripts.md`
+   - `cc_todo/20260316-review/20260316-plan-md-v2-code-review_codex.md`
+   - `cc_todo/phase1-autoregressive/20260317-phase1-1.3.4-evalfix-rerun.md`
+6. 完成 smoke 验证：
+   - continuous：`Trainer.fit/validate/test` 通过，`eval_phase1_v2.py --split valid/test` 通过
+   - trial-aligned：`Trainer.fit/validate/test` 通过
+
+**正在进行**：
+- 已通过 `screen` 后台启动 `bash scripts/analysis/neurohorizon/run_phase1_v2_evalfix.sh`
+- 日志文件：`results/logs/phase1_v2_evalfix_rerun.log`
+- 当前阶段：第一组 `250ms-cont` 训练中
+
+**遇到的问题**：
+- `phase1_v2_*` legacy checkpoint 与当前代码不完全兼容，无法直接用新脚本加载；因此按计划采用全量重跑，而不是直接重评估旧 checkpoint
+- 六组 300-epoch 训练预计耗时较长，因此先提交代码/文档修正，再在实验完成后追加结果提交
+
+**对应 plan.md 任务**：Phase 1 → 1.3.4（评估协议修正 + 全量重跑）

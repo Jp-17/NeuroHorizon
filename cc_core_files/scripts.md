@@ -746,11 +746,13 @@
 - **路径**：`torch_brain/utils/neurohorizon_metrics.py`
 - **功能用途**：NeuroHorizon 评估指标模块
   - fp-bps（Forward Prediction Bits Per Spike）：主要评估指标
+  - 全局累计辅助：`fp_bps_stats()` / `finalize_fp_bps_from_stats()`
   - per-bin fp-bps：分析 AR 预测随时间步的衰减
-  - PSTH-R²：Trial-averaged 群体预测质量
+  - `per_neuron_psth_r2`：Trial-averaged 神经元粒度预测质量
   - R²、Firing rate correlation、Poisson NLL
-  - compute_null_rates()：计算训练集 per-neuron 平均发放率
-  - build_null_rate_lookup()：构建全局单元 → null rate 查询表
+  - `r2_stats()` / `finalize_r2_from_stats()`：全局累计 R² 辅助
+  - `compute_null_rates()`：计算训练集 global per-neuron mean null
+  - `build_null_rate_lookup()`：构建全局单元 → null rate 查询表
 - **创建时间**：2026-03-11
 - **使用方式**：
   ```python
@@ -766,8 +768,8 @@
 - **路径**：`scripts/analysis/neurohorizon/eval_psth.py`
 - **功能用途**：PSTH-R² 独立评估脚本
   - 加载训练好的模型 + trial-aligned 数据
-  - 按 target_id 分组计算 trial-averaged 神经活动
-  - 计算预测 vs 真实 PSTH 的 R²
+  - 按 `(session_id, target_id)` 分组计算 trial-averaged 神经活动
+  - 输出主指标 `per_neuron_psth_r2` 与 `trial_fp_bps`
 - **创建时间**：2026-03-11
 - **使用方式**：
   ```bash
@@ -776,7 +778,7 @@
   python scripts/analysis/neurohorizon/eval_psth.py
   ```
 - **依赖**：poyo conda 环境
-- **备注**：对应 plan.md 任务 1.1.7
+- **备注**：对应 plan.md 任务 1.1.7；2026-03-17 起统一到 per-neuron 口径
 
 ### test_1_2_4_metrics_verification.py（1.2.4 指标与 Sampler 验证）
 
@@ -799,20 +801,21 @@
 
 - **路径**：`scripts/analysis/neurohorizon/eval_phase1_v2.py`
 - **功能用途**：Phase 1 v2 综合评估脚本
-  - 连续模式评估：fp-bps（整体 + per-bin）、R-squared
-  - Trial-aligned 评估：PSTH-R-squared（8 方向 per-target + overall）
+  - 连续模式评估：SequentialFixedWindowSampler + 全局累计版 fp-bps（整体 + per-bin）、R-squared
+  - Trial-aligned 评估：`per_neuron_psth_r2`（8 方向 per-target + overall）+ `trial_fp_bps`
   - 自动查找 checkpoint、计算 null rates、输出 JSON
 - **创建时间**：2026-03-12
 - **使用方式**：
   ````bash
   conda activate poyo
   cd /root/autodl-tmp/NeuroHorizon
-  python scripts/analysis/neurohorizon/eval_phase1_v2.py --log-dir results/logs/phase1_v2_250ms_cont
+  python scripts/analysis/neurohorizon/eval_phase1_v2.py --log-dir results/logs/phase1_v2_evalfix_250ms_cont --split valid
+  python scripts/analysis/neurohorizon/eval_phase1_v2.py --log-dir results/logs/phase1_v2_evalfix_250ms_cont --split test
   ````
 - **输入**：训练 checkpoint（last.ckpt），训练数据（用于 null rates）
-- **输出**：`eval_v2_results.json`（fp-bps, R2, per-bin fp-bps, PSTH-R2, per-target PSTH-R2）
+- **输出**：`eval_v2_{valid,test}_results.json`（fp-bps, R2, per-bin fp-bps, `per_neuron_psth_r2`, per-target `per_neuron_psth_r2`）
 - **依赖**：poyo conda 环境
-- **备注**：对应 plan.md 任务 1.3.4
+- **备注**：对应 plan.md 任务 1.3.4；2026-03-17 起切换到全局累计评估协议
 
 ### phase1_v2_visualize.py（1.3.4 可视化脚本）
 
@@ -820,7 +823,7 @@
 - **功能用途**：Phase 1 v2 实验可视化（5 张图）
   - Figure 1：fp-bps vs 预测窗口（连续 vs trial-aligned）
   - Figure 2：per-bin fp-bps 衰减曲线
-  - Figure 3：PSTH-R2 热力图（8 方向 x 6 条件）
+  - Figure 3：`per_neuron_psth_r2` 热力图（8 方向 x 6 条件）
   - Figure 4：连续 vs trial-aligned 对比柱状图
   - Figure 5：训练曲线（val_loss + val_fp_bps vs epoch）
 - **创建时间**：2026-03-12
@@ -832,7 +835,37 @@
   ````
 - **输出**：`results/figures/phase1_v2/*.png`（5 张图）
 - **依赖**：poyo conda 环境, matplotlib
-- **备注**：对应 plan.md 任务 1.3.4
+- **备注**：对应 plan.md 任务 1.3.4；兼容旧 `psth_r2` 和新 `per_neuron_psth_r2` JSON key
+
+### run_phase1_v2_evalfix.sh（1.3.4 evalfix 全量重跑脚本）
+
+- **路径**：`scripts/analysis/neurohorizon/run_phase1_v2_evalfix.sh`
+- **功能用途**：顺序执行 Phase 1.3.4 的 6 个 evalfix 配置训练与 valid/test 离线评估
+- **创建时间**：2026-03-17
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/analysis/neurohorizon/run_phase1_v2_evalfix.sh
+  ```
+- **输出**：`results/logs/phase1_v2_evalfix_{250ms,500ms,1000ms}_{cont,trial}/`
+- **依赖**：poyo conda 环境
+- **备注**：对应 `cc_todo/phase1-autoregressive/20260317-phase1-1.3.4-evalfix-rerun.md`
+
+### compare_phase1_v2_evalfix.py（1.3.4 legacy vs evalfix 对比）
+
+- **路径**：`scripts/analysis/neurohorizon/compare_phase1_v2_evalfix.py`
+- **功能用途**：读取 legacy `phase1_v2_*` 和新 `phase1_v2_evalfix_*` 的 valid/test JSON，汇总对比表
+- **创建时间**：2026-03-17
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/neurohorizon/compare_phase1_v2_evalfix.py
+  ```
+- **输出**：`results/logs/phase1_v2_evalfix_comparison/comparison.{json,md}`
+- **依赖**：poyo conda 环境
+- **备注**：对应 `cc_todo/phase1-autoregressive/20260317-phase1-1.3.4-evalfix-rerun.md`
 
 ---
 

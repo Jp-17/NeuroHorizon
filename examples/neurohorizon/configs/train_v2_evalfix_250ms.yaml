@@ -1,0 +1,9 @@
+defaults:
+  - train_v2_250ms.yaml
+  - _self_
+
+log_dir: /root/autodl-tmp/NeuroHorizon/results/logs/phase1_v2_evalfix_250ms_cont
+
+wandb:
+  enable: false
+  run_name: v2_evalfix_250ms_cont

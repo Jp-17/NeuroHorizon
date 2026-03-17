@@ -19,26 +19,27 @@ Usage:
 import argparse
 import json
 import logging
-import math
 from collections import defaultdict
 from pathlib import Path
 
 import hydra
-import numpy as np
 import torch
 from omegaconf import OmegaConf, DictConfig
 from torch.utils.data import DataLoader
 
 from torch_brain.data import Dataset, collate
-from torch_brain.data.sampler import RandomFixedWindowSampler
+from torch_brain.data.sampler import SequentialFixedWindowSampler
 from torch_brain.data.trial_sampler import TrialAlignedSampler
 from torch_brain.models import NeuroHorizon
 from torch_brain.transforms import Compose
 from torch_brain.utils.neurohorizon_metrics import (
-    fp_bps,
-    fp_bps_per_bin,
-    r2_score,
+    fp_bps_per_bin_stats,
+    fp_bps_stats,
+    finalize_fp_bps_from_stats,
+    finalize_fp_bps_per_bin_from_stats,
+    finalize_r2_from_stats,
     psth_r2,
+    r2_stats,
     compute_null_rates,
     build_null_rate_lookup,
 )
@@ -105,7 +106,16 @@ def run_model(model, batch, device, rollout: bool = False):
     return model(**inputs)
 
 
-def evaluate_continuous(model, cfg, train_dataset, null_lookup, device, batch_size=64, rollout=False):
+def evaluate_continuous(
+    model,
+    cfg,
+    train_dataset,
+    null_lookup,
+    device,
+    batch_size=64,
+    rollout=False,
+    split="valid",
+):
     """Continuous mode evaluation: fp-bps (overall + per-bin), R-squared."""
     logger.info("=== Continuous Mode Evaluation ===")
 
@@ -115,15 +125,14 @@ def evaluate_continuous(model, cfg, train_dataset, null_lookup, device, batch_si
     eval_dataset = Dataset(
         root=cfg.data_root,
         config=cfg.dataset,
-        split="valid",
+        split=split,
         transform=Compose([*eval_transforms, model.tokenize]),
     )
     eval_dataset.disable_data_leakage_check()
 
-    sampler = RandomFixedWindowSampler(
+    sampler = SequentialFixedWindowSampler(
         sampling_intervals=eval_dataset.get_sampling_intervals(),
         window_length=model.sequence_length,
-        generator=torch.Generator().manual_seed(cfg.seed + 2),
     )
 
     loader = DataLoader(
@@ -134,12 +143,19 @@ def evaluate_continuous(model, cfg, train_dataset, null_lookup, device, batch_si
         num_workers=0,
     )
 
-    logger.info(f"Continuous eval: {len(sampler)} samples")
+    logger.info(f"Continuous eval ({split}): {len(sampler)} samples")
 
-    all_bps = []
-    all_r2 = []
-    per_bin_bps_accum = defaultdict(list)
-    total_loss = 0.0
+    total_ss_res = torch.zeros((), device=device, dtype=torch.float64)
+    total_target_sum = torch.zeros((), device=device, dtype=torch.float64)
+    total_target_sq_sum = torch.zeros((), device=device, dtype=torch.float64)
+    total_count = torch.zeros((), device=device, dtype=torch.float64)
+    total_nll_model = torch.zeros((), device=device, dtype=torch.float64)
+    total_nll_null = torch.zeros((), device=device, dtype=torch.float64)
+    total_spikes = torch.zeros((), device=device, dtype=torch.float64)
+    per_bin_model = None
+    per_bin_null = None
+    per_bin_spikes = None
+    loss_sum = 0.0
     n_batches = 0
 
     with torch.no_grad():
@@ -153,35 +169,63 @@ def evaluate_continuous(model, cfg, train_dataset, null_lookup, device, batch_si
             mask_3d = unit_mask.unsqueeze(1).expand(-1, T, -1)
             loss = (torch.exp(log_rate[mask_3d].clamp(-10, 10))
                     - target[mask_3d] * log_rate[mask_3d].clamp(-10, 10)).mean()
-            total_loss += loss.item()
+            loss_sum += loss.item()
 
-            # R-squared
             pred_rate = torch.exp(log_rate.clamp(-10, 10))
-            batch_r2 = r2_score(pred_rate, target, unit_mask)
-            all_r2.append(batch_r2.item())
+            ss_res, target_sum, target_sq_sum, count = r2_stats(pred_rate, target, unit_mask)
+            total_ss_res += ss_res
+            total_target_sum += target_sum
+            total_target_sq_sum += target_sq_sum
+            total_count += count
 
-            # fp-bps
             target_unit_index = batch["model_inputs"]["target_unit_index"].to(device)
             max_idx = null_lookup.shape[0] - 1
             null_log_rates = null_lookup[target_unit_index.clamp(0, max_idx)]
 
-            batch_bps = fp_bps(log_rate, target, null_log_rates, unit_mask)
-            all_bps.append(batch_bps.item())
+            nll_model_sum, nll_null_sum, spikes_sum = fp_bps_stats(
+                log_rate,
+                target,
+                null_log_rates,
+                unit_mask,
+            )
+            total_nll_model += nll_model_sum
+            total_nll_null += nll_null_sum
+            total_spikes += spikes_sum
 
-            # Per-bin fp-bps
-            pb_bps = fp_bps_per_bin(log_rate, target, null_log_rates, unit_mask)
-            for t in range(T):
-                per_bin_bps_accum[t].append(pb_bps[t].item())
+            pb_model, pb_null, pb_spikes = fp_bps_per_bin_stats(
+                log_rate,
+                target,
+                null_log_rates,
+                unit_mask,
+            )
+            if per_bin_model is None:
+                per_bin_model = pb_model
+                per_bin_null = pb_null
+                per_bin_spikes = pb_spikes
+            else:
+                per_bin_model += pb_model
+                per_bin_null += pb_null
+                per_bin_spikes += pb_spikes
 
             n_batches += 1
 
-    mean_bps = np.mean(all_bps)
-    mean_r2 = np.mean(all_r2)
-    mean_loss = total_loss / max(n_batches, 1)
-    per_bin_mean = {t: np.mean(vals) for t, vals in sorted(per_bin_bps_accum.items())}
+    mean_bps = finalize_fp_bps_from_stats(total_nll_model, total_nll_null, total_spikes)
+    mean_r2 = finalize_r2_from_stats(
+        total_ss_res,
+        total_target_sum,
+        total_target_sq_sum,
+        total_count,
+    )
+    mean_loss = loss_sum / max(n_batches, 1)
+    per_bin_bps = finalize_fp_bps_per_bin_from_stats(
+        per_bin_model,
+        per_bin_null,
+        per_bin_spikes,
+    )
+    per_bin_mean = {t: float(per_bin_bps[t]) for t in range(per_bin_bps.shape[0])}
 
-    logger.info(f"  fp-bps = {mean_bps:.4f}")
-    logger.info(f"  R2 = {mean_r2:.4f}")
+    logger.info(f"  fp-bps = {float(mean_bps):.4f}")
+    logger.info(f"  R2 = {float(mean_r2):.4f}")
     logger.info(f"  val_loss = {mean_loss:.4f}")
     logger.info(f"  per-bin fp-bps: {[f'{v:.3f}' for v in per_bin_mean.values()]}")
 
@@ -191,13 +235,14 @@ def evaluate_continuous(model, cfg, train_dataset, null_lookup, device, batch_si
         "val_loss": float(mean_loss),
         "per_bin_fp_bps": {str(k): float(v) for k, v in per_bin_mean.items()},
         "n_samples": len(sampler),
+        "split": split,
     }
 
 
 def evaluate_trial_aligned(model, cfg, train_dataset, null_lookup, device,
-                           batch_size=16, sigma_bins=1, rollout=False):
-    """Trial-aligned evaluation: PSTH-R-squared by target direction."""
-    logger.info("=== Trial-Aligned Evaluation (PSTH-R2) ===")
+                           batch_size=16, sigma_bins=1, rollout=False, split="valid"):
+    """Trial-aligned evaluation: per-neuron PSTH-R-squared by target direction."""
+    logger.info("=== Trial-Aligned Evaluation (per-neuron PSTH-R2) ===")
 
     eval_transforms = (
         hydra.utils.instantiate(cfg.eval_transforms) if cfg.get("eval_transforms") else []
@@ -205,12 +250,12 @@ def evaluate_trial_aligned(model, cfg, train_dataset, null_lookup, device,
     eval_dataset = Dataset(
         root=cfg.data_root,
         config=cfg.dataset,
-        split="valid",
+        split=split,
         transform=Compose([*eval_transforms, model.tokenize]),
     )
     eval_dataset.disable_data_leakage_check()
 
-    trial_info = eval_dataset.get_trial_intervals(split="valid")
+    trial_info = eval_dataset.get_trial_intervals(split=split)
     sampler = TrialAlignedSampler(
         trial_info=trial_info,
         obs_window=model.hist_window,
@@ -226,12 +271,14 @@ def evaluate_trial_aligned(model, cfg, train_dataset, null_lookup, device,
         num_workers=0,
     )
 
-    logger.info(f"Trial-aligned eval: {len(sampler)} trials")
+    logger.info(f"Trial-aligned eval ({split}): {len(sampler)} trials")
 
-    # Store per-trial masked-mean rates: [T] per trial (averaged over valid neurons)
-    pred_by_target = defaultdict(list)
-    true_by_target = defaultdict(list)
-    trial_fp_bps = []
+    pred_by_group = defaultdict(list)
+    true_by_group = defaultdict(list)
+    trials_per_target = defaultdict(int)
+    total_nll_model = torch.zeros((), device=device, dtype=torch.float64)
+    total_nll_null = torch.zeros((), device=device, dtype=torch.float64)
+    total_spikes = torch.zeros((), device=device, dtype=torch.float64)
 
     with torch.no_grad():
         for batch in loader:
@@ -240,79 +287,87 @@ def evaluate_trial_aligned(model, cfg, train_dataset, null_lookup, device,
             target = batch["target_spike_counts"].cpu()
             unit_mask = batch["model_inputs"]["target_unit_mask"].cpu()
 
-            # fp-bps for this batch
             target_unit_index = batch["model_inputs"]["target_unit_index"].to(device)
             max_idx = null_lookup.shape[0] - 1
-            null_log_rates = null_lookup[target_unit_index.clamp(0, max_idx)].cpu()
-            batch_bps = fp_bps(log_rate.cpu(), target, null_log_rates, unit_mask)
-            trial_fp_bps.append(batch_bps.item())
+            null_log_rates = null_lookup[target_unit_index.clamp(0, max_idx)]
+            nll_model_sum, nll_null_sum, spikes_sum = fp_bps_stats(
+                log_rate,
+                batch["target_spike_counts"].to(device),
+                null_log_rates,
+                batch["model_inputs"]["target_unit_mask"].to(device),
+            )
+            total_nll_model += nll_model_sum
+            total_nll_null += nll_null_sum
+            total_spikes += spikes_sum
 
-            # Group by target_id: use masked mean over neurons -> [T] per trial
             target_ids = batch.get("trial_target_id", None)
+            session_ids = batch.get("session_id", None)
             if target_ids is None:
+                continue
+            if session_ids is None:
+                logger.warning("No session_id in batch, skipping PSTH grouping")
                 continue
 
             B, T, N = pred_rate.shape
             for i in range(B):
                 tid = int(target_ids[i])
+                session_id = session_ids[i]
                 mask_i = unit_mask[i]  # [N]
-                n_valid = mask_i.sum().item()
-                if n_valid == 0:
+                if mask_i.sum().item() == 0:
                     continue
-                # Average over valid neurons: [T, N] * [N] -> [T]
-                pred_mean = (pred_rate[i] * mask_i.unsqueeze(0)).sum(dim=1) / n_valid
-                true_mean = (target[i] * mask_i.unsqueeze(0)).sum(dim=1) / n_valid
-                pred_by_target[tid].append(pred_mean)
-                true_by_target[tid].append(true_mean)
+                group_key = (session_id, tid)
+                pred_by_group[group_key].append(pred_rate[i][:, mask_i])
+                true_by_group[group_key].append(target[i][:, mask_i])
+                trials_per_target[str(tid)] += 1
 
     results = {
-        "trial_fp_bps": float(np.mean(trial_fp_bps)) if trial_fp_bps else 0.0,
+        "trial_fp_bps": float(
+            finalize_fp_bps_from_stats(total_nll_model, total_nll_null, total_spikes)
+        ) if total_spikes > 0 else 0.0,
         "n_trials": len(sampler),
+        "split": split,
     }
 
-    if pred_by_target:
+    if pred_by_group:
         pred_stacked = {}
         true_stacked = {}
         per_target_r2 = {}
 
-        for tid in sorted(pred_by_target.keys()):
-            # Now all tensors are [T], can safely stack -> [n_trials, T]
-            pred_stacked[tid] = torch.stack(pred_by_target[tid])
-            true_stacked[tid] = torch.stack(true_by_target[tid])
-            n_trials = pred_stacked[tid].shape[0]
-            logger.info(f"  Target {tid}: {n_trials} trials")
+        for group_key in sorted(pred_by_group.keys()):
+            pred_stacked[group_key] = torch.stack(pred_by_group[group_key])
+            true_stacked[group_key] = torch.stack(true_by_group[group_key])
+            session_id, tid = group_key
+            logger.info(
+                f"  Session {session_id}, Target {tid}: "
+                f"{pred_stacked[group_key].shape[0]} trials"
+            )
 
-            # Per-target PSTH R2 (on population-mean rates)
-            # PSTH: mean across trials -> [T]
-            psth_pred = pred_stacked[tid].mean(dim=0)
-            psth_true = true_stacked[tid].mean(dim=0)
-            ss_res = ((psth_pred - psth_true) ** 2).sum()
-            ss_tot = ((psth_true - psth_true.mean()) ** 2).sum()
-            tid_r2 = float(1 - ss_res / (ss_tot + 1e-8))
-            per_target_r2[str(tid)] = tid_r2
+        overall_r2 = float(psth_r2(pred_stacked, true_stacked, sigma_bins=sigma_bins))
 
-        # Overall PSTH R2: concatenate all directions' PSTHs
-        all_psth_pred = []
-        all_psth_true = []
-        for tid in sorted(pred_stacked.keys()):
-            all_psth_pred.append(pred_stacked[tid].mean(dim=0))
-            all_psth_true.append(true_stacked[tid].mean(dim=0))
-        all_pred = torch.cat(all_psth_pred)
-        all_true = torch.cat(all_psth_true)
-        ss_res = ((all_pred - all_true) ** 2).sum()
-        ss_tot = ((all_true - all_true.mean()) ** 2).sum()
-        overall_r2 = float(1 - ss_res / (ss_tot + 1e-8))
+        target_ids = sorted({tid for _, tid in pred_stacked.keys()})
+        for tid in target_ids:
+            pred_sub = {
+                key: value
+                for key, value in pred_stacked.items()
+                if key[1] == tid
+            }
+            true_sub = {
+                key: value
+                for key, value in true_stacked.items()
+                if key[1] == tid
+            }
+            per_target_r2[str(tid)] = float(
+                psth_r2(pred_sub, true_sub, sigma_bins=sigma_bins)
+            )
 
-        results["psth_r2"] = overall_r2
-        results["per_target_psth_r2"] = per_target_r2
-        results["trials_per_target"] = {
-            str(k): len(v) for k, v in pred_by_target.items()
-        }
-        logger.info(f"  Overall PSTH-R2 = {overall_r2:.4f}")
-        logger.info(f"  Per-target PSTH-R2: {per_target_r2}")
+        results["per_neuron_psth_r2"] = overall_r2
+        results["per_target_per_neuron_psth_r2"] = per_target_r2
+        results["trials_per_target"] = dict(trials_per_target)
+        logger.info(f"  Overall per-neuron PSTH-R2 = {overall_r2:.4f}")
+        logger.info(f"  Per-target per-neuron PSTH-R2: {per_target_r2}")
     else:
-        results["psth_r2"] = float("nan")
-        logger.warning("No trial metadata, PSTH-R2 not computed")
+        results["per_neuron_psth_r2"] = float("nan")
+        logger.warning("No trial metadata, per-neuron PSTH-R2 not computed")
 
     return results
 
@@ -325,6 +380,7 @@ def main():
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--trial-batch-size", type=int, default=16)
     parser.add_argument("--sigma-bins", type=int, default=1)
+    parser.add_argument("--split", type=str, default="valid", choices=["valid", "test"])
     parser.add_argument("--output", type=str, default=None, help="Output JSON path")
     parser.add_argument("--skip-continuous", action="store_true")
     parser.add_argument("--skip-trial", action="store_true")
@@ -369,6 +425,7 @@ def main():
         "bin_size_ms": int(model.bin_size * 1000),
         "trial_aligned_training": bool(getattr(cfg, "trial_aligned", False)),
         "rollout": bool(args.rollout),
+        "split": args.split,
     }
 
     # Continuous evaluation
@@ -377,6 +434,7 @@ def main():
             model, cfg, train_dataset, null_lookup, device,
             batch_size=args.batch_size,
             rollout=args.rollout,
+            split=args.split,
         )
         results["continuous"] = cont_results
 
@@ -387,6 +445,7 @@ def main():
             batch_size=args.trial_batch_size,
             sigma_bins=args.sigma_bins,
             rollout=args.rollout,
+            split=args.split,
         )
         results["trial_aligned"] = trial_results
 
@@ -396,7 +455,8 @@ def main():
     print(f"  Model: pred={results['pred_window_ms']}ms, "
           f"obs={results['hist_window_ms']}ms, "
           f"training={'trial-aligned' if results['trial_aligned_training'] else 'continuous'}, "
-          f"eval={'rollout' if results['rollout'] else 'teacher-forced'}")
+          f"eval={'rollout' if results['rollout'] else 'teacher-forced'}, "
+          f"split={results['split']}")
     print("=" * 60)
 
     if "continuous" in results:
@@ -413,11 +473,11 @@ def main():
     if "trial_aligned" in results:
         t = results["trial_aligned"]
         print(f"\n  [Trial-Aligned Mode]")
-        print(f"    PSTH-R2:      {t.get('psth_r2', 'N/A')}")
+        print(f"    per-neuron PSTH-R2: {t.get('per_neuron_psth_r2', 'N/A')}")
         print(f"    trial fp-bps: {t.get('trial_fp_bps', 'N/A')}")
-        if "per_target_psth_r2" in t:
-            print(f"    per-target PSTH-R2:")
-            for tid, r2 in sorted(t["per_target_psth_r2"].items()):
+        if "per_target_per_neuron_psth_r2" in t:
+            print(f"    per-target per-neuron PSTH-R2:")
+            for tid, r2 in sorted(t["per_target_per_neuron_psth_r2"].items()):
                 n = t["trials_per_target"].get(tid, "?")
                 print(f"      dir {tid}: R2={r2:.4f} (n={n})")
 
@@ -427,8 +487,14 @@ def main():
     if args.output:
         output_path = args.output
     else:
-        ckpt_dir = Path(ckpt_path).parent.parent.parent
-        output_path = str(ckpt_dir / "eval_v2_results.json")
+        ckpt_path_obj = Path(ckpt_path)
+        if ckpt_path_obj.parent.name == "checkpoints" and ckpt_path_obj.parent.parent.name == "lightning_logs":
+            ckpt_dir = ckpt_path_obj.parent.parent.parent
+        elif ckpt_path_obj.parent.name == "checkpoints":
+            ckpt_dir = ckpt_path_obj.parent.parent
+        else:
+            ckpt_dir = ckpt_path_obj.parent
+        output_path = str(ckpt_dir / f"eval_v2_{args.split}_results.json")
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as f:

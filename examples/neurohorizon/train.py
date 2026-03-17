@@ -14,6 +14,7 @@ import hydra
 import lightning as L
 import torch
 import torch.nn as nn
+import torch.distributed as dist
 from lightning.pytorch.callbacks import (
     LearningRateMonitor,
     ModelCheckpoint,
@@ -23,7 +24,7 @@ from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
 from torch_brain.data import Dataset, collate
-from torch_brain.data.sampler import RandomFixedWindowSampler
+from torch_brain.data.sampler import RandomFixedWindowSampler, SequentialFixedWindowSampler
 from torch_brain.data.trial_sampler import TrialAlignedSampler
 from torch_brain.models import NeuroHorizon
 from torch_brain.nn.loss import PoissonNLLLoss
@@ -33,8 +34,11 @@ from torch_brain.utils import callbacks as tbrain_callbacks
 from torch_brain.utils.neurohorizon_metrics import (
     compute_null_rates,
     build_null_rate_lookup,
-    fp_bps,
     fp_bps_per_bin,
+    fp_bps_stats,
+    finalize_fp_bps_from_stats,
+    r2_stats,
+    finalize_r2_from_stats,
 )
 
 torch.set_float32_matmul_precision("medium")
@@ -49,15 +53,129 @@ class TrainWrapper(L.LightningModule):
         self.loss_fn = PoissonNLLLoss()
         self.save_hyperparameters(OmegaConf.to_container(cfg))
 
-        # For tracking validation metrics
-        self.val_outputs = []
-
         # Null model lookup for fp-bps (populated after dataset setup)
         self.register_buffer('null_rate_lookup', torch.zeros(1))
+        self._val_metrics = None
+        self._test_metrics = None
 
     def set_null_rates(self, null_rate_lookup: torch.Tensor):
         """Set null rate lookup tensor for fp-bps computation."""
         self.null_rate_lookup = null_rate_lookup
+
+    def _new_metric_state(self, device: torch.device):
+        return {
+            "ss_res": torch.zeros((), device=device, dtype=torch.float64),
+            "target_sum": torch.zeros((), device=device, dtype=torch.float64),
+            "target_sq_sum": torch.zeros((), device=device, dtype=torch.float64),
+            "count": torch.zeros((), device=device, dtype=torch.float64),
+            "nll_model_sum": torch.zeros((), device=device, dtype=torch.float64),
+            "nll_null_sum": torch.zeros((), device=device, dtype=torch.float64),
+            "total_spikes": torch.zeros((), device=device, dtype=torch.float64),
+        }
+
+    def _all_reduce_sum(self, tensor: torch.Tensor) -> torch.Tensor:
+        if dist.is_available() and dist.is_initialized():
+            dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+        return tensor
+
+    def on_validation_epoch_start(self):
+        self._val_metrics = self._new_metric_state(self.device)
+
+    def on_test_epoch_start(self):
+        self._test_metrics = self._new_metric_state(self.device)
+
+    def _shared_eval_step(self, batch, stage: str):
+        forward_kwargs = dict(batch["model_inputs"])
+        if getattr(self.model, "requires_target_counts", False):
+            forward_kwargs["target_counts"] = batch["target_spike_counts"]
+        log_rate = self.model(**forward_kwargs)
+
+        target = batch["target_spike_counts"]
+        unit_mask = batch["model_inputs"]["target_unit_mask"]
+
+        T = log_rate.shape[1]
+        mask = unit_mask.unsqueeze(1).expand(-1, T, -1)
+
+        loss = self.loss_fn(log_rate[mask], target[mask])
+        loss_name = "val_loss" if stage == "val" else "test_loss"
+        self.log(loss_name, loss, prog_bar=(stage == "val"), sync_dist=True)
+
+        with torch.no_grad():
+            pred_rate = torch.exp(log_rate.clamp(-10, 10))
+            stats = self._val_metrics if stage == "val" else self._test_metrics
+
+            ss_res, target_sum, target_sq_sum, count = r2_stats(pred_rate, target, unit_mask)
+            stats["ss_res"] += ss_res
+            stats["target_sum"] += target_sum
+            stats["target_sq_sum"] += target_sq_sum
+            stats["count"] += count
+
+            if self.null_rate_lookup.numel() > 1:
+                target_unit_index = batch["model_inputs"]["target_unit_index"]
+                max_idx = self.null_rate_lookup.shape[0] - 1
+                clamped_idx = target_unit_index.clamp(0, max_idx)
+                null_log_rates = self.null_rate_lookup[clamped_idx]
+
+                nll_model_sum, nll_null_sum, total_spikes = fp_bps_stats(
+                    log_rate,
+                    target,
+                    null_log_rates,
+                    unit_mask,
+                )
+                stats["nll_model_sum"] += nll_model_sum
+                stats["nll_null_sum"] += nll_null_sum
+                stats["total_spikes"] += total_spikes
+
+                if stage == "val":
+                    per_bin_bps = fp_bps_per_bin(log_rate, target, null_log_rates, unit_mask)
+                    for t in range(min(T, 12)):
+                        self.log(f"val/fp_bps_bin{t}", per_bin_bps[t], sync_dist=True)
+
+            if stage == "val":
+                for t in range(min(T, 12)):
+                    loss_t = self.loss_fn(
+                        log_rate[:, t, :][unit_mask],
+                        target[:, t, :][unit_mask],
+                    )
+                    self.log(f"val/poisson_nll_bin{t}", loss_t, sync_dist=True)
+
+        return loss
+
+    def _finalize_epoch_metrics(self, stage: str):
+        stats = self._val_metrics if stage == "val" else self._test_metrics
+        if stats is None:
+            return
+
+        reduced = {
+            key: self._all_reduce_sum(value.clone())
+            for key, value in stats.items()
+        }
+
+        r2 = finalize_r2_from_stats(
+            reduced["ss_res"],
+            reduced["target_sum"],
+            reduced["target_sq_sum"],
+            reduced["count"],
+        )
+        self.log(
+            f"{stage}/r2",
+            r2.to(torch.float32),
+            prog_bar=(stage == "val"),
+            sync_dist=False,
+        )
+
+        if reduced["total_spikes"] > 0:
+            bps = finalize_fp_bps_from_stats(
+                reduced["nll_model_sum"],
+                reduced["nll_null_sum"],
+                reduced["total_spikes"],
+            )
+            self.log(
+                f"{stage}/fp_bps",
+                bps.to(torch.float32),
+                prog_bar=(stage == "val"),
+                sync_dist=False,
+            )
 
     def configure_optimizers(self):
         max_lr = self.cfg.optim.base_lr * self.cfg.batch_size
@@ -125,60 +243,16 @@ class TrainWrapper(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        # Forward pass (pass target_counts for decoder variants that require shift-right feedback)
-        forward_kwargs = dict(batch["model_inputs"])
-        if getattr(self.model, "requires_target_counts", False):
-            forward_kwargs["target_counts"] = batch["target_spike_counts"]
-        log_rate = self.model(**forward_kwargs)
+        return self._shared_eval_step(batch, stage="val")
 
-        target = batch["target_spike_counts"]
-        unit_mask = batch["model_inputs"]["target_unit_mask"]
-
-        T = log_rate.shape[1]
-        mask = unit_mask.unsqueeze(1).expand(-1, T, -1)
-
-        loss = self.loss_fn(log_rate[mask], target[mask])
-        self.log("val_loss", loss, prog_bar=True, sync_dist=True)
-
-        with torch.no_grad():
-            pred_rate = torch.exp(log_rate.clamp(-10, 10))
-
-            # R-squared over masked elements
-            pred_flat = pred_rate[mask]
-            tgt_flat = target[mask]
-            ss_res = ((pred_flat - tgt_flat) ** 2).sum()
-            ss_tot = ((tgt_flat - tgt_flat.mean()) ** 2).sum()
-            r2 = 1 - ss_res / (ss_tot + 1e-8)
-            self.log("val/r2", r2, prog_bar=True, sync_dist=True)
-
-            # fp-bps (Forward Prediction Bits Per Spike)
-            if self.null_rate_lookup.numel() > 1:
-                target_unit_index = batch["model_inputs"]["target_unit_index"]
-                max_idx = self.null_rate_lookup.shape[0] - 1
-                clamped_idx = target_unit_index.clamp(0, max_idx)
-                null_log_rates = self.null_rate_lookup[clamped_idx]  # [B, N_padded]
-
-                bps = fp_bps(log_rate, target, null_log_rates, unit_mask)
-                self.log("val/fp_bps", bps, prog_bar=True, sync_dist=True)
-
-                # Per-bin fp-bps for decay analysis
-                per_bin_bps = fp_bps_per_bin(log_rate, target, null_log_rates, unit_mask)
-                for t in range(min(T, 12)):
-                    self.log(f"val/fp_bps_bin{t}", per_bin_bps[t], sync_dist=True)
-
-            # Per-bin Poisson NLL (for error propagation curve)
-            for t in range(min(T, 12)):
-                mask_t = unit_mask  # [B, N]
-                loss_t = self.loss_fn(
-                    log_rate[:, t, :][mask_t],
-                    target[:, t, :][mask_t],
-                )
-                self.log(f"val/poisson_nll_bin{t}", loss_t, sync_dist=True)
-
-        return loss
+    def on_validation_epoch_end(self):
+        self._finalize_epoch_metrics(stage="val")
 
     def test_step(self, batch, batch_idx):
-        return self.validation_step(batch, batch_idx)
+        return self._shared_eval_step(batch, stage="test")
+
+    def on_test_epoch_end(self):
+        self._finalize_epoch_metrics(stage="test")
 
 
 class DataModule(L.LightningDataModule):
@@ -215,6 +289,13 @@ class DataModule(L.LightningDataModule):
             transform=Compose([*eval_transforms, model.tokenize]),
         )
         self.val_dataset.disable_data_leakage_check()
+        self.test_dataset = Dataset(
+            root=self.cfg.data_root,
+            config=self.cfg.dataset,
+            split="test",
+            transform=Compose([*eval_transforms, model.tokenize]),
+        )
+        self.test_dataset.disable_data_leakage_check()
 
         # Store model reference for trial-aligned sampling
         self.model = model
@@ -276,10 +357,9 @@ class DataModule(L.LightningDataModule):
                 shuffle=False,
             )
         else:
-            sampler = RandomFixedWindowSampler(
+            sampler = SequentialFixedWindowSampler(
                 sampling_intervals=self.val_dataset.get_sampling_intervals(),
                 window_length=self.sequence_length,
-                generator=torch.Generator().manual_seed(self.cfg.seed + 2),
             )
 
         loader = DataLoader(
@@ -293,6 +373,36 @@ class DataModule(L.LightningDataModule):
 
         mode_str = "trial-aligned" if self.trial_aligned else "continuous"
         self.log.info(f"Validation ({mode_str}): {len(sampler)} samples")
+        return loader
+
+    def test_dataloader(self):
+        batch_size = self.cfg.eval_batch_size or self.cfg.batch_size
+
+        if self.trial_aligned:
+            trial_info = self.test_dataset.get_trial_intervals(split='test')
+            sampler = TrialAlignedSampler(
+                trial_info=trial_info,
+                obs_window=self.model.hist_window,
+                pred_window=self.model.pred_window,
+                shuffle=False,
+            )
+        else:
+            sampler = SequentialFixedWindowSampler(
+                sampling_intervals=self.test_dataset.get_sampling_intervals(),
+                window_length=self.sequence_length,
+            )
+
+        loader = DataLoader(
+            self.test_dataset,
+            sampler=sampler,
+            collate_fn=collate,
+            batch_size=batch_size,
+            num_workers=0,
+            drop_last=False,
+        )
+
+        mode_str = "trial-aligned" if self.trial_aligned else "continuous"
+        self.log.info(f"Test ({mode_str}): {len(sampler)} samples")
         return loader
 
 

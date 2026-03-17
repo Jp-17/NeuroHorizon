@@ -228,6 +228,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 #### 1.2.3 [ ] v2 AR 修复验证
 > 依赖：`cc_core_files/proposal_review.md` §2.5b + §2.11, 1.1.8 产出代码
+> 注：本条主要适用于引入显式 feedback / prediction-memory 的 1.9+ 变体。对 v2 baseline（`decoder_variant=query_aug`, `feedback_method=none`），forward 与 rollout 数学等价，因此“TF vs AR 输出差异”不作为该 baseline 的有效验收项。
 - [ ] 验证修复后 TF 和 AR 推理输出不再相同（diff >> 1e-6）
 - [ ] 验证修改 bin t 的预测确实影响 bin t+1 及之后的输出
 - [ ] TF 模式下训练收敛验证（loss 下降，无 NaN/Inf）
@@ -235,13 +236,13 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 #### 1.2.4 [x] v2 指标验证
 > 依赖：`cc_core_files/proposal_review.md` §2.10（指标） + §2.1b（sampler），1.1.7 + 1.1.9 产出代码
-> 产出：`scripts/analysis/neurohorizon/test_fp_bps.py`，验证结果 JSON
+> 产出：`scripts/tests/test_1_2_4_metrics_verification.py`，验证结果 JSON
 > 记录：`cc_todo/phase1-autoregressive/20260311-phase1-1.1.7-1.1.9-implementation.md`
 
 **实验目的**：验证新实现的 fp-bps 指标和 trial-aligned sampler 的正确性，确保后续实验的评估基础可靠。
 
 **实验方法**：
-- 合成数据单元测试（9 项）：null model fp-bps=0、随机预测 fp-bps<0、oracle fp-bps>0、NLB 交叉验证 diff<1e-5
+- 合成数据单元测试（9 项）：global per-neuron mean null 的 fp-bps=0、随机预测 fp-bps<0、oracle fp-bps>0、NLB 交叉验证 diff<1e-5
 - Trial-aligned sampler 功能验证：go_cue_time 对齐、target_id 正确传递、obs/pred 窗口边界正确
 
 **实验结果**（合成数据，非真实模型评估）：
@@ -251,9 +252,10 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 **局限性**：
 - 本验证使用合成数据，仅确认指标计算逻辑正确性
+- 当前仅完成 trial-aligned sampler 的功能正确性验证，尚未完成 domain / trial boundary audit；`go_cue - obs_window` 与 `go_cue + pred_window` 的越界审计需后续单列执行
 - 实际模型训练中的 fp-bps 数值需在 1.3.4 中获得
 
-- [x] fp-bps 正确性：null model fp-bps = 0.0，随机预测 < 0，训练好模型 > 0
+- [x] fp-bps 正确性：global per-neuron mean null 的 fp-bps = 0.0，随机预测 < 0，训练好模型 > 0
 - [x] Trial-aligned sampler 正确性：每个 sample 以 go_cue_time 对齐，target_id 正确
 
 ### 1.3 预测窗口实验
@@ -268,13 +270,14 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 #### 1.3.4 [x] v2 实验（fp-bps 为主指标 + trial-aligned 模式）
 > 依赖：`cc_core_files/proposal_review.md` §2.11（窗口实验） + §2.10（指标） + §2.1b（trial-aligned）
-> 产出：`results/logs/phase1_v2_{250ms,500ms,1000ms}_{cont,trial}/`，`results/figures/phase1_v2/`，`results/logs/phase1_v2_*/eval_v2_results.json`
+> 产出：`results/logs/phase1_v2_{250ms,500ms,1000ms}_{cont,trial}/`，`results/logs/phase1_v2_evalfix_{250ms,500ms,1000ms}_{cont,trial}/`，`results/figures/phase1_v2/`，`results/logs/phase1_v2_*/eval_v2_{valid,test}_results.json`
 > 记录：`cc_todo/phase1-autoregressive/20260311-phase1-1.3.4-v2-experiment.md`
+> 评估协议修正记录：`cc_todo/phase1-autoregressive/20260317-phase1-1.3.4-evalfix-rerun.md`
 
 **实验目的**：
 1. 用 fp-bps 替代 R-squared 作为主要评估指标，重新进行预测窗口实验
 2. 对比连续训练 vs trial-aligned 训练两种数据组织方式的效果
-3. 计算 PSTH-R-squared 评估群体水平预测质量
+3. 计算 `per_neuron_psth_r2` 评估神经元粒度的 trial-averaged 预测质量
 4. 分析 per-bin fp-bps 衰减趋势，量化自回归预测的有效时程
 
 **实验配置（6 个训练运行）**：
@@ -290,7 +293,14 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 **共用模型配置**：neurohorizon_small（dim=128, enc_depth=6, dec_depth=2），300 epochs，bf16-mixed，seed=42
 
-**评估指标**：fp-bps（整体 + per-bin）、R-squared、PSTH-R-squared（trial-aligned eval，8 方向）
+**评估指标**：fp-bps（整体 + per-bin）、R-squared、`per_neuron_psth_r2`（trial-aligned eval，8 方向）
+
+**评估协议修正（2026-03-17 起）**：
+- continuous validation / test 统一改用 `SequentialFixedWindowSampler`，不再使用随机 fixed-window valid sampler
+- continuous `fp-bps` / `R-squared` 统一使用全局累计版（累计 `nll_null` / `nll_model` / `spikes` 和 `ss_res` / `ss_tot`）
+- trial-aligned 主 PSTH 指标统一为 `per_neuron_psth_r2`；旧 `PSTH-R-squared` 结果为 legacy population-mean 口径，仅用于历史对照
+- 训练期 logger 仍仅记录前 12 个 bin 的 per-bin 指标；完整 horizon 以离线 `eval_v2_{valid,test}_results.json` 为准
+- v2 baseline（`query_aug + feedback=none`）满足 `TF ≡ rollout`；该说明不自动外推到 1.9+ 显式 feedback 变体
 
 **v1 参考值（仅 R-squared，无 fp-bps）**：250ms R-squared=0.2658, 500ms R-squared=0.2417, 1000ms R-squared=0.2343
 
@@ -299,16 +309,16 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 **可视化（5 张图）**：
 1. fp-bps vs pred_window：连续 vs trial-aligned 两条线
 2. per-bin fp-bps 衰减曲线：6 条线（3 窗口 x 2 模式）
-3. PSTH-R-squared 热力图：target_id(0-7) x 条件(6 个)
+3. `per_neuron_psth_r2` 热力图：target_id(0-7) x 条件(6 个)
 4. 连续 vs trial-aligned 对比柱状图（fp-bps + R-squared 双指标）
 5. 训练曲线：6 个模型的 val_loss / val_fp_bps vs epoch
 
-- [x] 250ms：连续 + trial-aligned，fp-bps / R-squared / PSTH-R-squared
-- [x] 500ms：连续 + trial-aligned，fp-bps / R-squared / PSTH-R-squared
-- [x] 1000ms：连续 + trial-aligned，fp-bps / R-squared / PSTH-R-squared
+- [x] 250ms：连续 + trial-aligned，fp-bps / R-squared / `per_neuron_psth_r2`
+- [x] 500ms：连续 + trial-aligned，fp-bps / R-squared / `per_neuron_psth_r2`
+- [x] 1000ms：连续 + trial-aligned，fp-bps / R-squared / `per_neuron_psth_r2`
 - [x] 分析：fp-bps 随预测窗口的衰减曲线（per-bin fp-bps）
 - [x] 分析：连续 vs trial-aligned 训练效果差异
-- [x] 分析：PSTH-R-squared 在不同预测窗口下的表现
+- [x] 分析：`per_neuron_psth_r2` 在不同预测窗口下的表现
 
 **Benchmark 对比分析**（引用 1.8.3 结果，条件完全一致：10 sessions、500ms obs_window、连续训练、同一数据划分）：
 

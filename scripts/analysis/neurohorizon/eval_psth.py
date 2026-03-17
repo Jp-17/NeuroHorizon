@@ -26,7 +26,8 @@ from torch_brain.models import NeuroHorizon
 from torch_brain.transforms import Compose
 from torch_brain.utils.neurohorizon_metrics import (
     psth_r2,
-    fp_bps,
+    fp_bps_stats,
+    finalize_fp_bps_from_stats,
     build_null_rate_lookup,
     compute_null_rates,
 )
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="PSTH-R2 evaluation for NeuroHorizon")
+    parser = argparse.ArgumentParser(description="per-neuron PSTH-R2 evaluation for NeuroHorizon")
     parser.add_argument("--checkpoint", type=str, required=True)
     parser.add_argument("--split", type=str, default="valid", choices=["valid", "test"])
     parser.add_argument("--batch_size", type=int, default=16)
@@ -114,10 +115,13 @@ def main():
     null_rates = compute_null_rates(train_dataset, model, model.bin_size)
     null_lookup = build_null_rate_lookup(null_rates, device=device)
 
-    # Collect predictions grouped by target_id
-    pred_by_target = defaultdict(list)
-    true_by_target = defaultdict(list)
-    all_fp_bps = []
+    # Collect predictions grouped by (session_id, target_id)
+    pred_by_group = defaultdict(list)
+    true_by_group = defaultdict(list)
+    trials_per_target = defaultdict(int)
+    total_nll_model = torch.zeros((), device=device, dtype=torch.float64)
+    total_nll_null = torch.zeros((), device=device, dtype=torch.float64)
+    total_spikes = torch.zeros((), device=device, dtype=torch.float64)
 
     with torch.no_grad():
         for batch in loader:
@@ -132,55 +136,89 @@ def main():
             target = batch["target_spike_counts"].cpu()
             unit_mask = batch["model_inputs"]["target_unit_mask"].cpu()
 
-            # fp-bps for this batch
             target_unit_index = batch["model_inputs"]["target_unit_index"]
             max_idx = null_lookup.shape[0] - 1
-            null_log_rates = null_lookup[target_unit_index.clamp(0, max_idx).to(device)].cpu()
-            batch_bps = fp_bps(log_rate.cpu(), target, null_log_rates, unit_mask)
-            all_fp_bps.append(batch_bps.item())
+            null_log_rates = null_lookup[target_unit_index.clamp(0, max_idx).to(device)]
+            nll_model_sum, nll_null_sum, spikes_sum = fp_bps_stats(
+                log_rate,
+                batch["target_spike_counts"].to(device),
+                null_log_rates,
+                batch["model_inputs"]["target_unit_mask"].to(device),
+            )
+            total_nll_model += nll_model_sum
+            total_nll_null += nll_null_sum
+            total_spikes += spikes_sum
 
             # Get trial metadata
             target_ids = batch.get("trial_target_id", None)
+            session_ids = batch.get("session_id", None)
             if target_ids is None:
                 logger.warning("No trial_target_id in batch, skipping PSTH grouping")
                 continue
+            if session_ids is None:
+                logger.warning("No session_id in batch, skipping PSTH grouping")
+                continue
 
-            # Group by target_id
+            # Group by (session_id, target_id)
             B = pred_rate.shape[0]
             for i in range(B):
                 tid = int(target_ids[i])
-                pred_by_target[tid].append(pred_rate[i])
-                true_by_target[tid].append(target[i])
+                session_id = session_ids[i]
+                mask_i = unit_mask[i]
+                if mask_i.sum().item() == 0:
+                    continue
+                group_key = (session_id, tid)
+                pred_by_group[group_key].append(pred_rate[i][:, mask_i])
+                true_by_group[group_key].append(target[i][:, mask_i])
+                trials_per_target[str(tid)] += 1
 
-    # Compute PSTH-R-squared
-    if pred_by_target:
+    # Compute per-neuron PSTH-R-squared
+    if pred_by_group:
         pred_stacked = {}
         true_stacked = {}
-        for tid in sorted(pred_by_target.keys()):
-            pred_stacked[tid] = torch.stack(pred_by_target[tid])
-            true_stacked[tid] = torch.stack(true_by_target[tid])
-            logger.info(f"  Target {tid}: {len(pred_by_target[tid])} trials")
+        per_target_r2 = {}
+        for group_key in sorted(pred_by_group.keys()):
+            pred_stacked[group_key] = torch.stack(pred_by_group[group_key])
+            true_stacked[group_key] = torch.stack(true_by_group[group_key])
+            session_id, tid = group_key
+            logger.info(
+                f"  Session {session_id}, Target {tid}: {len(pred_by_group[group_key])} trials"
+            )
 
         r2 = psth_r2(pred_stacked, true_stacked, sigma_bins=args.sigma_bins)
-        logger.info(f"PSTH-R2 = {r2:.4f}")
+        logger.info(f"per-neuron PSTH-R2 = {r2:.4f}")
+
+        for tid in sorted({tid for _, tid in pred_stacked.keys()}):
+            pred_sub = {
+                key: value
+                for key, value in pred_stacked.items()
+                if key[1] == tid
+            }
+            true_sub = {
+                key: value
+                for key, value in true_stacked.items()
+                if key[1] == tid
+            }
+            per_target_r2[str(tid)] = float(
+                psth_r2(pred_sub, true_sub, sigma_bins=args.sigma_bins)
+            )
     else:
         r2 = torch.tensor(float("nan"))
-        logger.warning("No trial metadata available, PSTH-R2 not computed")
+        per_target_r2 = {}
+        logger.warning("No trial metadata available, per-neuron PSTH-R2 not computed")
 
-    # Mean fp-bps
-    mean_bps = sum(all_fp_bps) / max(len(all_fp_bps), 1)
-    logger.info(f"Mean fp-bps = {mean_bps:.4f}")
+    mean_bps = finalize_fp_bps_from_stats(total_nll_model, total_nll_null, total_spikes)
+    logger.info(f"Global trial fp-bps = {float(mean_bps):.4f}")
 
     # Save results
     output_dir = args.output_dir or str(Path(args.checkpoint).parent)
     results = {
-        "psth_r2": float(r2),
-        "fp_bps": mean_bps,
+        "per_neuron_psth_r2": float(r2),
+        "trial_fp_bps": float(mean_bps),
+        "per_target_per_neuron_psth_r2": per_target_r2,
         "split": args.split,
         "sigma_bins": args.sigma_bins,
-        "n_trials_per_target": {
-            str(k): len(v) for k, v in pred_by_target.items()
-        },
+        "n_trials_per_target": dict(trials_per_target),
         "checkpoint": args.checkpoint,
     }
 

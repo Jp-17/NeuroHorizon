@@ -4,7 +4,7 @@
 Generates:
 1. fp-bps vs pred_window (continuous vs trial-aligned)
 2. Per-bin fp-bps decay curves (6 conditions)
-3. PSTH-R2 heatmap (target_id x condition)
+3. per-neuron PSTH-R2 heatmap (target_id x condition)
 4. Continuous vs trial-aligned comparison bar chart
 5. Training curves (val_loss / val_fp_bps vs epoch)
 
@@ -51,10 +51,13 @@ LINE_STYLES = {
 
 
 def load_eval_results():
-    """Load eval_v2_results.json for all conditions."""
+    """Load valid-split eval results for all conditions."""
     results = {}
     for dir_name, label, window_ms, mode in CONDITIONS:
-        eval_path = BASE / dir_name / "lightning_logs" / "eval_v2_results.json"
+        eval_path = BASE / dir_name / "lightning_logs" / "eval_v2_valid_results.json"
+        legacy_path = BASE / dir_name / "lightning_logs" / "eval_v2_results.json"
+        if not eval_path.exists() and legacy_path.exists():
+            eval_path = legacy_path
         if eval_path.exists():
             with open(eval_path) as f:
                 results[label] = json.load(f)
@@ -173,7 +176,7 @@ def fig2_perbin_decay(results):
 
 
 def fig3_psth_heatmap(results):
-    """Figure 3: PSTH-R2 heatmap (target_id x condition)."""
+    """Figure 3: per-neuron PSTH-R2 heatmap (target_id x condition)."""
     labels = []
     per_target_data = []
 
@@ -182,16 +185,22 @@ def fig3_psth_heatmap(results):
         if label not in results:
             continue
         res = results[label]
-        if "trial_aligned" not in res or "per_target_psth_r2" not in res["trial_aligned"]:
+        if "trial_aligned" not in res:
+            continue
+        trial = res["trial_aligned"]
+        pt = (
+            trial.get("per_target_per_neuron_psth_r2")
+            or trial.get("per_target_psth_r2")
+        )
+        if not pt:
             continue
 
         labels.append(label)
-        pt = res["trial_aligned"]["per_target_psth_r2"]
         row = [pt.get(str(i), 0) for i in range(8)]
         per_target_data.append(row)
 
     if not per_target_data:
-        print("Figure 3 skipped: no PSTH-R2 data")
+        print("Figure 3 skipped: no per-neuron PSTH-R2 data")
         return
 
     data = np.array(per_target_data)  # [n_conditions, 8]
@@ -203,7 +212,7 @@ def fig3_psth_heatmap(results):
     ax.set_xticklabels(labels, rotation=45, ha="right")
     ax.set_yticks(range(8))
     ax.set_yticklabels([f"Dir {i}" for i in range(8)])
-    ax.set_title("PSTH-R2 by Target Direction and Condition", fontsize=14)
+    ax.set_title("per-neuron PSTH-R2 by Target Direction and Condition", fontsize=14)
 
     # Add text annotations
     for i in range(data.shape[0]):
@@ -212,7 +221,7 @@ def fig3_psth_heatmap(results):
             ax.text(i, j, f"{data[i, j]:.2f}", ha="center", va="center",
                    color=text_color, fontsize=9)
 
-    plt.colorbar(im, ax=ax, label="PSTH-R2")
+    plt.colorbar(im, ax=ax, label="per-neuron PSTH-R2")
     plt.tight_layout()
     plt.savefig(OUT_DIR / "03_psth_r2_heatmap.png", dpi=150)
     plt.close()
@@ -344,7 +353,7 @@ def main():
     print("\n" + "=" * 80)
     print("SUMMARY TABLE")
     print("=" * 80)
-    print(f"{'Condition':15s} | {'fp-bps':>8s} | {'R2':>8s} | {'PSTH-R2':>8s} | {'trial fp-bps':>12s}")
+    print(f"{'Condition':15s} | {'fp-bps':>8s} | {'R2':>8s} | {'per-neuron PSTH-R2':>18s} | {'trial fp-bps':>12s}")
     print("-" * 65)
     for label in ["250ms-cont", "250ms-trial", "500ms-cont", "500ms-trial",
                    "1000ms-cont", "1000ms-trial"]:
@@ -353,7 +362,7 @@ def main():
             c = r.get("continuous", {})
             t = r.get("trial_aligned", {})
             print(f"{label:15s} | {c.get('fp_bps', 0):8.4f} | {c.get('r2', 0):8.4f} | "
-                  f"{t.get('psth_r2', 0):8.4f} | {t.get('trial_fp_bps', 0):12.4f}")
+                  f"{t.get('per_neuron_psth_r2', t.get('psth_r2', 0)):18.4f} | {t.get('trial_fp_bps', 0):12.4f}")
         else:
             print(f"{label:15s} | {'--':>8s} | {'--':>8s} | {'--':>8s} | {'--':>12s}")
     print("=" * 80)
