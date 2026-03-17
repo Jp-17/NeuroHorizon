@@ -333,6 +333,77 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 
 - [x] Benchmark 对比分析（直接引用 1.8.3 结果，无需重训）
 
+#### 1.3.5 [ ] IBL-MtM 风格 bps 对照指标（`ibl_mtm_bps`）
+> 依赖：`cc_todo/20260316-review/QA_codex.md` §1.8（尤其 §3.3）
+> 产出：更新后的 `eval_v2_{valid,test}_results.json`（新增 `continuous.ibl_mtm_bps` 字段），`results/logs/phase1_v2_metric_extension_comparison/`
+> 记录：`cc_todo/phase1-autoregressive/20260318-phase1-1.3.5-ibl-metric.md`
+
+**实验目的**：
+1. 在现有主 `fp-bps` 不变的前提下，补一个更接近 IBL-MtM paper 口径的对照指标
+2. 明确区分：
+   - 主指标：global spike-weighted `fp-bps` + train-split null
+   - 对照指标：per-neuron mean `ibl_mtm_bps` + eval-split null
+3. 为 1.8 benchmark 对比提供第二条更接近原始 IBL-MtM 表格的解释坐标轴
+
+**指标定义**：
+- `ibl_mtm_bps`
+  - 先在当前 evaluation split 上对每个 neuron 单独累计 model NLL
+  - null rate 使用当前 evaluation split 的该 neuron 平均 spike count / bin
+  - 对有效 neuron 的 bps 做简单平均
+- **注意**：该指标仅作为 comparison metric，不替代 1.3.4/1.8 中的主 `fp-bps`
+
+**实验范围**：
+- 仅补评估 1.3.4 evalfix 的 continuous 三个窗口：
+  - `phase1_v2_evalfix_250ms_cont`
+  - `phase1_v2_evalfix_500ms_cont`
+  - `phase1_v2_evalfix_1000ms_cont`
+- 不重新训练 causal baseline
+
+**评估指标**：
+- `fp-bps`
+- `ibl_mtm_bps`
+- `R-squared`
+
+- [ ] 250ms-cont：valid/test `fp-bps` + `ibl_mtm_bps`
+- [ ] 500ms-cont：valid/test `fp-bps` + `ibl_mtm_bps`
+- [ ] 1000ms-cont：valid/test `fp-bps` + `ibl_mtm_bps`
+- [ ] 汇总：`results/logs/phase1_v2_metric_extension_comparison/comparison.{json,md}`
+- [ ] 分析：两种 bps 口径是否对窗口排序和相对衰减给出一致结论
+
+#### 1.3.6 [ ] baseline_v2 non-causal ablation（双向 decoder）
+> 依赖：`cc_todo/20260316-review/neurips_innovation_claude.md` §2.2
+> 产出：`results/logs/phase1_v2_nocausal_{250ms,500ms,1000ms}_cont/`，`results/logs/phase1_v2_nocausal_comparison/`
+> 记录：`cc_todo/phase1-autoregressive/20260318-phase1-1.3.6-nocausal-ablation.md`
+
+**实验目的**：
+1. 在 baseline_v2 训练方式下，仅替换 decoder self-attention 的因果掩码
+2. 测试 causal constraint 是否真的为 future-bin prediction 带来有效的时序归纳偏置
+3. 用两套 bps 口径同时比较 causal vs non-causal：
+   - 主 `fp-bps`
+   - 对照 `ibl_mtm_bps`
+
+**实验配置（3 个训练运行）**：
+
+| 条件 | 训练模式 | pred_window | obs_window | decoder attention | batch_size | log_dir | config |
+|------|---------|-------------|------------|-------------------|------------|---------|--------|
+| 250ms-cont | 连续 | 250ms | 500ms | **双向** | 64 | `phase1_v2_nocausal_250ms_cont` | `train_v2_nocausal_250ms.yaml` |
+| 500ms-cont | 连续 | 500ms | 500ms | **双向** | 64 | `phase1_v2_nocausal_500ms_cont` | `train_v2_nocausal_500ms.yaml` |
+| 1000ms-cont | 连续 | 1000ms | 500ms | **双向** | 32 | `phase1_v2_nocausal_1000ms_cont` | `train_v2_nocausal_1000ms.yaml` |
+
+**共用配置**：其余超参全部与 1.3.4 evalfix continuous baseline 对齐；唯一核心变量为 `causal_decoder: false`
+
+**评估指标**：
+- `fp-bps`
+- `ibl_mtm_bps`
+- `R-squared`
+- `per_neuron_psth_r2`（补充）
+
+- [ ] 250ms-cont：non-causal 训练 + valid/test 评估
+- [ ] 500ms-cont：non-causal 训练 + valid/test 评估
+- [ ] 1000ms-cont：non-causal 训练 + valid/test 评估
+- [ ] 汇总：`results/logs/phase1_v2_nocausal_comparison/comparison.{json,md}`
+- [ ] 分析：causal vs non-causal 在两个 bps 口径上的差值
+
 ### 1.4 [x] 观察窗口长度实验
 > 依赖：1.3.4 完成，确定最优 pred_window（预期 250ms）
 > 产出：`results/logs/phase1_v2_obs{250,500,750,1000}ms/`，`results/figures/phase1_v2/`

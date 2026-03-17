@@ -37,7 +37,9 @@ from torch_brain.utils.neurohorizon_metrics import (
     fp_bps_stats,
     finalize_fp_bps_from_stats,
     finalize_fp_bps_per_bin_from_stats,
+    finalize_ibl_mtm_bps_from_stats,
     finalize_r2_from_stats,
+    ibl_mtm_bps_batch_stats,
     psth_r2,
     r2_stats,
     compute_null_rates,
@@ -45,6 +47,21 @@ from torch_brain.utils.neurohorizon_metrics import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_unit_buffer_size(
+    buffer: torch.Tensor | None,
+    size: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Grow a per-unit accumulation buffer to at least ``size``."""
+    if buffer is None:
+        return torch.zeros(size, device=device, dtype=torch.float64)
+    if buffer.shape[0] >= size:
+        return buffer
+    grown = torch.zeros(size, device=device, dtype=torch.float64)
+    grown[: buffer.shape[0]] = buffer
+    return grown
 
 
 def find_best_checkpoint(log_dir: str) -> str:
@@ -155,6 +172,9 @@ def evaluate_continuous(
     per_bin_model = None
     per_bin_null = None
     per_bin_spikes = None
+    ibl_model_by_unit = None
+    ibl_target_by_unit = None
+    ibl_count_by_unit = None
     loss_sum = 0.0
     n_batches = 0
 
@@ -207,9 +227,29 @@ def evaluate_continuous(
                 per_bin_null += pb_null
                 per_bin_spikes += pb_spikes
 
+            unique_ids, ibl_model, ibl_target, ibl_count = ibl_mtm_bps_batch_stats(
+                log_rate,
+                target,
+                target_unit_index,
+                unit_mask,
+            )
+            if unique_ids.numel() > 0:
+                size = int(unique_ids.max().item()) + 1
+                ibl_model_by_unit = _ensure_unit_buffer_size(ibl_model_by_unit, size, device)
+                ibl_target_by_unit = _ensure_unit_buffer_size(ibl_target_by_unit, size, device)
+                ibl_count_by_unit = _ensure_unit_buffer_size(ibl_count_by_unit, size, device)
+                ibl_model_by_unit[unique_ids] += ibl_model
+                ibl_target_by_unit[unique_ids] += ibl_target
+                ibl_count_by_unit[unique_ids] += ibl_count
+
             n_batches += 1
 
     mean_bps = finalize_fp_bps_from_stats(total_nll_model, total_nll_null, total_spikes)
+    ibl_bps = finalize_ibl_mtm_bps_from_stats(
+        ibl_model_by_unit if ibl_model_by_unit is not None else torch.empty(0, device=device, dtype=torch.float64),
+        ibl_target_by_unit if ibl_target_by_unit is not None else torch.empty(0, device=device, dtype=torch.float64),
+        ibl_count_by_unit if ibl_count_by_unit is not None else torch.empty(0, device=device, dtype=torch.float64),
+    )
     mean_r2 = finalize_r2_from_stats(
         total_ss_res,
         total_target_sum,
@@ -225,12 +265,14 @@ def evaluate_continuous(
     per_bin_mean = {t: float(per_bin_bps[t]) for t in range(per_bin_bps.shape[0])}
 
     logger.info(f"  fp-bps = {float(mean_bps):.4f}")
+    logger.info(f"  ibl-mtm-bps = {float(ibl_bps):.4f}")
     logger.info(f"  R2 = {float(mean_r2):.4f}")
     logger.info(f"  val_loss = {mean_loss:.4f}")
     logger.info(f"  per-bin fp-bps: {[f'{v:.3f}' for v in per_bin_mean.values()]}")
 
     return {
         "fp_bps": float(mean_bps),
+        "ibl_mtm_bps": float(ibl_bps),
         "r2": float(mean_r2),
         "val_loss": float(mean_loss),
         "per_bin_fp_bps": {str(k): float(v) for k, v in per_bin_mean.items()},
@@ -463,6 +505,7 @@ def main():
         c = results["continuous"]
         print(f"\n  [Continuous Mode]")
         print(f"    fp-bps:   {c['fp_bps']:.4f}")
+        print(f"    ibl-mtm-bps: {c.get('ibl_mtm_bps', float('nan')):.4f}")
         print(f"    R2:       {c['r2']:.4f}")
         print(f"    val_loss: {c['val_loss']:.4f}")
         bins = c["per_bin_fp_bps"]

@@ -867,6 +867,51 @@
 - **依赖**：poyo conda 环境
 - **备注**：对应 `cc_todo/phase1-autoregressive/20260317-phase1-1.3.4-evalfix-rerun.md`；同时兼容 `lightning_logs/` 与 `lightning_logs/version_0/` 两种结果路径
 
+### compare_phase1_v2_ibl_metric.py（1.3.5 IBL-MtM 风格指标对照）
+
+- **路径**：`scripts/analysis/neurohorizon/compare_phase1_v2_ibl_metric.py`
+- **功能用途**：汇总 `1.3.4 evalfix` continuous baseline 在 valid/test 上的 `fp-bps`、`ibl_mtm_bps`、`R²`
+- **创建时间**：2026-03-18
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/neurohorizon/compare_phase1_v2_ibl_metric.py
+  ```
+- **输出**：`results/logs/phase1_v2_metric_extension_comparison/comparison.{json,md}`
+- **依赖**：poyo conda 环境
+- **备注**：对应 `cc_todo/phase1-autoregressive/20260318-phase1-1.3.5-ibl-metric.md`
+
+### run_phase1_v2_nocausal.sh（1.3.6 non-causal baseline 批量重跑）
+
+- **路径**：`scripts/analysis/neurohorizon/run_phase1_v2_nocausal.sh`
+- **功能用途**：顺序执行 `1.3.6` 的 3 个 non-causal continuous 配置训练与 valid/test 离线评估
+- **创建时间**：2026-03-18
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/analysis/neurohorizon/run_phase1_v2_nocausal.sh
+  ```
+- **输出**：`results/logs/phase1_v2_nocausal_{250ms,500ms,1000ms}_cont/`
+- **依赖**：poyo conda 环境
+- **备注**：对应 `cc_todo/phase1-autoregressive/20260318-phase1-1.3.6-nocausal-ablation.md`
+
+### compare_phase1_v2_causal_ablation.py（1.3.6 causal vs non-causal 对比）
+
+- **路径**：`scripts/analysis/neurohorizon/compare_phase1_v2_causal_ablation.py`
+- **功能用途**：对比 causal evalfix baseline 与 non-causal baseline 在 valid/test 上的 `fp-bps`、`ibl_mtm_bps` 等指标
+- **创建时间**：2026-03-18
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/analysis/neurohorizon/compare_phase1_v2_causal_ablation.py
+  ```
+- **输出**：`results/logs/phase1_v2_nocausal_comparison/comparison.{json,md}`
+- **依赖**：poyo conda 环境
+- **备注**：对应 `cc_todo/phase1-autoregressive/20260318-phase1-1.3.6-nocausal-ablation.md`
+
 ---
 
 ## Benchmark 对比实验脚本（1.8）

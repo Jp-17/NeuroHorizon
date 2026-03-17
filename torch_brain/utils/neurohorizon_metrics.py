@@ -110,6 +110,112 @@ def finalize_fp_bps_per_bin_from_stats(
     return result
 
 
+def ibl_mtm_bps_batch_stats(
+    log_rate: torch.Tensor,
+    target: torch.Tensor,
+    target_unit_index: torch.Tensor,
+    mask: Optional[torch.Tensor] = None,
+):
+    """Per-batch sufficient statistics for IBL-MtM-style bps.
+
+    This follows the evaluation convention described in the IBL-MtM review:
+    1. Aggregate model NLL per neuron on the current evaluation split
+    2. Build the null model from the current evaluation split mean rate per neuron
+    3. Compute per-neuron bps and average over neurons
+
+    Args:
+        log_rate: Model log rates [B, T, N]
+        target: Spike counts [B, T, N]
+        target_unit_index: Global unit ids [B, N]
+        mask: Unit mask [B, N]
+
+    Returns:
+        unique_unit_ids: [U]
+        nll_model_sums: [U]
+        target_sums: [U]
+        count_sums: [U]
+    """
+    B, T, N = log_rate.shape
+    if target.shape != (B, T, N):
+        raise ValueError("target must have same shape as log_rate")
+    if target_unit_index.shape != (B, N):
+        raise ValueError("target_unit_index must have shape [B, N]")
+
+    nll_model = poisson_nll_elementwise(log_rate, target).sum(dim=1, dtype=torch.float64)
+    target_sum = target.sum(dim=1, dtype=torch.float64)
+    count_sum = torch.full_like(target_sum, float(T), dtype=torch.float64)
+
+    if mask is not None:
+        valid_mask = mask.to(torch.bool)
+    else:
+        valid_mask = torch.ones_like(target_unit_index, dtype=torch.bool)
+
+    if valid_mask.sum().item() == 0:
+        empty_ids = torch.empty(0, device=log_rate.device, dtype=torch.long)
+        empty_vals = torch.empty(0, device=log_rate.device, dtype=torch.float64)
+        return empty_ids, empty_vals, empty_vals, empty_vals
+
+    flat_ids = target_unit_index[valid_mask].to(torch.long)
+    flat_model = nll_model[valid_mask]
+    flat_target = target_sum[valid_mask]
+    flat_count = count_sum[valid_mask]
+
+    unique_ids, inverse = torch.unique(flat_ids, sorted=True, return_inverse=True)
+    num_units = unique_ids.shape[0]
+
+    nll_model_sums = torch.zeros(num_units, device=log_rate.device, dtype=torch.float64)
+    target_sums = torch.zeros(num_units, device=log_rate.device, dtype=torch.float64)
+    count_sums = torch.zeros(num_units, device=log_rate.device, dtype=torch.float64)
+
+    nll_model_sums.scatter_add_(0, inverse, flat_model)
+    target_sums.scatter_add_(0, inverse, flat_target)
+    count_sums.scatter_add_(0, inverse, flat_count)
+
+    return unique_ids, nll_model_sums, target_sums, count_sums
+
+
+def finalize_ibl_mtm_bps_from_stats(
+    nll_model_sums: torch.Tensor,
+    target_sums: torch.Tensor,
+    count_sums: torch.Tensor,
+) -> torch.Tensor:
+    """Finalize IBL-MtM-style per-neuron mean bps from accumulated stats."""
+    if nll_model_sums.numel() == 0:
+        return torch.zeros((), device=nll_model_sums.device, dtype=torch.float64)
+
+    valid = (count_sums > 0) & (target_sums > 0)
+    if not valid.any():
+        return torch.zeros((), device=nll_model_sums.device, dtype=torch.float64)
+
+    mean_count = target_sums[valid] / count_sums[valid]
+    null_log_rates = torch.log(mean_count.clamp_min(1e-6))
+    nll_null_sums = count_sums[valid] * mean_count - target_sums[valid] * null_log_rates
+    per_neuron_bps = (nll_null_sums - nll_model_sums[valid]) / (
+        target_sums[valid] * math.log(2)
+    )
+    return per_neuron_bps.mean()
+
+
+def ibl_mtm_bps(
+    log_rate: torch.Tensor,
+    target: torch.Tensor,
+    target_unit_index: torch.Tensor,
+    mask: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """Single-pass IBL-MtM-style bps on a given evaluation slice."""
+    _, nll_model_sums, target_sums, count_sums = ibl_mtm_bps_batch_stats(
+        log_rate,
+        target,
+        target_unit_index,
+        mask,
+    )
+    return finalize_ibl_mtm_bps_from_stats(
+        nll_model_sums,
+        target_sums,
+        count_sums,
+    ).to(log_rate.dtype)
+
+
 def r2_stats(
     pred_rate: torch.Tensor,
     target: torch.Tensor,
