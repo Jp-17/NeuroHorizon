@@ -1444,3 +1444,47 @@
 **对应记录文件**：
 - `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
 - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
+
+## 2026-03-18 | jp-video-1 | 补充 1.8.3 NDT2 faithful 当前阶段总结与失败原因分析
+
+继续整理 NeuroHorizon 的 1.8.3 benchmark 文档，这轮不改代码，只修正文档口径，重点回答三件事：`causalfix_e20` 现在到底是什么、当前 faithful NDT2 已经整合到了什么阶段、以及为什么“实现已经打通但 benchmark 结果仍显著不成立”。
+
+**完成内容**：
+1. 重新核对当前 `neural-benchmark/faithful_ndt2.py` 的实现边界：
+   - 数据源：同一份 `perich_miller_10sessions.yaml`
+   - split：同一份 `train / valid / test`
+   - eval / metric：同一 held-out continuous / trial-aligned `fp-bps / R² / Poisson NLL / PSTH-R²`
+   - 训练过程：仍使用上游 `BrainBertInterface` 与 upstream `_step()` loss
+2. 明确当前与 NeuroHorizon **已经统一** 和 **尚未完全同构** 的部分：
+   - 已统一：数据源 / split / eval / metric
+   - 尚未同构：train dataloader / sampler 实现
+   - 但这不再被视为当前主问题
+3. 更新两份核心文档：
+   - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
+   - `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
+   - 修正 `causalfix_e20` 的定位：从“阶段性主参考”正式降级为“data-path 修复前的历史中间结果”
+   - 新增“当前 NDT2 faithful 阶段总结”
+   - 新增“为什么实现打通后结果仍显著不成立”的假设清单
+
+**本轮补充的关键判断**：
+1. 当前 faithful NDT2 已经不是“实现没打通”，而是“实现打通后，当前 canonical benchmark 上仍显著失败”
+2. 当前更可信的 250ms 结果仍是：
+   - `f8align_pad8_e10`: held-out test `fp-bps = -0.6707`, `PSTH-R² = 0.0575`
+   - `projectfix_pad8_e10`: held-out test `fp-bps = -0.6570`, `PSTH-R² = -0.5924`
+3. 当前最可能的失败原因被文档收口为“待验证假设”：
+   - `ShuffleInfill` 与 canonical forward prediction 存在 objective mismatch
+   - train-time sampling distribution 与 NeuroHorizon 主线不同
+   - NDT2 原始 inductive bias 可能不适合当前 canonical forecasting benchmark
+   - mixed-session flat token batching 仍可能是结构性困难
+   - compatibility bridge 不是上游原生训练生态
+   - 上游 optimizer/scheduler 直迁失败，说明问题不太像局部调参不足
+
+**遇到的问题与解决**：
+- 两份文档里残留了互相矛盾的旧口径：前文仍把 `causalfix_e20` 当阶段主参考，后文又已把它降级  
+  已统一改成“历史中间结果，不再作为当前主参考”
+- 需要把“已证实事实”和“当前猜测原因”分开写，避免文档把尚未验证的失败原因写成定论  
+  已在两份文档中统一使用“当前最可能的解释 / 待验证假设”口径
+
+**对应记录文件**：
+- `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
+- `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
