@@ -50,15 +50,31 @@ LINE_STYLES = {
 }
 
 
+def candidate_result_dirs(dir_name: str):
+    evalfix_dir = dir_name.replace("phase1_v2_", "phase1_v2_evalfix_", 1)
+    return [evalfix_dir, dir_name]
+
+
 def load_eval_results():
     """Load valid-split eval results for all conditions."""
     results = {}
     for dir_name, label, window_ms, mode in CONDITIONS:
-        eval_path = BASE / dir_name / "lightning_logs" / "eval_v2_valid_results.json"
-        legacy_path = BASE / dir_name / "lightning_logs" / "eval_v2_results.json"
-        if not eval_path.exists() and legacy_path.exists():
-            eval_path = legacy_path
-        if eval_path.exists():
+        candidate_paths = []
+        for result_dir in candidate_result_dirs(dir_name):
+            candidate_paths.extend(
+                [
+                    BASE / result_dir / "lightning_logs" / "version_0" / "eval_v2_valid_results.json",
+                    BASE / result_dir / "lightning_logs" / "eval_v2_valid_results.json",
+                    BASE / result_dir / "lightning_logs" / "version_0" / "eval_v2_results.json",
+                    BASE / result_dir / "lightning_logs" / "eval_v2_results.json",
+                ]
+            )
+        eval_path = None
+        for candidate in candidate_paths:
+            if candidate.exists():
+                eval_path = candidate
+                break
+        if eval_path is not None:
             with open(eval_path) as f:
                 results[label] = json.load(f)
                 results[label]["window_ms"] = window_ms
@@ -70,8 +86,13 @@ def load_training_curves():
     """Load metrics.csv for all conditions."""
     curves = {}
     for dir_name, label, window_ms, mode in CONDITIONS:
-        metrics_path = BASE / dir_name / "lightning_logs" / "version_0" / "metrics.csv"
-        if not metrics_path.exists():
+        metrics_path = None
+        for result_dir in candidate_result_dirs(dir_name):
+            candidate = BASE / result_dir / "lightning_logs" / "version_0" / "metrics.csv"
+            if candidate.exists():
+                metrics_path = candidate
+                break
+        if metrics_path is None:
             continue
 
         epochs = []

@@ -1308,170 +1308,35 @@
 
 ---
 
-## 2026-03-17-17h40
+## 2026-03-17-17h55
 
-### 任务：1.8.3 审计整合、legacy benchmark protocol-fix 重评估与任务重开
+### 任务：完成 1.3.4 evalfix 全量重跑、离线评估与新旧结果对比
 
-**完成时间**：2026-03-17-17h40
-
-**完成内容**：
-1. 结合 `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md` 前文审计和其末尾 Claude 补充，重新整合 1.8.3 的最终判断
-2. 新增 protocol-fix 代码：
-   - `neural-benchmark/repro_protocol.py`
-   - `neural-benchmark/benchmark_protocol_repair.py`
-   - `neural-benchmark/compare_protocolfix.py`
-3. 对旧 9 个 `phase1_benchmark_*` best checkpoint 完成统一 valid/test continuous + trial-aligned 重评估，生成：
-   - `results/logs/phase1_benchmark_protocolfix_{model}_{window}ms/results.json`
-   - `results/logs/phase1_benchmark_protocolfix_comparison/comparison.{json,md}`
-   - `results/figures/phase1_benchmark_protocolfix/*.png`
-4. 同步更新文档口径：
-   - `cc_core_files/plan.md`
-   - `cc_core_files/results.md`
-   - `cc_core_files/scripts.md`
-   - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
-   - `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
-
-**执行结果**：
-- 旧 1.8.3 已正式降级为 `legacy simplified baselines`
-- protocol-fix 下的 held-out test continuous fp-bps 为：
-  - NDT2-like：`250/500/1000ms = 0.1791 / 0.1397 / 0.0989`
-  - IBL-MtM-like：`0.1859 / 0.1505 / 0.0869`
-  - Neuroformer-like：`0.1968 / 0.1579 / 0.1004`
-- trial-aligned PSTH-R² 已补齐，三模型均在 `0.5961–0.6732`
-- `plan.md` 中 1.8.3 主任务已重新打开，因为 faithful reproduction 仍未完成
-
-**遇到的问题与解决**：
-- `repro_protocol.py` 初版直接运行时缺少项目根 `PYTHONPATH`，补加 `sys.path.insert(0, "/root/autodl-tmp/NeuroHorizon")`
-- 250ms 条件下 `0.25 / 0.02` 的取整与整窗 bin 数不完全一致，导致出现 `38 -> 37` 的 padding 冲突；已在 `WindowedBinnedDataset` 中显式截断到 `spec.total_bins`
-- 远程非交互 shell 中 `conda` 不在 PATH，改为直接使用 `/root/miniconda3/bin/conda run -n benchmark-env ...`
-
-**对应 plan.md 任务**：Phase 1 → 1.8.3（legacy benchmark 审计回收 + protocol-fix 重评估；faithful reproduction 待继续）
-
-
----
-
-## 2026-03-17-18h20
-
-### 任务：启动 NDT2 faithful reproduction，完成第一版 bridge smoke
-
-**完成时间**：2026-03-17-18h20
+**完成时间**：2026-03-17-17h55
 
 **完成内容**：
-1. 新增 `neural-benchmark/faithful_ndt2.py`
-   - canonical windows -> NDT2 flat token conversion
-   - 直接实例化上游 `BrainBertInterface`
-   - 使用原生 `ShuffleInfill`
-   - 提供 smoke CLI
-2. 运行 faithful NDT2 smoke：
-   - 命令：`/root/miniconda3/bin/conda run -n benchmark-env python neural-benchmark/faithful_ndt2.py --mode smoke --batch-size 2 --train-windows 4 --valid-windows 4 --eval-batches 1`
-   - 结果文件：`results/logs/phase1_benchmark_faithful_ndt2_smoke/smoke.json`
-3. 同步更新：
-   - `cc_core_files/scripts.md`
-   - `cc_core_files/results.md`
-   - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
-   - `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
+1. 完成 `phase1_v2_evalfix_{250ms,500ms,1000ms}_{cont,trial}` 六组 300-epoch 训练
+2. 完成六组条件的 valid/test 离线评估，生成 `eval_v2_valid_results.json` 与 `eval_v2_test_results.json`
+3. 修正 `compare_phase1_v2_evalfix.py` 的 `version_0` 路径问题并生成 `comparison.{json,md}`
+4. 修正 `phase1_v2_visualize.py` 使其优先读取 `phase1_v2_evalfix_*` 目录，重新生成新版 5 张图
+5. 回填 `cc_todo/phase1-autoregressive/20260317-phase1-1.3.4-evalfix-rerun.md`、`cc_core_files/results.md`、`cc_todo/20260316-review/20260316-plan-md-v2-code-review_codex.md`
 
 **执行结果**：
-- NDT2 faithful bridge smoke 已通过
-- 关键 smoke 输出：
-  - `train_batch_shape = [2, 333, 8, 1]`
-  - `valid_pred_shape = [2, 12, 72]`
-  - `train_loss_after_one_step = 1.3230`
-- 指标仍为负值（随机初始化 + 1 步训练），但已确认上游 NDT2 路径可以在 canonical windows 上完成 `loss -> backward -> predict -> metrics` 全链路
+- continuous valid `fp-bps`：
+  - 250ms: `0.2164`（legacy `0.2115`，+0.0049）
+  - 500ms: `0.1823`（legacy `0.1744`，+0.0079）
+  - 1000ms: `0.1374`（legacy `0.1317`，+0.0056）
+- trial-aligned valid `fp-bps` 仍为负值：
+  - 250ms: `-0.1983`
+  - 500ms: `-0.2839`
+  - 1000ms: `-0.2152`
+- 新 test continuous `fp-bps`：
+  - 250ms: `0.2223`
+  - 500ms: `0.1740`
+  - 1000ms: `0.1348`
+- 新 `per_neuron_psth_r2` 已统一落地，旧 population-mean `PSTH-R2` 仅保留为 legacy 对照
 
-**遇到的问题与解决**：
-- `ShuffleInfill` 原生实现要求 `cfg.encode_decode=True`；已在 faithful bridge 配置中显式启用
-- faithful dataset 同样遇到 `250ms` 条件 `38 -> 37` rounding mismatch；已在 dataset 入口统一截断到 `spec.total_bins`
-- 运行时有来自其他依赖包的 PyTorch / transformers 提示，但不影响 NDT2 bridge 实际执行
+**遇到的问题**：
+- `compare_phase1_v2_evalfix.py` 和 `phase1_v2_visualize.py` 初版都没有正确下探到 `lightning_logs/version_0/`，导致读取新结果失败；已修复并重新生成对比产物
 
-**对应 plan.md 任务**：Phase 1 → 1.8.3（faithful reproduction 主线，NDT2 bridge smoke 已完成，正式训练待继续）
-
-
----
-
-## 2026-03-17-21h10
-
-### 任务：扩展 faithful NDT2 正式 runner，并完成 250ms full-data causal-fix 初步重跑
-
-**完成时间**：2026-03-17-21h10
-
-**完成内容**：
-1. 扩展 `neural-benchmark/faithful_ndt2.py`
-   - 新增 `--mode train`
-   - 保存 `best_model.pt` / `last_model.pt`
-   - 结果 schema 分离 `best_valid_metrics`、`final_epoch_metrics`、`test_metrics`
-   - 接入 held-out continuous test + trial-aligned PSTH 评估
-2. 先完成小样本 schema 验证：
-   - `results/logs/phase1_benchmark_faithful_ndt2_trainverify_250ms/results.json`
-3. 完成 full-data 250ms 多轮运行：
-   - `phase1_benchmark_repro_faithful_ndt2_250ms/`（后确认 `causal=False`，仅保留审计）
-   - `phase1_benchmark_repro_faithful_ndt2_250ms_causalfix/`
-   - `phase1_benchmark_repro_faithful_ndt2_250ms_causalfix_e20/`
-4. 同步更新：
-   - `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
-   - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
-   - `cc_core_files/scripts.md`
-   - `cc_core_files/results.md`
-   - `cc_core_files/plan.md`
-
-**执行结果**：
-- 小样本 trainverify 已确认 new schema 和 held-out test / trial-eval 链路可用
-- 250ms full-data 在修复 `causal=True` 后，held-out test 指标从错误配置的：
-  - `fp-bps = -0.3823`
-  - `PSTH-R² = 0.1389`
-  提升为 20 epoch causal-fix 的：
-  - `fp-bps = -0.0078`
-  - `PSTH-R² = 0.3833`
-- 当前 faithful NDT2 250ms 已接近 `fp-bps = 0`，但仍显著低于 legacy protocol-fix NDT2-like 的 `0.1791 / 0.6710`
-- 因此 1.8.3 仍维持“未完成”状态，500ms / 1000ms 暂不扩展
-
-**遇到的问题与解决**：
-- full-data 初版跑完后发现 `ModelConfig.causal=False` 与上游 `f8` preset 不一致，这是会直接扭曲 benchmark 结果的 fidelity bug；已改为 `causal=True`
-- 为了更贴近上游 preset，同时把默认 `mask_ratio` 调整为 `0.5`
-- full-data 训练下 DataLoader 吞吐偏低，已补加 `pin_memory` 和 `persistent_workers`
-
-**对应 plan.md 任务**：Phase 1 → 1.8.3（NDT2 faithful runner 已落地并完成 250ms causal-fix 初步重跑；原始 benchmark faithful reproduction 仍待继续）
-
-
----
-
-## 2026-03-17-23h10
-
-### 任务：继续审查 NDT2 faithful 250ms 的训练规程，对齐上游 optimizer/scheduler 并验证时标失配
-
-**完成时间**：2026-03-17-23h10
-
-**完成内容**：
-1. 继续修改 `neural-benchmark/faithful_ndt2.py`
-   - `train` 模式接入上游 `model.configure_optimizers()`
-   - 新增 `--accumulate-batches`
-   - 新增 `--lr-schedule / --lr-ramp-steps / --lr-decay-steps / --lr-min`
-   - checkpoint 补存 scheduler state
-   - `results.json` 新增 `train_protocol`、`lr`、`n_optimizer_steps`
-2. 完成两组 full-data 250ms 对照实验：
-   - `results/logs/phase1_benchmark_repro_faithful_ndt2_250ms_optalign_acc16_e60/`
-   - `results/logs/phase1_benchmark_repro_faithful_ndt2_250ms_optalign_acc16_scaledwarmup_e60/`
-3. 同步更新：
-   - `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
-   - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
-   - `cc_core_files/scripts.md`
-   - `cc_core_files/results.md`
-   - `cc_core_files/plan.md`
-
-**执行结果**：
-- 小样本 `optalign_trainverify_250ms` 已确认新的 optimizer/scheduler/accumulation 链路工作正常
-- 直接复用上游 `configure_optimizers()` + `accumulate=16` 的 60 epoch 结果为：
-  - best valid `fp-bps = -0.7006`
-  - held-out test `fp-bps = -0.7156`
-  - test `PSTH-R² = 0.1747`
-- 将 warmup 缩放到 `lr_ramp_steps=5, lr_decay_steps=60` 后结果仅改善到：
-  - best valid `fp-bps = -0.6641`
-  - held-out test `fp-bps = -0.6779`
-  - test `PSTH-R² = 0.1746`
-- 结论：对当前 benchmark 而言，**完整上游预训练时标直接迁移明显欠拟合**；当前阶段仍应以 `phase1_benchmark_repro_faithful_ndt2_250ms_causalfix_e20` 作为更可用的 faithful NDT2 250ms 参考
-
-**遇到的问题与解决**：
-- 仅凭“更忠实地照搬上游 optimizer/scheduler”并未改善结果，反而显著变差；因此将问题进一步收敛为“训练时标与当前数据规模失配”，而不是继续把代码 fidelity 和训练规程 fidelity 混成一个问题
-- 为后续更细粒度排查，已把 lr 和 optimizer step 数显式写入 history / results schema
-
-**对应 plan.md 任务**：Phase 1 → 1.8.3（NDT2 faithful 250ms 训练规程审查继续推进；确认上游 optimizer/scheduler 直迁在当前 benchmark 上欠拟合）
+**对应 plan.md 任务**：Phase 1 → 1.3.4（evalfix 重跑完成 + 结果对比）

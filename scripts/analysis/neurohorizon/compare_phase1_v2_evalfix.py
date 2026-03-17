@@ -23,6 +23,14 @@ def load_json(path: Path):
         return json.load(f)
 
 
+def load_first_json(*paths: Path):
+    for path in paths:
+        data = load_json(path)
+        if data is not None:
+            return data
+    return None
+
+
 def trial_metric(trial_section):
     if not trial_section:
         return None
@@ -33,9 +41,18 @@ def trial_metric(trial_section):
 
 
 def build_entry(label, legacy_dir, evalfix_dir):
-    legacy = load_json(ROOT / legacy_dir / "lightning_logs" / "eval_v2_results.json")
-    valid = load_json(ROOT / evalfix_dir / "lightning_logs" / "eval_v2_valid_results.json")
-    test = load_json(ROOT / evalfix_dir / "lightning_logs" / "eval_v2_test_results.json")
+    legacy = load_first_json(
+        ROOT / legacy_dir / "lightning_logs" / "version_0" / "eval_v2_results.json",
+        ROOT / legacy_dir / "lightning_logs" / "eval_v2_results.json",
+    )
+    valid = load_first_json(
+        ROOT / evalfix_dir / "lightning_logs" / "version_0" / "eval_v2_valid_results.json",
+        ROOT / evalfix_dir / "lightning_logs" / "eval_v2_valid_results.json",
+    )
+    test = load_first_json(
+        ROOT / evalfix_dir / "lightning_logs" / "version_0" / "eval_v2_test_results.json",
+        ROOT / evalfix_dir / "lightning_logs" / "eval_v2_test_results.json",
+    )
 
     if legacy is None and valid is None and test is None:
         return None
