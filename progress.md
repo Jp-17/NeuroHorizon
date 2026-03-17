@@ -1385,3 +1385,49 @@
 - 运行时有来自其他依赖包的 PyTorch / transformers 提示，但不影响 NDT2 bridge 实际执行
 
 **对应 plan.md 任务**：Phase 1 → 1.8.3（faithful reproduction 主线，NDT2 bridge smoke 已完成，正式训练待继续）
+
+
+---
+
+## 2026-03-17-21h10
+
+### 任务：扩展 faithful NDT2 正式 runner，并完成 250ms full-data causal-fix 初步重跑
+
+**完成时间**：2026-03-17-21h10
+
+**完成内容**：
+1. 扩展 `neural-benchmark/faithful_ndt2.py`
+   - 新增 `--mode train`
+   - 保存 `best_model.pt` / `last_model.pt`
+   - 结果 schema 分离 `best_valid_metrics`、`final_epoch_metrics`、`test_metrics`
+   - 接入 held-out continuous test + trial-aligned PSTH 评估
+2. 先完成小样本 schema 验证：
+   - `results/logs/phase1_benchmark_faithful_ndt2_trainverify_250ms/results.json`
+3. 完成 full-data 250ms 多轮运行：
+   - `phase1_benchmark_repro_faithful_ndt2_250ms/`（后确认 `causal=False`，仅保留审计）
+   - `phase1_benchmark_repro_faithful_ndt2_250ms_causalfix/`
+   - `phase1_benchmark_repro_faithful_ndt2_250ms_causalfix_e20/`
+4. 同步更新：
+   - `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
+   - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
+   - `cc_core_files/scripts.md`
+   - `cc_core_files/results.md`
+   - `cc_core_files/plan.md`
+
+**执行结果**：
+- 小样本 trainverify 已确认 new schema 和 held-out test / trial-eval 链路可用
+- 250ms full-data 在修复 `causal=True` 后，held-out test 指标从错误配置的：
+  - `fp-bps = -0.3823`
+  - `PSTH-R² = 0.1389`
+  提升为 20 epoch causal-fix 的：
+  - `fp-bps = -0.0078`
+  - `PSTH-R² = 0.3833`
+- 当前 faithful NDT2 250ms 已接近 `fp-bps = 0`，但仍显著低于 legacy protocol-fix NDT2-like 的 `0.1791 / 0.6710`
+- 因此 1.8.3 仍维持“未完成”状态，500ms / 1000ms 暂不扩展
+
+**遇到的问题与解决**：
+- full-data 初版跑完后发现 `ModelConfig.causal=False` 与上游 `f8` preset 不一致，这是会直接扭曲 benchmark 结果的 fidelity bug；已改为 `causal=True`
+- 为了更贴近上游 preset，同时把默认 `mask_ratio` 调整为 `0.5`
+- full-data 训练下 DataLoader 吞吐偏低，已补加 `pin_memory` 和 `persistent_workers`
+
+**对应 plan.md 任务**：Phase 1 → 1.8.3（NDT2 faithful runner 已落地并完成 250ms causal-fix 初步重跑；原始 benchmark faithful reproduction 仍待继续）

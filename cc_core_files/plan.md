@@ -549,10 +549,13 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 > - 2026-03-12 的“完成”记录已被审计降级为 **legacy simplified baselines**，不再视为正式 benchmark 完成态
 > - 2026-03-17 已完成 legacy checkpoint 的 **protocol-fix reevaluation**（统一 valid/test continuous + trial-aligned 评估）
 > - 2026-03-17 已完成 **NDT2 faithful bridge smoke**（`neural-benchmark/faithful_ndt2.py`），确认上游 `BrainBertInterface` 已能在 canonical windows 上跑通 loss / predict / metric 链路
+> - 2026-03-17 已完成 **NDT2 faithful runner 全链路扩展**（train / best-valid / held-out test / trial-aligned eval）
+> - 2026-03-17 已完成 **NDT2 faithful 250ms full-data 初步重跑**：修复 `causal=False` fidelity bug 后，20 epoch held-out test `fp-bps = -0.0078`、`PSTH-R² = 0.3833`；虽较错误配置显著提升，但仍明显低于 legacy NDT2-like `0.1791 / 0.6710`
 > - **faithful reproduction of original NDT2 / IBL-MtM / Neuroformer 尚未完成**，因此主任务重新打开
 
 - [x] 旧 1.8.3 pipeline 审计与 legacy 降级
 - [x] legacy checkpoint 的 protocol-fix valid/test/PSTH 重评估
+- [x] NDT2 faithful runner（smoke → train/held-out test/trial-eval）与 250ms causal-fix 初步重跑
 - [ ] 原始 benchmark 模型的 faithful reproduction（NDT2 / IBL-MtM / Neuroformer）
 
 

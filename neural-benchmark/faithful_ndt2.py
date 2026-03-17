@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """Faithful NDT2 bridge on top of the canonical 1.8.3 protocol.
 
-This module is intentionally scoped to the first reproducible milestone:
+This bridge keeps the upstream NDT2 model core intact and only adds the minimum
+compatibility layer needed to:
 
-1. build canonical Perich-Miller windows with the shared protocol
+1. materialize canonical Perich-Miller windows from the shared protocol
 2. convert binned counts into the original NDT2 flat token format
-3. instantiate the upstream BrainBertInterface instead of a local substitute
-4. verify that train loss and predict-time logrates work end-to-end
-
-It does not yet claim full benchmark completion. The CLI currently exposes a
-smoke-mode entrypoint so the bridge can be validated before full-scale training.
+3. train with upstream ``BrainBertInterface + ShuffleInfill``
+4. evaluate with the unified continuous and trial-aligned protocol
 """
 
 from __future__ import annotations
@@ -18,6 +16,7 @@ import argparse
 import copy
 import json
 import math
+import random
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -53,10 +52,13 @@ from neural_benchmark.repro_protocol import (
     BenchmarkProtocolSpec,
     build_continuous_windows,
     build_global_unit_index,
+    build_trial_windows,
     compute_raw_null_rates,
     evaluate_prediction_tensors,
+    evaluate_trial_aligned_loader,
     load_binned_window,
     load_split_datasets,
+    make_result_payload,
 )
 from torch_brain.utils.neurohorizon_metrics import build_null_rate_lookup
 
@@ -82,7 +84,7 @@ class FaithfulNDT2Config:
     n_heads: int = 4
     dropout: float = 0.2
     neurons_per_token: int = 8
-    mask_ratio: float = 0.25
+    mask_ratio: float = 0.5
     lr: float = 5e-4
     weight_decay: float = 1e-2
     pad_token: int = 20
@@ -177,11 +179,22 @@ class FaithfulNDT2WindowDataset(TorchDataset):
             MetaKey.session: torch.tensor(self.session_to_idx[window["recording_id"]], dtype=torch.long),
             LENGTH_KEY: torch.tensor(flat_spikes.shape[0], dtype=torch.long),
             CHANNEL_KEY: flat_channel_counts,
+            "spike_counts": torch.from_numpy(target_counts),
             "target_counts": torch.from_numpy(target_counts),
             "unit_ids": torch.from_numpy(unit_ids_padded),
             "unit_mask": torch.from_numpy(unit_mask),
             "n_units": torch.tensor(n_units, dtype=torch.long),
             "session_name": window["recording_id"],
+            "session_id": window["recording_id"],
+            "split": window["split"],
+            "target_id": torch.tensor(
+                -1 if window["target_id"] is None else int(window["target_id"]),
+                dtype=torch.long,
+            ),
+            "go_cue_time_s": torch.tensor(
+                float("nan") if window["go_cue_time_s"] is None else float(window["go_cue_time_s"]),
+                dtype=torch.float32,
+            ),
         }
 
 
@@ -200,11 +213,16 @@ def collate_faithful_ndt2_batch(batch: Sequence[Mapping[object, object]]) -> Dic
         MetaKey.session: sessions,
         LENGTH_KEY: lengths,
         CHANNEL_KEY: channel_counts,
+        "spike_counts": torch.stack([item["spike_counts"] for item in batch]),
         "target_counts": torch.stack([item["target_counts"] for item in batch]),
         "unit_ids": torch.stack([item["unit_ids"] for item in batch]),
         "unit_mask": torch.stack([item["unit_mask"] for item in batch]),
         "n_units": torch.stack([item["n_units"] for item in batch]),
         "session_name": [item["session_name"] for item in batch],
+        "session_id": [item["session_id"] for item in batch],
+        "split": [item["split"] for item in batch],
+        "target_id": torch.stack([item["target_id"] for item in batch]),
+        "go_cue_time_s": torch.stack([item["go_cue_time_s"] for item in batch]),
     }
 
 
@@ -251,7 +269,9 @@ def create_faithful_ndt2_model(
         transform_space=True,
         spike_embed_style=EmbedStrat.project,
         neurons_per_token=config.neurons_per_token,
-        causal=False,
+        # The upstream f8 architecture preset enables causal decoding for
+        # next-bin prediction; keep that behavior in the faithful bridge.
+        causal=True,
     )
     data_attrs = DataAttrs(
         bin_size_ms=int(round(spec.bin_size_s * 1000)),
@@ -347,6 +367,7 @@ def faithful_ndt2_predict_logrates(
 
 
 def compute_train_loss(model: BrainBertInterface, batch: Mapping[object, object]) -> torch.Tensor:
+    model.train()
     train_batch = clone_ndt2_core_batch(batch)
     output = model._step(train_batch, phase="train", eval_mode=False)
     return output["loss"]
@@ -397,6 +418,402 @@ def evaluate_faithful_ndt2_loader(
     metrics["n_batches"] = len(all_logrates)
     metrics["n_samples"] = int(sum(x.shape[0] for x in all_logrates))
     return metrics
+
+
+def set_global_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def maybe_limit_records(records, limit: int):
+    if limit is None or limit <= 0:
+        return list(records)
+    return list(records[:limit])
+
+
+def collect_session_ids(datasets: Mapping[str, object]) -> Sequence[str]:
+    return sorted(
+        {
+            recording_id
+            for dataset in datasets.values()
+            for recording_id in dataset.recording_dict.keys()
+        }
+    )
+
+
+def build_window_loader(
+    *,
+    tb_dataset,
+    records,
+    spec: BenchmarkProtocolSpec,
+    global_unit_index: Mapping[Tuple[str, int], int],
+    session_to_idx: Mapping[str, int],
+    channel_capacity: int,
+    neurons_per_token: int,
+    batch_size: int,
+    shuffle: bool,
+    num_workers: int,
+) -> DataLoader:
+    return DataLoader(
+        FaithfulNDT2WindowDataset(
+            tb_dataset,
+            records,
+            spec,
+            global_unit_index,
+            session_to_idx,
+            channel_capacity,
+            neurons_per_token,
+        ),
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+        persistent_workers=num_workers > 0,
+        collate_fn=collate_faithful_ndt2_batch,
+    )
+
+
+def build_prediction_fn(
+    model: BrainBertInterface,
+    *,
+    spec: BenchmarkProtocolSpec,
+    channel_capacity: int,
+    neurons_per_token: int,
+):
+    def predict(batch: Mapping[object, object]) -> torch.Tensor:
+        return faithful_ndt2_predict_logrates(
+            model,
+            batch,
+            spec=spec,
+            channel_capacity=channel_capacity,
+            neurons_per_token=neurons_per_token,
+        )
+
+    return predict
+
+
+def write_json(path: Path, payload: Mapping[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def save_checkpoint(
+    path: Path,
+    *,
+    epoch: int,
+    model: BrainBertInterface,
+    optimizer: torch.optim.Optimizer,
+    valid_metrics: Mapping[str, object],
+    train_loss: float,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "epoch": int(epoch),
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "valid_metrics": dict(valid_metrics),
+            "train_loss": float(train_loss),
+        },
+        path,
+    )
+
+
+def run_train(args: argparse.Namespace) -> Dict[str, object]:
+    set_global_seed(args.seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    spec = BenchmarkProtocolSpec(
+        obs_window_s=args.obs_window,
+        pred_window_s=args.pred_window,
+        bin_size_s=args.bin_size,
+    )
+    bridge_cfg = FaithfulNDT2Config(
+        hidden_size=args.hidden_size,
+        n_layers=args.n_layers,
+        n_heads=args.n_heads,
+        dropout=args.dropout,
+        neurons_per_token=args.neurons_per_token,
+        mask_ratio=args.mask_ratio,
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+    )
+    output_dir = (
+        Path(args.output_dir)
+        if args.output_dir
+        else Path(
+            "/root/autodl-tmp/NeuroHorizon/results/logs/"
+            f"phase1_benchmark_repro_faithful_ndt2_{int(round(args.pred_window * 1000))}ms"
+        )
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    datasets = load_split_datasets(dataset_config=args.dataset_config)
+    global_unit_index = build_global_unit_index(datasets)
+    raw_max_units = build_max_units(datasets)
+    channel_capacity = round_up_channels(raw_max_units, bridge_cfg.neurons_per_token)
+    session_ids = collect_session_ids(datasets)
+    session_to_idx = {session_id: idx for idx, session_id in enumerate(session_ids)}
+
+    train_records = maybe_limit_records(
+        build_continuous_windows(datasets["train"], "train", spec),
+        args.max_train_windows,
+    )
+    valid_records = maybe_limit_records(
+        build_continuous_windows(datasets["valid"], "valid", spec),
+        args.max_valid_windows,
+    )
+    test_records = maybe_limit_records(
+        build_continuous_windows(datasets["test"], "test", spec),
+        args.max_test_windows,
+    )
+    test_trial_records = maybe_limit_records(
+        build_trial_windows(datasets["test"], "test", spec),
+        args.max_trial_windows,
+    )
+    if not train_records:
+        raise ValueError("No canonical training windows were generated for faithful NDT2.")
+    if not valid_records:
+        raise ValueError("No canonical validation windows were generated for faithful NDT2.")
+    if not test_records:
+        raise ValueError("No canonical test windows were generated for faithful NDT2.")
+
+    train_loader = build_window_loader(
+        tb_dataset=datasets["train"],
+        records=train_records,
+        spec=spec,
+        global_unit_index=global_unit_index,
+        session_to_idx=session_to_idx,
+        channel_capacity=channel_capacity,
+        neurons_per_token=bridge_cfg.neurons_per_token,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.num_workers,
+    )
+    valid_loader = build_window_loader(
+        tb_dataset=datasets["valid"],
+        records=valid_records,
+        spec=spec,
+        global_unit_index=global_unit_index,
+        session_to_idx=session_to_idx,
+        channel_capacity=channel_capacity,
+        neurons_per_token=bridge_cfg.neurons_per_token,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+    )
+    test_loader = build_window_loader(
+        tb_dataset=datasets["test"],
+        records=test_records,
+        spec=spec,
+        global_unit_index=global_unit_index,
+        session_to_idx=session_to_idx,
+        channel_capacity=channel_capacity,
+        neurons_per_token=bridge_cfg.neurons_per_token,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+    )
+    test_trial_loader = build_window_loader(
+        tb_dataset=datasets["test"],
+        records=test_trial_records,
+        spec=spec,
+        global_unit_index=global_unit_index,
+        session_to_idx=session_to_idx,
+        channel_capacity=channel_capacity,
+        neurons_per_token=bridge_cfg.neurons_per_token,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+    )
+
+    model = create_faithful_ndt2_model(
+        session_ids=session_ids,
+        spec=spec,
+        channel_capacity=channel_capacity,
+        config=bridge_cfg,
+    ).to(device)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=bridge_cfg.lr,
+        weight_decay=bridge_cfg.weight_decay,
+    )
+    null_rates = compute_raw_null_rates(
+        datasets["train"],
+        global_unit_index=global_unit_index,
+        bin_size_s=spec.bin_size_s,
+    )
+    null_lookup = build_null_rate_lookup(null_rates, device=device)
+
+    best_epoch = 0
+    best_valid_metrics: Optional[Dict[str, object]] = None
+    best_valid_fp_bps = float("-inf")
+    final_valid_metrics: Optional[Dict[str, object]] = None
+    history = []
+    best_checkpoint_path = output_dir / "best_model.pt"
+    last_checkpoint_path = output_dir / "last_model.pt"
+
+    for epoch in range(1, args.epochs + 1):
+        epoch_losses = []
+        for batch in train_loader:
+            batch = move_batch_to_device(batch, device)
+            optimizer.zero_grad(set_to_none=True)
+            train_loss = compute_train_loss(model, batch)
+            train_loss.backward()
+            if args.grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+            optimizer.step()
+            epoch_losses.append(float(train_loss.detach().cpu().item()))
+
+        mean_train_loss = float(sum(epoch_losses) / max(len(epoch_losses), 1))
+        epoch_record: Dict[str, object] = {
+            "epoch": int(epoch),
+            "mean_train_loss": mean_train_loss,
+            "n_train_batches": len(epoch_losses),
+        }
+
+        if epoch % args.eval_every == 0 or epoch == args.epochs:
+            valid_metrics = evaluate_faithful_ndt2_loader(
+                model,
+                valid_loader,
+                spec=spec,
+                channel_capacity=channel_capacity,
+                neurons_per_token=bridge_cfg.neurons_per_token,
+                null_lookup=null_lookup,
+                device=device,
+            )
+            epoch_record["valid_metrics"] = valid_metrics
+            final_valid_metrics = valid_metrics
+            if valid_metrics["fp_bps"] > best_valid_fp_bps:
+                best_valid_fp_bps = float(valid_metrics["fp_bps"])
+                best_valid_metrics = dict(valid_metrics)
+                best_epoch = epoch
+                save_checkpoint(
+                    best_checkpoint_path,
+                    epoch=epoch,
+                    model=model,
+                    optimizer=optimizer,
+                    valid_metrics=valid_metrics,
+                    train_loss=mean_train_loss,
+                )
+
+        save_checkpoint(
+            last_checkpoint_path,
+            epoch=epoch,
+            model=model,
+            optimizer=optimizer,
+            valid_metrics=epoch_record.get("valid_metrics", final_valid_metrics or {}),
+            train_loss=mean_train_loss,
+        )
+        history.append(epoch_record)
+        print(json.dumps(epoch_record, ensure_ascii=False))
+
+    if best_valid_metrics is None:
+        best_valid_metrics = evaluate_faithful_ndt2_loader(
+            model,
+            valid_loader,
+            spec=spec,
+            channel_capacity=channel_capacity,
+            neurons_per_token=bridge_cfg.neurons_per_token,
+            null_lookup=null_lookup,
+            device=device,
+        )
+        best_epoch = args.epochs
+        best_valid_fp_bps = float(best_valid_metrics["fp_bps"])
+        save_checkpoint(
+            best_checkpoint_path,
+            epoch=best_epoch,
+            model=model,
+            optimizer=optimizer,
+            valid_metrics=best_valid_metrics,
+            train_loss=float(history[-1]["mean_train_loss"]),
+        )
+    if final_valid_metrics is None:
+        final_valid_metrics = dict(best_valid_metrics)
+
+    best_checkpoint = torch.load(best_checkpoint_path, map_location=device)
+    model.load_state_dict(best_checkpoint["model_state_dict"])
+    predict_fn = build_prediction_fn(
+        model,
+        spec=spec,
+        channel_capacity=channel_capacity,
+        neurons_per_token=bridge_cfg.neurons_per_token,
+    )
+    test_continuous = evaluate_faithful_ndt2_loader(
+        model,
+        test_loader,
+        spec=spec,
+        channel_capacity=channel_capacity,
+        neurons_per_token=bridge_cfg.neurons_per_token,
+        null_lookup=null_lookup,
+        device=device,
+    )
+    test_trial = evaluate_trial_aligned_loader(
+        predict_fn,
+        test_trial_loader,
+        spec,
+        null_lookup,
+        device,
+    ) if test_trial_records else {"trial_fp_bps": float("nan"), "n_trials": 0}
+
+    payload = make_result_payload(
+        model_name="faithful_ndt2",
+        protocol_name="phase1_benchmark_repro",
+        spec=spec,
+        best_epoch=best_epoch,
+        best_valid_metrics=best_valid_metrics,
+        final_epoch_metrics={
+            "epoch": args.epochs,
+            "mean_train_loss": float(history[-1]["mean_train_loss"]),
+            "valid_continuous": final_valid_metrics,
+        },
+        test_metrics={
+            "continuous": test_continuous,
+            "trial_aligned": test_trial,
+        },
+        notes=[
+            "Uses upstream BrainBertInterface with ShuffleInfill instead of the legacy simplified baseline.",
+            "Canonical windows, null model, and test evaluation follow neural_benchmark.repro_protocol.",
+            "This bridge preserves NDT2 flat-token input formatting and session token embeddings.",
+        ],
+    )
+    payload["mode"] = "train"
+    payload["device"] = str(device)
+    payload["bridge_config"] = asdict(bridge_cfg)
+    payload["n_sessions"] = len(session_ids)
+    payload["raw_max_units"] = raw_max_units
+    payload["channel_capacity"] = channel_capacity
+    payload["window_counts"] = {
+        "train_continuous": len(train_records),
+        "valid_continuous": len(valid_records),
+        "test_continuous": len(test_records),
+        "test_trial_aligned": len(test_trial_records),
+    }
+    payload["history"] = history
+    payload["checkpoint_paths"] = {
+        "best_model": str(best_checkpoint_path),
+        "last_model": str(last_checkpoint_path),
+    }
+    payload["model_fidelity_notes"] = list(payload["notes"])
+    payload["best_valid_fp_bps"] = best_valid_fp_bps
+    write_json(output_dir / "results.json", payload)
+    print(
+        json.dumps(
+            {
+                "mode": "train",
+                "output_dir": str(output_dir),
+                "best_epoch": best_epoch,
+                "best_valid_fp_bps": best_valid_fp_bps,
+                "test_fp_bps": test_continuous["fp_bps"],
+                "test_psth_r2": test_trial.get("per_neuron_psth_r2"),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    return payload
 
 
 def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
@@ -538,7 +955,7 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Faithful NDT2 bridge utilities")
-    parser.add_argument("--mode", choices=["smoke"], default="smoke")
+    parser.add_argument("--mode", choices=["smoke", "train"], default="smoke")
     parser.add_argument("--pred-window", type=float, default=0.25)
     parser.add_argument("--obs-window", type=float, default=0.5)
     parser.add_argument("--bin-size", type=float, default=0.02)
@@ -555,10 +972,22 @@ def main() -> None:
     parser.add_argument("--mask-ratio", type=float, default=0.25)
     parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-2)
+    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--eval-every", type=int, default=1)
+    parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--grad-clip", type=float, default=1.0)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--output-dir", type=str, default=None)
+    parser.add_argument("--max-train-windows", type=int, default=0)
+    parser.add_argument("--max-valid-windows", type=int, default=0)
+    parser.add_argument("--max-test-windows", type=int, default=0)
+    parser.add_argument("--max-trial-windows", type=int, default=0)
     args = parser.parse_args()
 
     if args.mode == "smoke":
         run_smoke(args)
+    elif args.mode == "train":
+        run_train(args)
 
 
 if __name__ == "__main__":

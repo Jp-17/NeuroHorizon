@@ -972,22 +972,34 @@
   - `results/figures/phase1_benchmark_protocolfix/protocolfix_test_psth_r2.png`
 - **备注**：用于审计回收与结果对照，不用于宣称原始 benchmark 模型优劣
 
-### faithful_ndt2.py（1.8.3 faithful NDT2 bridge + smoke）
+### faithful_ndt2.py（1.8.3 faithful NDT2 bridge / train / held-out eval）
 
 - **路径**：`neural-benchmark/faithful_ndt2.py`
-- **功能用途**：为 NDT2 faithful reproduction 提供第一条可运行 bridge
+- **功能用途**：为 NDT2 faithful reproduction 提供可运行的 bridge 与统一训练评估入口
   - 按 `repro_protocol.py` 生成 canonical windows
   - 将 binned spike counts 转成 NDT2 原生 flat token 格式
   - 直接实例化上游 `BrainBertInterface` + `ShuffleInfill`
-  - 提供 smoke CLI，验证 train loss / predict logrates / protocol metrics 全链路
+  - 支持 `smoke` 与 `train` 两种模式
+  - `train` 模式统一保存 `best_valid_metrics`、`final_epoch_metrics`、`test_metrics`、checkpoint 和 history
+  - 连续评估与 trial-aligned 评估统一走 canonical protocol
 - **创建时间**：2026-03-17
 - **使用方式**：
   ```bash
   /root/miniconda3/bin/conda run -n benchmark-env python neural-benchmark/faithful_ndt2.py \
     --mode smoke --batch-size 2 --train-windows 4 --valid-windows 4 --eval-batches 1
+
+  /root/miniconda3/bin/conda run -n benchmark-env python neural-benchmark/faithful_ndt2.py \
+    --mode train --pred-window 0.25 --batch-size 16 --num-workers 4 --epochs 20 --eval-every 1 \
+    --output-dir results/logs/phase1_benchmark_repro_faithful_ndt2_250ms_causalfix_e20
   ```
-- **输出**：`results/logs/phase1_benchmark_faithful_ndt2_smoke/smoke.json`
-- **备注**：当前仅完成 faithful bridge smoke，不代表 NDT2 正式 benchmark 训练已经完成
+- **输出**：
+  - `results/logs/phase1_benchmark_faithful_ndt2_smoke/smoke.json`
+  - `results/logs/phase1_benchmark_faithful_ndt2_trainverify_250ms/results.json`
+  - `results/logs/phase1_benchmark_repro_faithful_ndt2_250ms*/{results.json,best_model.pt,last_model.pt}`
+- **备注**：
+  - 2026-03-17 已扩展为正式 train/valid/test/trial-eval runner
+  - `phase1_benchmark_repro_faithful_ndt2_250ms/` 是早期 `causal=False` 的保真性错误试跑，仅保留作审计对照
+  - 当前可引用的 NDT2 faithful 250ms 结果以 `phase1_benchmark_repro_faithful_ndt2_250ms_causalfix_e20/` 为准，但 1.8.3 主任务仍未完成
 
 ### phase1_benchmark_compare.py（1.3.4 legacy benchmark 对比可视化）
 
