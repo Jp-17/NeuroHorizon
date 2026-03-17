@@ -409,3 +409,184 @@
 ## 9. 一句话总结
 
 当前 `plan.md 1.2/1.3` 对应的 v2 代码不是“错”，而是“**baseline 成立，但研究口径说得比代码严格性更靠前了一步**”。如果接下来要把这条线继续做强，最先该补的不是新的 decoder 花样，而是 **更严格的 rollout-first evaluation protocol**。
+
+---
+
+## 10. Claude Opus 逐条复审意见（2026-03-17）
+
+> 以下是基于对 `neurohorizon.py`、`autoregressive_decoder.py`、`neurohorizon_metrics.py`、`eval_phase1_v2.py`、`eval_psth.py`、`sampler.py`、`trial_sampler.py` 以及 v2 模型配置的完整代码核查后，对上述 8 条建议的逐条复审。
+
+### 10.1 关键架构事实：v2 baseline 的 TF 与 rollout 数学等价
+
+上述 review 最核心的结论（§4.3 + 建议 1/4/8）建立在一个前提上："1.3.4 主表是 teacher-forced，而非 rollout，因此结果的解释边界需要收窄。"
+
+**这个前提对 v2 baseline 不成立。**
+
+v2 训练配置（`neurohorizon_small_*.yaml`）未指定 `decoder_variant` 和 `feedback_method`，使用默认值：
+
+- `decoder_variant = "query_aug"`
+- `feedback_method = "none"`
+
+这意味着：
+
+- `forward()` 路径：`feedback = None`，`prediction_memory = None`，decoder 仅靠 `bin_queries + causal self-attention + history cross-attention` 运行。**ground truth target counts 没有任何路径被注入 forward path。**
+- `generate()` 路径：`self.feedback_encoder is None`，`self.prediction_memory_encoder is None`，每步同样只跑 decoder + causal mask，无反馈。
+
+由于 causal mask 保证 bin t 的输出仅依赖 bin 0..t-1 的 hidden states（而非 target counts），`forward()` 整体跑一次与 `generate()` 逐步跑一次对每个 bin 的输出是**数学上恒等的**（仅有浮点精度差异）。
+
+TF-rollout gap **只在** 引入 `prediction_memory` 或 `feedback_encoder` 后才出现——即 1.9 系列迭代。对 1.2/1.3 的 v2 baseline，这个区分不存在。
+
+**因此**：v2 baseline 的 1000ms fp-bps=0.1317 **就是**它的 rollout 性能，无需额外验证。
+
+### 10.2 对 8 条建议的逐条判断
+
+#### 建议 1 & 4：TF vs rollout 分表
+
+- **对 v2 baseline**：不适用（TF ≡ rollout），分表无实际意义。在 results.md 中补充说明 `decoder_variant=query_aug, feedback=none` 即可。
+- **对 1.9+ 变体**：完全同意，这些变体有显著 TF-rollout gap，必须分表报告。progress.md 中 1.9 的记录实际上已在做此事。
+- **优先级**：中（文档澄清）
+
+#### 建议 2：全局累计版指标
+
+**同意，这是真实的代码问题。**
+
+`eval_phase1_v2.py` 当前是 batch-level fp-bps 简单平均：
+
+```python
+batch_bps = fp_bps(log_rate, target, null_log_rates, unit_mask)
+all_bps.append(batch_bps.item())
+...
+mean_bps = np.mean(all_bps)
+```
+
+不同 batch 的有效 spike 数不同，简单平均不等于全局 fp-bps。正确做法应累计 `total_nll_null`、`total_nll_model`、`total_spikes`，最后一次性计算。R² 同理（累计 `ss_res` 和 `ss_tot`）。
+
+实际影响幅度可能不大（batch_size=64，窗口长度固定，neuron 数一致，spike 数方差主要来自 firing rate 差异），但原则上必须修。
+
+- **优先级**：高
+
+#### 建议 3：validation 改用 deterministic sequential sampler
+
+**同意。** 代码库已有 `SequentialFixedWindowSampler`，切换成本低。当前 `RandomFixedWindowSampler` 配合固定 seed 是可复现的，但不保证覆盖所有 valid split 数据。
+
+- **优先级**：中
+
+#### 建议 5：记录完整 horizon 的 per-bin fp-bps
+
+**review 的判断部分过时。** "只有前 12 个 bins"仅针对训练期间的 `validation_step` logger（`min(T, 12)` 截断）。1000ms 的 `eval_v2_results.json` 已记录全部 50 个 bin 的 per_bin_fp_bps。离线评估已覆盖完整 horizon，只是训练监控不完整。
+
+补全训练 logger 有助于在 TensorBoard 中观察衰减趋势，但不影响最终结果报告。
+
+- **优先级**：低
+
+#### 建议 6：统一 PSTH-R² 口径
+
+**强烈同意，这是本 review 中最有价值的发现之一。**
+
+代码中确实存在两套不同实现：
+
+1. `eval_phase1_v2.py::evaluate_trial_aligned()`：先对 neuron 取 masked mean → `[T]` per trial → 按 target_id 堆叠 → PSTH R²。这是 **population-mean PSTH-R²**。
+2. `eval_psth.py`：直接收集 `[T, N]` → 按 target_id 堆叠为 `[n_trials, T, N]` → 调用 `psth_r2()`（按 trial 平均后 flatten `[T×N]`）。这是 **per-neuron PSTH-R²**。
+
+**建议以 per-neuron PSTH-R² 作为主指标**，理由：
+
+- **模型目标一致性**：loss 是 per-neuron Poisson NLL，fp-bps 也是 per-neuron 累计；PSTH-R² 应保持同一粒度。
+- **区分度更高**：population-mean 版本掩盖了"个别 neuron 预测差但群体均值碰巧对"的情况。
+- **NLB 惯例**：Neural Latents Benchmark 的 PSTH 评估保留 neuron 维度，便于文献对比。
+- population-mean 版本可作为补充指标保留，但应明确命名为 `population_mean_psth_r2`，不与主指标混淆。
+
+修改方案：将 `eval_phase1_v2.py::evaluate_trial_aligned()` 中的 neuron-mean 逻辑替换为直接收集 `[T, N]`，与 `eval_psth.py` / `psth_r2()` 对齐。
+
+- **优先级**：高
+
+#### 建议 7：给 PerNeuronMLPHead 补强 readout 对照
+
+**不同意作为当前优先事项。**
+
+review 的架构分析准确（concat + 3-layer MLP，neuron 间无显式交互），但这在 Phase 1 是合理的设计选择：避免 O(T×N²) 开销、天然兼容可变 neuron 数、符合 POYO/POYO+ 惯例。在未验证 decoder 主体的建模能力上限前，换输出头会引入过多变量。
+
+留到 Phase 2+ 作为消融实验方向。
+
+- **优先级**：低
+
+#### 建议 8：回收 AR 表述
+
+**对 v2 baseline 而言过强。** v2 的 causal decoder 确实在做 autoregressive prediction（每个 bin 仅依赖之前 bins 的 hidden states），只是不需要显式 rollout 来证明——因为没有反馈路径，两者恒等。
+
+文档可以更精确地说明"v2 baseline 是 causal future-bin predictor，TF ≡ rollout"，但不需要"回收"AR 这个词。
+
+- **优先级**：低
+
+### 10.3 优先级总表
+
+| 建议 | 判断 | 优先级 | 行动 |
+|------|------|--------|------|
+| 2：全局累计指标 | 同意 | **高** | 修改 `eval_phase1_v2.py` 的 fp-bps/R² 聚合为全局累计 |
+| 6：统一 PSTH-R² | 强烈同意 | **高** | 以 per-neuron 口径为主指标，统一 `eval_phase1_v2.py` 与 `psth_r2()` |
+| 3：deterministic eval sampler | 同意 | 中 | 评估脚本改用 `SequentialFixedWindowSampler` |
+| 1 & 4：TF/rollout 分表 | 仅 1.9+ 适用 | 中 | 在 results.md 澄清 v2 的 TF≡rollout 事实 |
+| 5：完整 per-bin 记录 | 离线 eval 已覆盖 | 低 | 可选：训练 logger 放开 12-bin 截断 |
+| 7：更强 readout 对照 | 留待后续 | 低 | Phase 2+ 消融实验 |
+| 8：回收 AR 表述 | 对 v2 不适用 | 低 | 文档精确化即可 |
+
+---
+
+## 11. 改动计划（2026-03-17）
+
+本轮按照本 review 第 10 部分 Claude Opus 复审意见收敛实现范围，优先级和实际执行项如下：
+
+1. **执行**：continuous validation / test 改用 `SequentialFixedWindowSampler`
+2. **执行**：continuous `fp-bps / R²` 改为全局累计版
+3. **执行**：trial-aligned 主 PSTH 指标统一为 `per_neuron_psth_r2`
+4. **执行**：补充 `evalfix` 配置与 `1.3.4` 六组条件全量重跑
+5. **执行**：在 `plan.md` 中补充适用边界和术语说明
+6. **执行**：将本计划与实施状态回填到本 review 末尾
+7. **不执行（仅标注）**：trial-aligned sampler 的 domain / trial boundary audit
+8. **不执行（仅标注）**：`1.2.3` / 第六部分的额外自动化验证
+9. **不执行**：更换 `PerNeuronMLPHead` 或扩展 readout 对照
+10. **不执行**：7.2 / 7.3 所涉的叙事级回收，仅做精确标注
+
+对应文件范围：
+
+- 代码：`examples/neurohorizon/train.py`、`torch_brain/utils/neurohorizon_metrics.py`、`scripts/analysis/neurohorizon/eval_phase1_v2.py`、`scripts/analysis/neurohorizon/eval_psth.py`、`scripts/analysis/neurohorizon/phase1_v2_visualize.py`
+- 配置：`examples/neurohorizon/configs/train_v2_evalfix_{250,500,1000}ms{,_trial}.yaml`
+- 脚本：`scripts/analysis/neurohorizon/run_phase1_v2_evalfix.sh`、`scripts/analysis/neurohorizon/compare_phase1_v2_evalfix.py`
+- 文档：`cc_core_files/plan.md`、`cc_core_files/results.md`、`cc_core_files/scripts.md`
+- 任务记录：`cc_todo/phase1-autoregressive/20260317-phase1-1.3.4-evalfix-rerun.md`
+
+## 12. 实现情况与实验回填（2026-03-17）
+
+### 12.1 已完成的代码修正
+
+- `train.py`
+  - continuous valid / test sampler 改为 `SequentialFixedWindowSampler`
+  - validation / test 的 `fp-bps / R²` 改为 epoch 级全局累计
+  - 新增 `test_dataloader()`，continuous 与 trial-aligned 两条路径均可走通
+- `neurohorizon_metrics.py`
+  - 新增全局累计统计辅助：`fp_bps_stats`、`fp_bps_per_bin_stats`、`r2_stats` 及 finalize helpers
+- `eval_phase1_v2.py`
+  - 新增 `--split {valid,test}`
+  - continuous 改为 sequential + 全局累计
+  - trial-aligned 主指标改为 `per_neuron_psth_r2`
+- `eval_psth.py`
+  - 输出字段统一为 `per_neuron_psth_r2`
+- `phase1_v2_visualize.py`
+  - 优先读取 `per_neuron_psth_r2`，兼容 legacy `psth_r2`
+
+### 12.2 Smoke 验证
+
+- continuous smoke：
+  - `Trainer.fit()` / `Trainer.validate()` / `Trainer.test()`：通过
+  - `eval_phase1_v2.py --split valid` / `--split test`：通过
+- trial-aligned smoke：
+  - `Trainer.fit()` / `Trainer.validate()` / `Trainer.test()`：通过
+
+这说明本轮修改后的 validation / test 数据流已可完整运行，且 trial-aligned 路径没有因 `per_neuron_psth_r2` 重构而失效。
+
+### 12.3 Phase 1.3.4 evalfix 全量重跑
+
+- 记录文件：`cc_todo/phase1-autoregressive/20260317-phase1-1.3.4-evalfix-rerun.md`
+- 运行脚本：`scripts/analysis/neurohorizon/run_phase1_v2_evalfix.sh`
+- 对比脚本：`scripts/analysis/neurohorizon/compare_phase1_v2_evalfix.py`
+
+结果与 legacy 对比将在全量重跑完成后回填到本节和 `results.md`。
