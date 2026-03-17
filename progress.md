@@ -1340,3 +1340,53 @@
 - `compare_phase1_v2_evalfix.py` 和 `phase1_v2_visualize.py` 初版都没有正确下探到 `lightning_logs/version_0/`，导致读取新结果失败；已修复并重新生成对比产物
 
 **对应 plan.md 任务**：Phase 1 → 1.3.4（evalfix 重跑完成 + 结果对比）
+
+
+---
+
+## 2026-03-17-22h35
+
+### 任务：调研 fp-bps 实现、Neuroformer 原始训练/推理范式，以及 IBL-MtM 原始 paper/code 与 base v2 的差异
+
+**完成时间**：2026-03-17-22h35
+
+**完成内容**：
+1. 梳理当前项目 `fp-bps` 实现：
+   - 阅读 `torch_brain/utils/neurohorizon_metrics.py`
+   - 阅读 `examples/neurohorizon/train.py`
+   - 阅读 `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+   - 明确 neuron / time / batch / session / train-val 的聚合口径
+2. 调研 Neuroformer 原始 repo：
+   - 阅读 `neural-benchmark/benchmark_models/neuroformer/README.md`
+   - 阅读 `neuroformer_train.py` / `neuroformer_inference.py`
+   - 阅读 `neuroformer/data_utils.py` / `model_neuroformer.py` / `simulation.py`
+   - 确认其训练为 teacher forcing，推理为 token-level rollout，常见窗口为 50ms current + 50–150ms past
+3. 调研 IBL-MtM 原始 repo 与 NeurIPS 2024 paper：
+   - 阅读 `ibl-mtm/src/configs/{ndt1,ndt1_prompting,trainer_ndt1}.yaml`
+   - 阅读 `ibl-mtm/src/models/{ndt1,masker}.py`
+   - 阅读 `ibl-mtm/src/utils/eval_utils.py`
+   - 对照论文 single-session forward prediction 表，确认高分主要来自 `all mask + prompt` 设定
+4. 新建调研记录：
+   - `cc_todo/20260316-review/QA_codex.md`
+
+**执行结果**：
+- 当前主 `fp-bps` 已确认是：
+  - train-split per-neuron null
+  - global spike-weighted aggregation
+  - 非 per-neuron mean / 非 per-session mean / 非 batch mean
+- Neuroformer 原始实现已确认：
+  - 训练是 teacher forcing 的 token CE
+  - 推理是逐 token autoregressive rollout，且默认 `true_past=False` 会跨窗口回填预测 past
+  - 因此 exposure bias 客观存在
+- IBL-MtM 原始实现已确认：
+  - paper 里的高 forward prediction bps 不能与当前 `base v2` 的 `0.21` 直接比较
+  - 差异同时来自任务定义、history 长度、metric/null baseline、聚合方式、数据集与训练目标
+- 额外确认：
+  - 当前仓库旧 `IBL-MtM-like` / `Neuroformer-like` benchmark wrapper 仍然只是 legacy simplified baseline，不代表原始模型
+
+**遇到的问题与解决**：
+- 远程环境缺少 `rg`，改用 `grep` / `sed` 定点阅读源码，不影响结论
+- 外部论文 / 官方仓库信息需要与当前项目实现交叉核对，已通过原始 repo 代码与现有审计文档双重验证，避免只看论文摘要得出过强结论
+
+**对应记录文件**：
+- `cc_todo/20260316-review/QA_codex.md`
