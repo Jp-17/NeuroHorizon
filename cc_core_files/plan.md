@@ -538,14 +538,25 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 - [ ] Clone IBL-MtM + 安装依赖 + 验证
 - [ ] 记录环境配置结果（成功/失败/兼容性问题）
 
-#### 1.8.3 [x] 模型适配与对比实验 ✅ 2026-03-12 完成，记录见 cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md
+#### 1.8.3 [ ] 模型适配与对比实验（2026-03-17 审查后重开）
 
 > 依赖：1.8.2 完成（环境就绪），1.3.4 完成（NeuroHorizon baseline 结果）
-> 产出：各模型适配代码（`neural_benchmark/adapters/`）、实验结果（`results/logs/phase1_benchmark_*/`）、对比图表（`results/figures/phase1_benchmark/`）
-> 记录：同 1.8 主记录
+> 旧产出（legacy）：各模型简化 adapter（`neural_benchmark/adapters/`）、旧结果（`results/logs/phase1_benchmark_*/`）、旧图表（`results/figures/phase1_benchmark/`）
+> 当前产出（protocol-fix）：`neural-benchmark/repro_protocol.py`、`neural-benchmark/benchmark_protocol_repair.py`、`results/logs/phase1_benchmark_protocolfix_*/`、`results/logs/phase1_benchmark_protocolfix_comparison/comparison.md`
+> 记录：`cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`；审计：`cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
+
+> **状态说明**：
+> - 2026-03-12 的“完成”记录已被审计降级为 **legacy simplified baselines**，不再视为正式 benchmark 完成态
+> - 2026-03-17 已完成 legacy checkpoint 的 **protocol-fix reevaluation**（统一 valid/test continuous + trial-aligned 评估）
+> - **faithful reproduction of original NDT2 / IBL-MtM / Neuroformer 尚未完成**，因此主任务重新打开
+
+- [x] 旧 1.8.3 pipeline 审计与 legacy 降级
+- [x] legacy checkpoint 的 protocol-fix valid/test/PSTH 重评估
+- [ ] 原始 benchmark 模型的 faithful reproduction（NDT2 / IBL-MtM / Neuroformer）
 
 
 **数据集详情**：
+- **Legacy 说明**：以下 Part A / Part B / Part C 主要保留 2026-03-12 simplified baseline pipeline 的历史记录，供审计对照使用，不再代表正式 benchmark 完成态
 - Perich-Miller Population 2018，初级运动皮层（M1），center-out reaching（8 方向）
 - 3 只猕猴（Chewie 4s, Jaco 3s, Mihi 3s），10 sessions，407 global units（max 71/session）
 - 数据格式：HDF5 spike events via torch_brain，config: `perich_miller_10sessions.yaml`

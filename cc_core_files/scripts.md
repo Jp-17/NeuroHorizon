@@ -871,10 +871,10 @@
 
 ## Benchmark 对比实验脚本（1.8）
 
-### benchmark_train.py（1.8.3 统一训练脚本）
+### benchmark_train.py（1.8.3 legacy 简化 baseline 训练脚本）
 
 - **路径**：`neural_benchmark/benchmark_train.py`
-- **功能用途**：统一的 benchmark 模型训练脚本，支持 NDT2/IBL-MtM/Neuroformer 三个模型
+- **功能用途**：旧 1.8.3 的统一训练脚本，训练项目内重写的 NDT2-like / IBL-MtM-like / Neuroformer-like simplified baselines
   - 加载 Perich-Miller 10 sessions 数据（via torch_brain Dataset）
   - 20ms bin spike events → BenchmarkDataset
   - 训练 + 定期评估（fp-bps, R², Poisson NLL）
@@ -890,7 +890,7 @@
   ```
 - **输出**：`results/logs/phase1_benchmark_{model}_{window}ms/`（best_model.pt + results.json）
 - **依赖**：benchmark-env conda 环境, torch_brain
-- **备注**：对应 plan.md 任务 1.8.3 Part B
+- **备注**：legacy simplified baseline pipeline，不代表 faithful benchmark reproduction
 
 ### run_all_benchmarks.sh（1.8.3 批量训练）
 
@@ -905,11 +905,11 @@
 - **输出**：同 benchmark_train.py
 - **备注**：运行时间约 8-9 小时（300 epochs × 9 实验）
 
-### visualize_benchmarks.py（1.8.3 对比可视化）
+### visualize_benchmarks.py（1.8.3 legacy 简化 baseline 可视化）
 
 - **路径**：`neural_benchmark/visualize_benchmarks.py`
-- **功能用途**：训练完成后生成 4 张对比图表
-  - Figure 1：fp-bps 柱状图（3 模型 × 3 窗口）
+- **功能用途**：训练完成后生成旧 1.8.3 simplified baseline 的对比图表
+  - Figure 1：legacy simplified baseline fp-bps 柱状图（3 模型 × 3 窗口）
   - Figure 2：per-bin fp-bps 衰减曲线
   - Figure 3：R² 柱状图
   - Figure 4：综合对比表 + 雷达图
@@ -921,15 +921,64 @@
   python3 neural_benchmark/visualize_benchmarks.py
   ```
 - **输出**：`results/figures/phase1_benchmark/*.png`
-- **备注**：可自动检测并加载 NeuroHorizon 1.3.4 结果进行对比
+- **备注**：legacy simplified baseline 图表，不能直接当作正式 benchmark figure
 
-### phase1_benchmark_compare.py（1.3.4 Benchmark 对比可视化）
+### repro_protocol.py（1.8.3 protocol-fix 统一协议底座）
+
+- **路径**：`neural_benchmark/repro_protocol.py`
+- **功能用途**：为 1.8.3 protocol-fix / future faithful reproduction 提供统一的窗口生成、null model 统计和评估协议
+  - 生成 deterministic continuous windows（无 50% overlap）
+  - 生成 go cue 对齐的 trial windows
+  - 从 raw-event train split 统计 null model
+  - 统一 continuous / trial-aligned 指标计算
+- **创建时间**：2026-03-17
+- **使用方式**：
+  ```bash
+  /root/miniconda3/bin/conda run -n benchmark-env python neural-benchmark/repro_protocol.py --obs-window 0.5 --pred-window 0.25
+  ```
+- **输出**：可选 protocol summary JSON；也被 protocol-fix 评估脚本直接调用
+- **备注**：对应 1.8.3 protocol-fix 修复阶段，不等同于 faithful benchmark 训练入口
+
+### benchmark_protocol_repair.py（1.8.3 legacy checkpoint protocol-fix 重评估）
+
+- **路径**：`neural_benchmark/benchmark_protocol_repair.py`
+- **功能用途**：对旧 `phase1_benchmark_*` best checkpoint 做统一 valid/test + trial-aligned 重评估
+  - 使用 `repro_protocol.py` 生成 canonical valid/test manifests
+  - 重新计算 continuous fp-bps / R² / Poisson NLL
+  - 新增 held-out test 和 PSTH-R² 输出
+  - 明确把结果写入新命名空间 `phase1_benchmark_protocolfix_*`
+- **创建时间**：2026-03-17
+- **使用方式**：
+  ```bash
+  /root/miniconda3/bin/conda run -n benchmark-env python neural-benchmark/benchmark_protocol_repair.py --model ndt2 --pred-window 0.25
+  /root/miniconda3/bin/conda run -n benchmark-env python neural-benchmark/benchmark_protocol_repair.py --model ibl_mtm --pred-window 0.5
+  /root/miniconda3/bin/conda run -n benchmark-env python neural-benchmark/benchmark_protocol_repair.py --model neuroformer --pred-window 1.0
+  ```
+- **输出**：`results/logs/phase1_benchmark_protocolfix_{model}_{window}ms/results.json`
+- **备注**：只修复 legacy simplified baseline 的评估协议，不代表已完成 faithful benchmark reproduction
+
+### compare_protocolfix.py（1.8.3 legacy vs protocol-fix 汇总）
+
+- **路径**：`neural_benchmark/compare_protocolfix.py`
+- **功能用途**：汇总旧 1.8.3 validation 结果与 protocol-fix valid/test 结果，输出 markdown/json 和图表
+- **创建时间**：2026-03-17
+- **使用方式**：
+  ```bash
+  /root/miniconda3/bin/conda run -n benchmark-env python neural-benchmark/compare_protocolfix.py
+  ```
+- **输出**：
+  - `results/logs/phase1_benchmark_protocolfix_comparison/comparison.{json,md}`
+  - `results/figures/phase1_benchmark_protocolfix/legacy_vs_protocolfix_fpbps.png`
+  - `results/figures/phase1_benchmark_protocolfix/protocolfix_test_psth_r2.png`
+- **备注**：用于审计回收与结果对照，不用于宣称原始 benchmark 模型优劣
+
+### phase1_benchmark_compare.py（1.3.4 legacy benchmark 对比可视化）
 
 - **路径**：`scripts/analysis/neurohorizon/phase1_benchmark_compare.py`
-- **功能用途**：1.3.4 NeuroHorizon vs Benchmark 模型对比可视化
-  - 读取 NeuroHorizon v2 eval 结果和 1.8.3 benchmark results.json
-  - 生成分组柱状图 + 折线图（4 模型 × 3 窗口）
-  - 输出相对优势百分比
+- **功能用途**：1.3.4 NeuroHorizon vs 旧 1.8.3 simplified baseline 的 legacy 对比可视化
+  - 读取 NeuroHorizon v2 eval 结果和旧 `phase1_benchmark_*` results.json
+  - 生成 legacy 对比分组柱状图 + 折线图（4 模型 × 3 窗口）
+  - 输出 legacy simplified baseline 相对差值
 - **创建时间**：2026-03-12
 - **使用方式**：
   ````bash
@@ -939,15 +988,15 @@
   ````
 - **输出**：`results/figures/phase1_v2/06_benchmark_comparison.png`
 - **依赖**：poyo conda 环境, matplotlib
-- **备注**：对应 plan.md 任务 1.3.4 Benchmark 对比
+- **备注**：图中 benchmark 曲线已降级为 legacy simplified baselines
 
 
 ### phase1_14_15_visualize.py（1.4/1.5 对比可视化）
 
 - **路径**：scripts/analysis/neurohorizon/phase1_14_15_visualize.py
 - **功能用途**：Phase 1 实验 1.4（obs_window）和 1.5（session count）的对比可视化
-  - 1.4 图：fp-bps vs obs_window 对比图（NeuroHorizon + NDT2 + Neuroformer + IBL-MtM，4 条曲线）
-  - 1.5 图：fp-bps vs session_count 对比图（4 模型曲线）
+  - 1.4 图：fp-bps vs obs_window 对比图（NeuroHorizon + 3 条 legacy simplified baseline 曲线）
+  - 1.5 图：fp-bps vs session_count 对比图（同上）
 - **创建时间**：2026-03-12
 - **使用方式**：
   ```bash

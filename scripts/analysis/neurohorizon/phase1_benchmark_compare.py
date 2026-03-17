@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Phase 1.3.4 benchmark comparison visualization.
+"""Phase 1.3.4 legacy simplified-baseline comparison visualization.
 
-Compares NeuroHorizon v2 results with NDT2, Neuroformer, IBL-MtM from 1.8.3.
+Compares NeuroHorizon v2 results with the legacy simplified baselines from the
+original 1.8.3 experiment. These are NOT faithful reproductions of NDT2,
+Neuroformer, or IBL-MtM.
 
 Usage:
     python scripts/analysis/neurohorizon/phase1_benchmark_compare.py
@@ -35,7 +37,11 @@ for w in WINDOWS:
 
 # Load benchmark results
 BENCHMARKS = ["ndt2", "neuroformer", "ibl_mtm"]
-BENCH_LABELS = {"ndt2": "NDT2", "neuroformer": "Neuroformer", "ibl_mtm": "IBL-MtM"}
+BENCH_LABELS = {
+    "ndt2": "Legacy NDT2-like",
+    "neuroformer": "Legacy Neuroformer-like",
+    "ibl_mtm": "Legacy IBL-MtM-like",
+}
 BENCH_COLORS = {"ndt2": "#d62728", "neuroformer": "#9467bd", "ibl_mtm": "#8c564b"}
 
 bench_results = {}
@@ -81,7 +87,10 @@ for i, (model_key, label) in enumerate(
 
 axes[0].set_xlabel("Prediction Window (ms)", fontsize=12)
 axes[0].set_ylabel("fp-bps", fontsize=12)
-axes[0].set_title("fp-bps Comparison: NeuroHorizon vs Benchmarks", fontsize=13)
+axes[0].set_title(
+    "fp-bps Comparison: NeuroHorizon vs Legacy Simplified Baselines",
+    fontsize=13,
+)
 axes[0].set_xticks(x)
 axes[0].set_xticklabels([f"{w}ms" for w in WINDOWS])
 axes[0].legend(fontsize=10)
@@ -105,7 +114,7 @@ for i, (model_key, label) in enumerate(
 
 axes[1].set_xlabel("Prediction Window (ms)", fontsize=12)
 axes[1].set_ylabel("fp-bps", fontsize=12)
-axes[1].set_title("fp-bps vs Prediction Window (All Models)", fontsize=13)
+axes[1].set_title("fp-bps vs Prediction Window (Legacy Baselines)", fontsize=13)
 axes[1].set_xticks(WINDOWS)
 axes[1].legend(fontsize=10)
 axes[1].grid(True, alpha=0.3)
@@ -113,11 +122,11 @@ axes[1].grid(True, alpha=0.3)
 plt.tight_layout()
 plt.savefig(OUT_DIR / "06_benchmark_comparison.png", dpi=150)
 plt.close()
-print("Figure 6 saved: 06_benchmark_comparison.png")
+print("Figure 6 saved: 06_benchmark_comparison.png (legacy simplified baselines)")
 
 # === Print summary ===
 print("\n" + "=" * 75)
-print("BENCHMARK COMPARISON SUMMARY (1.3.4 vs 1.8.3)")
+print("LEGACY SIMPLIFIED BASELINE COMPARISON SUMMARY (1.3.4 vs 1.8.3)")
 print("=" * 75)
 print(f"{'Model':15s} | {'250ms fp-bps':>12s} | {'500ms fp-bps':>12s} | {'1000ms fp-bps':>13s} | {'Params':>10s}")
 print("-" * 75)
@@ -137,7 +146,7 @@ for model_key, label in [("neurohorizon", "NeuroHorizon")] + [(m, BENCH_LABELS[m
 print("=" * 75)
 
 # Relative improvements
-print("\nRelative improvement of NeuroHorizon over benchmarks:")
+print("\nRelative improvement of NeuroHorizon over legacy simplified baselines:")
 for m in BENCHMARKS:
     for w in WINDOWS:
         nh_val = nh_results.get(w, {}).get("fp_bps", 0)

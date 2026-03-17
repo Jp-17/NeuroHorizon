@@ -1304,3 +1304,45 @@
 - 六组 300-epoch 训练预计耗时较长，因此先提交代码/文档修正，再在实验完成后追加结果提交
 
 **对应 plan.md 任务**：Phase 1 → 1.3.4（评估协议修正 + 全量重跑）
+
+
+---
+
+## 2026-03-17-17h40
+
+### 任务：1.8.3 审计整合、legacy benchmark protocol-fix 重评估与任务重开
+
+**完成时间**：2026-03-17-17h40
+
+**完成内容**：
+1. 结合 `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md` 前文审计和其末尾 Claude 补充，重新整合 1.8.3 的最终判断
+2. 新增 protocol-fix 代码：
+   - `neural-benchmark/repro_protocol.py`
+   - `neural-benchmark/benchmark_protocol_repair.py`
+   - `neural-benchmark/compare_protocolfix.py`
+3. 对旧 9 个 `phase1_benchmark_*` best checkpoint 完成统一 valid/test continuous + trial-aligned 重评估，生成：
+   - `results/logs/phase1_benchmark_protocolfix_{model}_{window}ms/results.json`
+   - `results/logs/phase1_benchmark_protocolfix_comparison/comparison.{json,md}`
+   - `results/figures/phase1_benchmark_protocolfix/*.png`
+4. 同步更新文档口径：
+   - `cc_core_files/plan.md`
+   - `cc_core_files/results.md`
+   - `cc_core_files/scripts.md`
+   - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
+   - `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
+
+**执行结果**：
+- 旧 1.8.3 已正式降级为 `legacy simplified baselines`
+- protocol-fix 下的 held-out test continuous fp-bps 为：
+  - NDT2-like：`250/500/1000ms = 0.1791 / 0.1397 / 0.0989`
+  - IBL-MtM-like：`0.1859 / 0.1505 / 0.0869`
+  - Neuroformer-like：`0.1968 / 0.1579 / 0.1004`
+- trial-aligned PSTH-R² 已补齐，三模型均在 `0.5961–0.6732`
+- `plan.md` 中 1.8.3 主任务已重新打开，因为 faithful reproduction 仍未完成
+
+**遇到的问题与解决**：
+- `repro_protocol.py` 初版直接运行时缺少项目根 `PYTHONPATH`，补加 `sys.path.insert(0, "/root/autodl-tmp/NeuroHorizon")`
+- 250ms 条件下 `0.25 / 0.02` 的取整与整窗 bin 数不完全一致，导致出现 `38 -> 37` 的 padding 冲突；已在 `WindowedBinnedDataset` 中显式截断到 `spec.total_bins`
+- 远程非交互 shell 中 `conda` 不在 PATH，改为直接使用 `/root/miniconda3/bin/conda run -n benchmark-env ...`
+
+**对应 plan.md 任务**：Phase 1 → 1.8.3（legacy benchmark 审计回收 + protocol-fix 重评估；faithful reproduction 待继续）

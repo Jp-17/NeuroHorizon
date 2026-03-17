@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
-Unified benchmark training script for all models.
+Legacy simplified-baseline training script for the original 1.8.3 experiment.
+
+This script does NOT run faithful reproductions of NDT2 / Neuroformer / IBL-MtM.
+It trains three project-local simplified Transformer baselines that were
+previously mislabeled as benchmark models. Keep it only for legacy comparison.
+
 Usage:
     python benchmark_train.py --model ndt2 --pred_window 0.25
     python benchmark_train.py --model ibl_mtm --pred_window 0.5

@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Visualize 1.4 (obs_window) and 1.5 (session count) results with benchmark comparison."""
+"""Visualize 1.4 and 1.5 results against legacy simplified baselines.
+
+The reused `phase1_benchmark_*` values come from the original 1.8.3 simplified
+Transformer baselines and should not be interpreted as faithful benchmark
+reproductions of NDT2 / Neuroformer / IBL-MtM.
+"""
 import json
 import numpy as np
 import matplotlib.pyplot as plt
@@ -33,13 +38,13 @@ for obs, dname in nh_obs_dirs.items():
 
 # Benchmark results for obs_window
 bench_obs_models = ['ndt2', 'neuroformer', 'ibl_mtm']
-bench_obs_labels = ['NDT2', 'Neuroformer', 'IBL-MtM']
+bench_obs_labels = ['Legacy NDT2-like', 'Legacy Neuroformer-like', 'Legacy IBL-MtM-like']
 bench_obs_results = {m: {} for m in bench_obs_models}
 
 for obs in obs_windows:
     for model in bench_obs_models:
         if obs == 500:
-            # use 1.8.3 baseline (pred=250ms, obs=500ms)
+            # use 1.8.3 legacy simplified-baseline result (pred=250ms, obs=500ms)
             rpath = RESULTS_BASE / f'phase1_benchmark_{model}_250ms' / 'results.json'
         else:
             rpath = RESULTS_BASE / f'phase1_benchmark_{model}_obs{obs}ms' / 'results.json'
@@ -71,7 +76,7 @@ for i, (model, label) in enumerate(zip(bench_obs_models, bench_obs_labels)):
 
 ax.set_xlabel('Observation Window (ms)', fontsize=12)
 ax.set_ylabel('fp-bps', fontsize=12)
-ax.set_title('1.4: fp-bps vs Observation Window (pred=250ms, 10 sessions)', fontsize=14)
+ax.set_title('1.4: fp-bps vs Observation Window with Legacy Baselines', fontsize=14)
 ax.set_xticks(x)
 ax.set_xticklabels([f'{o}ms' for o in obs_windows])
 ax.legend(fontsize=10)
@@ -98,7 +103,7 @@ for i, (model, label) in enumerate(zip(bench_obs_models, bench_obs_labels)):
 
 ax.set_xlabel('Observation Window (ms)', fontsize=12)
 ax.set_ylabel('fp-bps', fontsize=12)
-ax.set_title('1.4: fp-bps vs Observation Window (pred=250ms, 10 sessions)', fontsize=14)
+ax.set_title('1.4: fp-bps vs Observation Window with Legacy Baselines', fontsize=14)
 ax.legend(fontsize=10)
 ax.grid(alpha=0.3)
 
@@ -137,7 +142,7 @@ bench_sess_results = {m: {} for m in bench_obs_models}
 for s in sessions:
     for model in bench_obs_models:
         if s == 10:
-            # use 1.8.3 baseline (10 sessions, pred=250ms)
+            # use 1.8.3 legacy simplified-baseline result (10 sessions, pred=250ms)
             rpath = RESULTS_BASE / f'phase1_benchmark_{model}_250ms' / 'results.json'
         else:
             suffix = '1session' if s == 1 else f'{s}sessions'
@@ -167,7 +172,7 @@ for i, (model, label) in enumerate(zip(bench_obs_models, bench_obs_labels)):
 
 ax.set_xlabel('Number of Training Sessions', fontsize=12)
 ax.set_ylabel('fp-bps', fontsize=12)
-ax.set_title('1.5: fp-bps vs Training Sessions (pred=250ms, obs=500ms)', fontsize=14)
+ax.set_title('1.5: fp-bps vs Training Sessions with Legacy Baselines', fontsize=14)
 ax.set_xticks(x)
 ax.set_xticklabels([str(s) for s in sessions])
 ax.legend(fontsize=10)
@@ -193,7 +198,7 @@ for i, (model, label) in enumerate(zip(bench_obs_models, bench_obs_labels)):
 
 ax.set_xlabel('Number of Training Sessions', fontsize=12)
 ax.set_ylabel('fp-bps', fontsize=12)
-ax.set_title('1.5: fp-bps vs Training Sessions (pred=250ms, obs=500ms)', fontsize=14)
+ax.set_title('1.5: fp-bps vs Training Sessions with Legacy Baselines', fontsize=14)
 ax.legend(fontsize=10)
 ax.grid(alpha=0.3)
 

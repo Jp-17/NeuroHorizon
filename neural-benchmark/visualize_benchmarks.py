@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-Benchmark comparison visualization.
-Generates comparison charts after all benchmark experiments are complete.
+Legacy simplified-baseline visualization for the original 1.8.3 experiment.
+
+The source results in `phase1_benchmark_*` are project-local simplified
+Transformer baselines, not faithful reproductions of NDT2 / Neuroformer /
+IBL-MtM. All titles and labels in this script must keep that caveat explicit.
 """
 import json
 import os
@@ -16,7 +19,11 @@ FIGURE_DIR = Path('/root/autodl-tmp/NeuroHorizon/results/figures/phase1_benchmar
 FIGURE_DIR.mkdir(parents=True, exist_ok=True)
 
 MODELS = ['ndt2', 'ibl_mtm', 'neuroformer']
-MODEL_LABELS = {'ndt2': 'NDT2', 'ibl_mtm': 'IBL-MtM', 'neuroformer': 'Neuroformer'}
+MODEL_LABELS = {
+    'ndt2': 'Legacy NDT2-like',
+    'ibl_mtm': 'Legacy IBL-MtM-like',
+    'neuroformer': 'Legacy Neuroformer-like',
+}
 WINDOWS = [250, 500, 1000]
 COLORS = {'ndt2': '#2196F3', 'ibl_mtm': '#FF9800', 'neuroformer': '#4CAF50'}
 
@@ -25,7 +32,7 @@ NEUROHORIZON_RESULTS = None  # Will be populated if results file exists
 
 
 def load_results():
-    """Load all benchmark results."""
+    """Load all legacy simplified-baseline results."""
     results = {}
     for model in MODELS:
         results[model] = {}
@@ -40,7 +47,7 @@ def load_results():
 
 
 def load_neurohorizon_results():
-    """Try to load NeuroHorizon 1.3.4 results for comparison."""
+    """Try to load NeuroHorizon 1.3.4 results for legacy comparison."""
     # Look for v2 results
     nh_results = {}
     for window in WINDOWS:
@@ -60,7 +67,7 @@ def load_neurohorizon_results():
 
 
 def plot_fpbps_comparison(results, nh_results=None):
-    """Plot 1: Multi-model fp-bps comparison bar chart."""
+    """Plot 1: Multi-model legacy baseline fp-bps comparison bar chart."""
     fig, ax = plt.subplots(figsize=(10, 6))
     
     x = np.arange(len(WINDOWS))
@@ -95,7 +102,7 @@ def plot_fpbps_comparison(results, nh_results=None):
     
     ax.set_xlabel('Prediction Window')
     ax.set_ylabel('fp-bps (bits per spike)')
-    ax.set_title('Forward Prediction: fp-bps Comparison')
+    ax.set_title('Legacy Simplified Baselines: fp-bps Comparison')
     ax.set_xticks(x)
     ax.set_xticklabels([f'{w}ms' for w in WINDOWS])
     ax.legend()
@@ -104,11 +111,11 @@ def plot_fpbps_comparison(results, nh_results=None):
     plt.tight_layout()
     plt.savefig(FIGURE_DIR / 'fpbps_comparison.png', dpi=150)
     plt.close()
-    print("  Saved: fpbps_comparison.png")
+    print("  Saved: fpbps_comparison.png (legacy simplified baselines)")
 
 
 def plot_per_bin_decay(results):
-    """Plot 2: Per-bin fp-bps decay curves for all models."""
+    """Plot 2: Per-bin fp-bps decay curves for legacy simplified baselines."""
     fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharey=True)
     
     for j, window in enumerate(WINDOWS):
@@ -136,15 +143,15 @@ def plot_per_bin_decay(results):
             ax.set_ylabel('fp-bps per bin')
         ax.legend(fontsize=8)
     
-    plt.suptitle('Per-bin fp-bps Decay Across Models', y=1.02)
+    plt.suptitle('Per-bin fp-bps Decay Across Legacy Simplified Baselines', y=1.02)
     plt.tight_layout()
     plt.savefig(FIGURE_DIR / 'per_bin_fpbps_decay.png', dpi=150, bbox_inches='tight')
     plt.close()
-    print("  Saved: per_bin_fpbps_decay.png")
+    print("  Saved: per_bin_fpbps_decay.png (legacy simplified baselines)")
 
 
 def plot_r2_comparison(results, nh_results=None):
-    """Plot 3: Multi-model R² comparison bar chart."""
+    """Plot 3: Multi-model legacy baseline R² comparison bar chart."""
     fig, ax = plt.subplots(figsize=(10, 6))
     
     x = np.arange(len(WINDOWS))
@@ -175,7 +182,7 @@ def plot_r2_comparison(results, nh_results=None):
     
     ax.set_xlabel('Prediction Window')
     ax.set_ylabel('R²')
-    ax.set_title('Forward Prediction: R² Comparison')
+    ax.set_title('Legacy Simplified Baselines: R² Comparison')
     ax.set_xticks(x)
     ax.set_xticklabels([f'{w}ms' for w in WINDOWS])
     ax.legend()
@@ -184,11 +191,11 @@ def plot_r2_comparison(results, nh_results=None):
     plt.tight_layout()
     plt.savefig(FIGURE_DIR / 'r2_comparison.png', dpi=150)
     plt.close()
-    print("  Saved: r2_comparison.png")
+    print("  Saved: r2_comparison.png (legacy simplified baselines)")
 
 
 def plot_summary_table(results, nh_results=None):
-    """Plot 4: Summary table + radar chart."""
+    """Plot 4: Legacy summary table + radar chart."""
     fig, (ax_table, ax_radar) = plt.subplots(1, 2, figsize=(16, 7),
                                                gridspec_kw={'width_ratios': [1.2, 1]})
     
@@ -235,7 +242,7 @@ def plot_summary_table(results, nh_results=None):
     table.auto_set_font_size(False)
     table.set_fontsize(9)
     table.scale(1, 1.5)
-    ax_table.set_title('Benchmark Summary', fontsize=14, pad=20)
+    ax_table.set_title('Legacy Simplified Baseline Summary', fontsize=14, pad=20)
     
     # Radar chart (for 250ms results as representative)
     categories = ['fp-bps', 'R²', '1/NLL']
@@ -261,13 +268,13 @@ def plot_summary_table(results, nh_results=None):
     
     ax_radar.set_xticks(angles[:-1])
     ax_radar.set_xticklabels(categories)
-    ax_radar.set_title('250ms Metrics (Normalized)', pad=20)
+    ax_radar.set_title('250ms Legacy Metrics (Normalized)', pad=20)
     ax_radar.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0), fontsize=8)
     
     plt.tight_layout()
     plt.savefig(FIGURE_DIR / 'summary_table_radar.png', dpi=150, bbox_inches='tight')
     plt.close()
-    print("  Saved: summary_table_radar.png")
+    print("  Saved: summary_table_radar.png (legacy simplified baselines)")
 
 
 def main():
@@ -280,7 +287,7 @@ def main():
     else:
         print("  No NeuroHorizon baseline results found (will compare benchmarks only)")
     
-    print("\nGenerating visualizations...")
+    print("\nGenerating legacy-baseline visualizations...")
     plot_fpbps_comparison(results, nh_results)
     plot_per_bin_decay(results)
     plot_r2_comparison(results, nh_results)
@@ -289,7 +296,7 @@ def main():
     print(f"\nAll figures saved to: {FIGURE_DIR}")
     
     # Print summary
-    print("\n=== Benchmark Results Summary ===")
+    print("\n=== Legacy Simplified Baseline Results Summary ===")
     for model in MODELS:
         print(f"\n{MODEL_LABELS[model]}:")
         for w in WINDOWS:
