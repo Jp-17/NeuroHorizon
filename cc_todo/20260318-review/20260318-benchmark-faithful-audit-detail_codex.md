@@ -237,6 +237,112 @@ benchmark 线应继续尽量向 1.3.7 靠拢，但只统一到下面这层：
 
 不要错误追求：所有模型训练 sampler 完全一致、所有模型训练目标完全一致、所有模型推理程序完全一致。那样会把 faithful reproduction 重新变成项目内重写 baseline。
 
+## 7. 接下来 benchmark 还要继续做什么
+
+### 7.1 NDT2：当前先不继续跟踪
+
+这一条我现在的判断比较明确：NDT2 可以先停，不再作为 1.8 后续优先对象。原因不是“它绝对不行”，而是 faithful runner 已经打通，250ms 下的负结果也已经比较稳定，当前更像 objective mismatch 已经暴露，而不是还差一两个实现 bug 就能翻正。在 IBL-MtM 和 Neuroformer 都还没有完成 250ms gate 之前，继续往 NDT2 上投时间，信息增益太低。
+
+所以更实际的结论是：NDT2 只保留现状记录，不进入新的 250ms 正式训练，也不扩 500ms / 1000ms。后续如果再回来看它，也应该是为了整理 objective mismatch 的反例，而不是继续把它当主 benchmark 竞争者。
+
+### 7.2 IBL-MtM：为什么当前效果差，接下来该怎么推
+
+#### 7.2.1 训练时的 causal masking 与 eval held-out forward prediction 是否真的对齐
+
+这里需要先排除一个容易误判的点：当前 faithful IBL-MtM 的 train sample 时长和 eval sample 时长本身并没有明显不一致。代码里 train 和 eval 都使用同一个 `BenchmarkProtocolSpec`，即 `obs_window_s = 0.5`、`pred_window_s = 0.25`、`bin_size_s = 0.02`。所以问题不是“训练只见过别的窗口时长，评估突然换成 500ms->250ms”。
+
+真正更像问题的是 mask geometry 不对齐，而不是窗口秒数不对齐。当前训练里如果采样到 `causal`，上游 `Masker(mode='causal')` 走的仍然是 temporal/random-token 那一类按 ratio 选时间步的随机 mask 逻辑；faithful bridge 只是把 `causal` 下的 ratio 提到 `0.6`。而 eval 端的 `heldout_forward_pred()` 则是完全显式的：observation bins 全可见，prediction bins 全置零，再对整段 future window 打分。这两者语义相关，但不是同一个训练目标。
+
+因此，当前更值得写进文档的结论不是“训练窗口和评估窗口可能不一样”，而是：训练里的 `causal` 任务并没有精确模拟 eval 时那种“整段 future window held-out”的结构。如果后续继续推 IBL-MtM，我认为最有信息增益的对照不是再换窗口时长，而是补一个更贴近 eval geometry 的训练变体，例如显式 fixed future-window mask 或 forward-pred-like masking。
+
+#### 7.2.2 是不是只是数据规模的问题，或者 cross-session 没适配好
+
+这里只能说“部分可能”，但不能写成唯一解释。当前 faithful IBL-MtM 已经使用了 canonical `train / valid / test` continuous windows，也覆盖全部 recording，不是单 session 或超小数据子集；但 batch 是 `SessionBatchSampler` 组织的 session-pure batching。这样做的好处是尽量保住上游 `eid / session prompting / stitching` 语义，代价是每个优化 step 里跨 session 混合信号被弱化。
+
+所以更准确的判断是：问题不是“没有做跨 session”，而是“跨 session 的利用方式与 NeuroHorizon 主线完全不同”。此外，当前 IBL-MtM 还有一个更强的限制：它是从零训练，不是加载上游已经学到多 session 表示的预训练权重。现有关键结果又主要还是 `e1` 级别试跑，这意味着“还没训练够”和“跨 session 语义利用偏弱”都仍然是合理候选。
+
+如果要排序，我会把这类原因放在窗口时长之前：`from-scratch + session-pure batching + metadata 生态不完整`，比“训练窗口时长不一样”更像当前的主要解释。
+
+#### 7.2.3 eval bps 指标是不是存在尺度不对齐
+
+这里确实存在口径差异，但我不认为它是当前负结果的主因。当前 faithful benchmark 主指标是 NeuroHorizon 的 `fp-bps`：global spike-weighted 聚合，null 来自 train split raw-event mean count per bin。上游 IBL-MtM 常见的 `bits_per_spike / co-bps` 则更接近 per-neuron mean，null 来自 eval data 的 mean firing rate。
+
+这会导致绝对数值不能直接横比，也就是为什么不能把 paper 里 `0.3-0.6` 那类数字直接拿来要求当前 faithful `fp-bps`。但反过来讲，这种尺度差异也不太可能单独解释当前 `-2.95` 这种量级的失败。它更像是在提醒我们“不要做跨论文绝对数值硬对标”，而不是“把指标改一下，结果就会从显著负变成合理正值”。
+
+所以这条应该写成：指标尺度不对齐存在，但它更多影响外部数值比较，不是当前失败的核心来源。
+
+#### 7.2.4 其他我认为更可能的原因
+
+除了上面三条，我认为还有几个更强的候选原因，应该在文档里明确排在前面。
+
+1. 当前是 `from scratch` 训练，没有加载上游多 session 预训练权重。
+2. metadata 生态不完整，不只是 region，还有 `eid / session identity / task family` 这些语义缺口。
+3. 训练保留 upstream `combined neuron+causal`，评估却看 canonical full future-window forward prediction，本来就存在 train-eval mismatch。
+4. 当前最有代表性的结果仍然是 `multimask_e1` 这一类早期试跑，不能据此判定 IBL-MtM 已经收敛后仍然一定无效。
+
+因此，我对 IBL-MtM 的更实际建议是：下一步最值得做的不是改指标，而是补一版比 `multimask_e1` 更正式的 250ms 短训练，并且增加一个更贴近 eval mask geometry 的训练对照。这样才能把“训练不够”和“目标错位”分开。
+
+### 7.3 Neuroformer：为什么当前效果差，接下来该怎么推
+
+#### 7.3.1 训练时的 observation/prediction 窗口和 eval 是否一致
+
+这一点和 IBL-MtM 类似，也要先把错误怀疑排掉。当前 faithful Neuroformer 的 train 和 eval 同样由同一个 `spec` 驱动，代码里明确把 `config.window.prev = spec.obs_window_s = 0.5`，`config.window.curr = spec.pred_window_s = 0.25`，dataset 里也是按 `prev_mask = rel_timestamps < obs_window`、`curr_mask = rel_timestamps >= obs_window` 去切 history 和 future。所以当前没有证据表明 train/eval 的窗口时长本身不一致。
+
+真正的 mismatch 还是目标层面的：训练优化的是 token-level `ID/dt` teacher forcing，而 eval 看的是 rollout 或 true_past 后 re-bin 得到的 count-based `fp-bps`。所以这里更准确的结论不是“训练没见过同样长度的窗口”，而是“虽然窗口时长一致，但训练目标和最终 benchmark 指标不是同一个东西”。
+
+#### 7.3.2 是不是只是数据规模的问题，或者 cross-session 没适配好
+
+这里也不能简单回答“是”或“不是”。当前 faithful Neuroformer 同样已经用上了 canonical split 的全数据 continuous windows，不是单 session 小 demo；但它的 cross-session 组织方式和 IBL-MtM 又不同。当前 bridge 用的是 global unit vocabulary，decode 时再做 session-constrained masking，防止跨 session 预测到无关 neuron token；可是训练阶段并没有显式 session embedding、session prompting 或 stitching 这类机制。
+
+这意味着它并不是“完全没做跨 session”，而是把跨 session 压进了共享 token vocab，再靠 decode 约束兜底。对一个完全从零训练的 token generator 来说，这可能远比 NeuroHorizon 的 per-neuron count forecast 更难。所以 `from-scratch + 缺少显式 session conditioning` 我会放在非常靠前的位置。
+
+如果后续要继续推进，我认为这一条至少和 runtime 一样重要：即便把 runtime 压下去了，如果 cross-session token vocabulary 本身就学不稳，最终 bps 仍然可能很差。
+
+#### 7.3.3 eval bps 指标是不是存在尺度不对齐
+
+对 Neuroformer 来说，尺度不对齐的问题比 IBL-MtM 还更强，因为这里不只是 null baseline 或 aggregation 口径差异，而是目标层级本身就不同。当前统一 benchmark 里，我们先把生成的 `ID/dt` event 序列 re-bin 成 count，再对这个 count tensor 算 `fp-bps / Poisson NLL / PSTH-R²`。faithful bridge 里的 `collect_predicted_counts()` 实际就是把预测事件累计成 count，并取 `log(count)` 进入统一指标。
+
+所以这里的“尺度不对齐”不能只理解成“null 是 train-split 还是 eval-split”。更强的错位在于：Neuroformer 被训练成 token generator，但我们最终用的是 count-based Poisson benchmark 去评价它。这个错位很可能会显著拖累数值，而且比 IBL-MtM 上的 metric mismatch 更强。
+
+不过，我仍然不会把它写成唯一解释，因为如果模型真的在当前 setting 下把 token generation 学得很好，count-based指标理论上也应该明显改善。当前极差结果更像是：`from-scratch + token/count mismatch + session conditioning不足` 一起叠加。
+
+#### 7.3.4 runtime 的问题是不是只是因为 spike 太多、推理太久
+
+我认为不能简化成“就是 spike 太多”。现有记录里，250ms test event 分布大致是 `mean=64`、`p95=113`、`p99=134.9`、`max=167`，而我们已经把 `max_generate_steps` 收紧到 `192`，这意味着生成步数上限本身并没有明显设错。
+
+真正的 runtime 成本来自三层叠加。第一，token-by-token autoregressive decode 本来就贵。第二，faithful bridge 当前是逐样本 Python 循环生成，没有更深的向量化或 cache 优化。第三，formal eval 不只是跑一次 rollout，还要把 full-data valid/test 的 rollout 和 true_past 两种模式都跑完，再做 event-to-count re-binning。
+
+所以更准确的结论是：spike 数量当然会影响 runtime，但它不是唯一来源，甚至不是最关键的单一解释。当前 runtime blocker 更像是 `自回归生成范式 + 双模式 full-data eval + 当前 bridge 实现成本` 的叠加。
+
+#### 7.3.5 还有哪些别的可能原因
+
+除了上面这些，我认为至少还有三条值得明确写进后续判断。
+
+1. 仍然存在 history token truncation 风险。当前 bridge 用 `prev_id_block_size=512`、`id_block_size=256`，250ms target 侧大概率足够，但 500ms observation 侧是否经常截断，当前还没有单独统计。
+2. 当前关键证据仍主要来自 `debug_e1`、`smoke_dualmode_v2` 和 formal run 卡住后的中间状态，而不是一个完整收口的 250ms formal training + dual-mode test。
+3. 当前也是从零训练，没有上游预训练权重，这一点的重要性不应低估。
+
+#### 7.3.6 一个值得补的参考实验：先试官方风格的更短窗口
+
+在继续推 canonical `500ms obs + 250ms pred` 之前，我认为 Neuroformer 还值得补一个更短窗口的参考实验，作为 sanity check。这个想法现在有比较明确的代码依据：上游 repo 本地配置里确实存在接近这种设定的窗口，例如 `configs/V1AL/mconf.yaml` 中就有 `window.curr = 0.05`、`window.prev = 0.15`。
+
+因此，我建议在文档里把下面这个实验明确写成 Neuroformer 的参考性后续任务，而不是正式 benchmark 改口径：
+
+- `window.curr = 0.05`，即 50ms prediction window
+- `window.prev = 0.15`，即 150ms observation window
+- 同样报告 `rollout` 和 `true_past` 两种 inference 的 bps
+
+这个实验的价值不在于直接替代当前 canonical benchmark，而在于提供一个方向性判断。如果 Neuroformer 在更接近官方常见窗口的设置下，双 inference 的 bps 能明显改善，那就说明当前 250ms canonical benchmark 至少有一部分是在惩罚更长 horizon、更高 token density 和更强的 rollout accumulation。如果它在 `150ms/50ms` 下仍然显著为负，那么就更支持 `from-scratch + token/count mismatch + session conditioning不足` 才是主因。
+
+所以我会把这条写成：Neuroformer 的下一步不只是一味去解 250ms formal dual-mode runtime，还可以先补一个 `150ms obs + 50ms pred` 的 reference sanity run，作为低成本、高信息增益的判断。
+
+### 7.4 当前 benchmark 后续优先级
+
+1. `NDT2`：停止继续跟踪，只保留现状记录。
+2. `IBL-MtM`：优先做 250ms short formal run，并增加一个更贴近 eval full future-window mask geometry 的训练对照。
+3. `Neuroformer`：优先解 250ms formal dual-mode eval runtime，并补 history token truncation 统计。
+4. `Neuroformer short-window reference`：补一版 `150ms observation + 50ms prediction` 的 rollout / true_past 参考实验，但明确不替代当前 canonical benchmark。
+
 ## 最终判断
 
 当前 1.8 最值得坚持的路线，不是再证明 legacy 结果多漂亮，而是把下面这句话真正做实：

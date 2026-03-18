@@ -1783,3 +1783,24 @@
   通过复查 true_past / rollout 两条 held-out 代码路径后，将文档改写为“语义已接通、实现为 benchmark bridge 而非直接调用上游 simulation”
 - IBL-MtM 的 metadata 缺口容易被误解为只有 region 一项  
   通过补充 session identity、eid 语义、region-conditioned task family 三层解释，收紧为更准确的 fidelity 判断
+
+2026-03-19 02:54 CST
+
+继续补充 cc_todo/20260318-review/20260318-benchmark-faithful-audit-detail_codex.md 中关于 1.8 benchmark 后续推进的分析，重点增加 NDT2 暂停、IBL-MtM 原因拆解、Neuroformer 原因拆解以及短窗口参考实验建议。
+
+1. 更新 cc_todo/20260318-review/20260318-benchmark-faithful-audit-detail_codex.md：
+   - 新增“接下来 benchmark 还要继续做什么”一节
+   - 明确 NDT2 当前停止继续跟踪，只保留现状记录
+   - 对 IBL-MtM 补充训练 mask geometry 与 eval held-out forward-pred 不完全对齐、from-scratch、session-pure batching、指标口径差异等原因判断
+   - 对 Neuroformer 补充 train/eval 窗口本身一致但 token loss 与 count-based fp-bps 错位、from-scratch、缺少显式 session conditioning、runtime 成本来源等原因判断
+   - 新增 Neuroformer 官方风格短窗口参考实验建议：`window.prev = 0.15`、`window.curr = 0.05`，先看 rollout / true_past 两种 inference 的 bps 作为方向性证据
+
+**执行结果**：
+- review 文档现在已经把 benchmark 后续优先级写成可执行顺序：NDT2 暂停、IBL-MtM 继续 250ms short formal run、Neuroformer 先解 250ms dual-mode runtime，并补短窗口 sanity run
+- Neuroformer 的 `150ms observation + 50ms prediction` 已作为 reference sanity experiment 写入文档，但明确不替代当前 canonical benchmark
+
+**遇到的问题与解决**：
+- 需要确认 `150ms / 50ms` 是否只是用户回忆，还是上游 repo 里确有代码依据  
+  复查后确认 `benchmark_models/neuroformer/configs/V1AL/mconf.yaml` 中确有 `window.prev = 0.15`、`window.curr = 0.05`，因此文档改写为“官方风格短窗口参考实验”而不是无依据猜测
+- IBL-MtM / Neuroformer 的“窗口是否不一致”容易被误写成主因  
+  复查 faithful runner 后确认 train/eval 使用同一 spec，文档改为“窗口秒数一致，真正 mismatch 在训练目标 / mask geometry / token-count bridge”
