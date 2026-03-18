@@ -1596,3 +1596,45 @@
 
 **遇到的问题与解决**：
 - 这次补充不是单纯加观点，而是要把观点和当前代码实现逐条绑死；为避免把 decoder / sampler / null 逻辑说偏，先重新核对了 `train.py`、`dataset.py`、`sampler.py`、`neurohorizon.py`、`neurohorizon_metrics.py` 与 `eval_phase1_v2.py` 的真实实现，再回写文档
+
+## 2026-03-18 06:35
+
+**任务**：实现 `plan.md` 的 `1.3.5` 与 `1.3.6`
+
+**完成内容**：
+1. 新增 IBL-MtM 风格 comparison metric：
+   - 在 `torch_brain/utils/neurohorizon_metrics.py` 中加入 `ibl_mtm_bps` 统计 helper
+   - 在 `scripts/analysis/neurohorizon/eval_phase1_v2.py` continuous 结果中新增 `continuous.ibl_mtm_bps`
+2. 完成 `1.3.5` causal baseline 补评估：
+   - 对 `phase1_v2_evalfix_{250,500,1000}ms_cont` 的 valid/test 补跑新指标
+   - 产出 `results/logs/phase1_v2_metric_extension_comparison/comparison.{json,md}`
+   - 结果：
+     - 250ms: valid/test `ibl_mtm_bps = 0.2234 / 0.2321`
+     - 500ms: `0.1609 / 0.1555`
+     - 1000ms: `0.0381 / 0.0532`
+3. 完成 `1.3.6` non-causal ablation：
+   - 新增 `neurohorizon_small_{250,500}ms_noar.yaml` 和 `train_v2_nocausal_{250,500,1000}ms.yaml`
+   - 启动并完成 `250/500/1000ms` 三个 continuous non-causal 训练与 valid/test 评估
+   - 产出 `results/logs/phase1_v2_nocausal_comparison/comparison.{json,md}`
+   - 结果：
+     - 250ms: causal 更好（test `fp-bps 0.2223 > 0.2178`）
+     - 500ms: 基本持平（test `0.1740 < 0.1778`，差值很小）
+     - 1000ms: non-causal 更好（test `0.1348 < 0.1375`）
+4. 已同步更新：
+   - `cc_core_files/plan.md`
+   - `cc_core_files/results.md`
+   - `cc_core_files/scripts.md`
+   - `cc_todo/20260316-review/20260316-plan-md-v2-code-review_codex.md`
+   - `cc_todo/phase1-autoregressive/20260318-phase1-1.3.5-ibl-metric.md`
+   - `cc_todo/phase1-autoregressive/20260318-phase1-1.3.6-nocausal-ablation.md`
+
+**关键判断**：
+1. `ibl_mtm_bps` 与主 `fp-bps` 对窗口排序保持一致，但在 1000ms 上下降更剧烈，更适合作为 IBL-MtM 对齐 comparison metric，而不是替代主指标
+2. causal mask 对 baseline_v2 的收益是窗口相关的：
+   - 250ms 有明显正收益
+   - 500ms 几乎无差别
+   - 1000ms 则 non-causal 更优
+3. 因此 baseline_v2 的优势不能简单归因于 causal mask；若后续论文要强调 causal ordering 的作用，需要把结论限定在短窗口，或与更明确的 state / memory 设计一起讨论
+
+**遇到的问题与解决**：
+- non-causal 三组重跑总时长较长，因此先做了中间提交 `a622359` / `3a87d7f`，再后台启动训练和对比脚本，完成后回填正式文档与结果
