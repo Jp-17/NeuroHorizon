@@ -258,6 +258,27 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - [x] fp-bps 正确性：global per-neuron mean null 的 fp-bps = 0.0，随机预测 < 0，训练好模型 > 0
 - [x] Trial-aligned sampler 正确性：每个 sample 以 go_cue_time 对齐，target_id 正确
 
+#### 1.2.5 [x] baseline_v2 评估协议复核与完成项补记
+> 依赖：`cc_todo/20260316-review/20260316-plan-md-v2-code-review_codex.md`，`cc_todo/20260316-review/QA_codex.md` §1
+> 产出：`cc_core_files/plan.md`（1.2 / 1.3 口径收口）
+> 记录：`cc_todo/phase1-autoregressive/20260318-phase1-1.2.5-1.3.7-plan-standard.md`
+
+**补记目的**：将 baseline_v2 审查中已经确认、且已在代码与 `1.3.4 evalfix` 中落地的评估协议修正补记到计划正文，避免后续继续按旧口径引用 v2 结果。
+
+**已完成事项**：
+- continuous validation / test 已统一改用 `SequentialFixedWindowSampler`，不再沿用训练式随机 fixed-window eval
+- continuous 主 `fp-bps` / `R-squared` 已统一改为全局累计版，正式结果不再使用 batch mean 口径
+- 主 `fp-bps` 明确固定为 `global spike-weighted + train-split null`，不再与 per-neuron mean / eval-split null 混写
+- v2 baseline 当前主表解释明确限定为“当前实现语义下的 forward prediction baseline”；`TF ≡ rollout` 只对 `query_aug + feedback=none` 成立
+
+**当前未纳入完成项**：
+- trial boundary / split 边界审计仍未完成，不在本条打勾范围内
+- 训练期 logger 仍只记录前 12 个 bin；完整 horizon 正式结果仍以离线 `eval_phase1_v2.py` 为准
+
+- [x] continuous eval sampler 确定性修正已落地
+- [x] continuous 主指标全局累计修正已落地
+- [x] baseline_v2 主结果解释边界已写回计划正文
+
 ### 1.3 预测窗口实验
 
 #### 1.3.1-1.3.3 [x] v1 实验（已完成，R² 为主指标）
@@ -435,6 +456,43 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 - [x] 1000ms-cont：non-causal 训练 + valid/test 评估
 - [x] 汇总：`results/logs/phase1_v2_nocausal_comparison/comparison.{json,md}`
 - [x] 分析：causal vs non-causal 在两个 bps 口径上的差值
+
+#### 1.3.7 [x] NeuroHorizon 实验默认数据与指标标准
+> 依赖：`cc_todo/20260316-review/20260316-plan-md-v2-code-review_codex.md`，`cc_todo/20260316-review/QA_codex.md` §1，1.3.5，1.3.6
+> 产出：`cc_core_files/plan.md`（NeuroHorizon 实验默认协议）
+> 记录：`cc_todo/phase1-autoregressive/20260318-phase1-1.2.5-1.3.7-plan-standard.md`
+
+**适用范围**：
+- 作为后续 NeuroHorizon 主线实验的默认数据处理、sampler 与指标协议
+- `1.8.x` benchmark 对比在引用 NeuroHorizon 结果时也默认使用本节口径；外部 faithful baseline 若保留原生协议，必须在对应文档中显式标注差异
+
+**默认数据与 dataloader 协议**：
+- 数据划分默认沿用 dataset config 的 `train / valid / test`
+- continuous 训练默认使用 `RandomFixedWindowSampler`
+- continuous valid/test 默认使用 `SequentialFixedWindowSampler`
+- trial-aligned 训练默认使用 `TrialAlignedSampler(shuffle=True)`；valid/test 默认使用 `TrialAlignedSampler(shuffle=False)`
+- 代码位置：`examples/neurohorizon/train.py`；离线正式评估入口：`scripts/analysis/neurohorizon/eval_phase1_v2.py`
+
+**默认指标与聚合协议**：
+- 主指标：`global spike-weighted fp-bps + train-split null`
+- continuous 辅助指标：全局累计 `R-squared`
+- 对照指标：`ibl_mtm_bps`（per-neuron mean + eval-split null），仅作为 comparison metric，不替代主 `fp-bps`
+- trial 主指标：`per_neuron_psth_r2`；旧 `population-mean PSTH-R²` 仅作历史对照
+- 代码位置：`torch_brain/utils/neurohorizon_metrics.py` 与 `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+
+**报告与解释规则**：
+- continuous 正式表格与曲线默认引用离线 `eval_v2_{valid,test}_results.json`
+- per-bin `fp-bps` 的正式口径以离线累计结果为准；训练期 logger 只做监控，不直接作为正式结论来源
+- 对 baseline_v2（`query_aug + feedback=none`）可保留 `TF ≡ rollout` 说明；该说明不外推到 `1.9+` 显式 feedback 变体，也不自动外推到 `1.8.x` faithful runner
+
+**与现有任务的一致性**：
+- `1.3.5` 已按本标准执行：continuous evalfix 继续使用主 `fp-bps`，仅额外补充 `ibl_mtm_bps` comparison metric
+- `1.3.6` 已按本标准执行：训练/评估协议与 `1.3.4 evalfix` / `1.3.5` 保持一致，唯一核心变量为 `causal_decoder: false`
+- 因此后续 NeuroHorizon 结果若未特别声明，默认引用本节标准；与 external benchmark 协议不一致处必须单列说明
+
+- [x] 数据划分、dataloader 与 sampler 默认协议已固定
+- [x] 主指标 / 对照指标 / trial 指标默认口径已固定
+- [x] `1.3.5` 与 `1.3.6` 是否符合该标准已明确写清
 
 ### 1.4 [x] 观察窗口长度实验
 > 依赖：1.3.4 完成，确定最优 pred_window（预期 250ms）

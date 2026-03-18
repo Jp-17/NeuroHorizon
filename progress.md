@@ -1673,3 +1673,32 @@
   这次改成了“审计页负责批判性归因、执行页负责阶段状态、结果页和计划页只保留 gate 结论”的分工，避免后续继续漂移
 - 三模型当前问题性质不同，如果只写“结果不好”会导致后续任务仍旧被排成同一种长窗口重跑  
   已明确拆成 objective mismatch、partial fidelity compromise 和 runtime blocker 三类，并据此重排后续任务
+
+## 2026-03-18 16:43
+
+**任务**：补写 `cc_core_files/plan.md` 的 `1.2.5` 与 `1.3.7`，把 baseline_v2 review 中已经落地的评估协议修正写回计划正文，并将 NeuroHorizon 后续实验的数据 / sampler / 指标口径收口为默认标准
+
+**完成内容**：
+1. 在 `plan.md` 新增 `1.2.5`：
+   - 补记 baseline_v2 已落地的两项关键协议修正：
+     - continuous validation / test 改用 `SequentialFixedWindowSampler`
+     - continuous 主 `fp-bps` / `R-squared` 改为全局累计版
+   - 进一步明确主 `fp-bps` 的正式口径是 `global spike-weighted + train-split null`
+2. 在 `plan.md` 新增 `1.3.7`：
+   - 固定 NeuroHorizon 默认数据协议：`train / valid / test` split 与 continuous / trial-aligned 的 sampler 选择
+   - 固定主指标、comparison metric 与 trial 指标的默认解释方式
+   - 指明正式表格应优先引用 `eval_phase1_v2.py` 产出的离线累计结果
+   - 明确 `1.3.5` 与 `1.3.6` 已按最新 continuous 主协议执行
+3. 新增任务记录：
+   - `cc_todo/phase1-autoregressive/20260318-phase1-1.2.5-1.3.7-plan-standard.md`
+
+**执行结果**：
+- `plan.md` 中 baseline_v2 的已完成修正与后续默认标准现在已经分开表述，后续引用不会再把 review 意见、已落地修正和 comparison metric 混成一段
+- 当前主指标继续维持为 `global spike-weighted fp-bps + train-split null`
+- `ibl_mtm_bps` 继续保留为 IBL-MtM 风格 comparison metric，不替代主 `fp-bps`
+
+**遇到的问题与解决**：
+- review 文档中的建议编号与本次补写重点容易混淆  
+  直接按已经落地的事实项写回 `plan.md`，不沿用建议编号，避免之后再出现“建议 2 / 建议 3”与正文编号不一致的问题
+- 需要让 `1.8.x` benchmark 对比可以引用这套标准，但不能误写成 faithful baseline 已完全统一到 NeuroHorizon 协议  
+  在 `1.3.7` 中明确写成“NeuroHorizon 结果默认遵循本标准；external benchmark 若协议不同，必须单列说明”
