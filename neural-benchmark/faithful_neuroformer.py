@@ -17,6 +17,7 @@ import json
 import math
 import random
 import sys
+import time
 import types
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -160,6 +161,10 @@ class FaithfulNeuroformerDataset(TorchDataset):
         prev_dts = rel_timestamps[prev_mask].tolist()
         curr_ids = global_spike_ids[curr_mask].tolist()
         curr_dts = (rel_timestamps[curr_mask] - self.spec.obs_window_s).tolist()
+        prev_event_count = len(prev_ids)
+        curr_event_count = len(curr_ids)
+        prev_truncated = prev_event_count > max(self.prev_id_block_size - 2, 0)
+        curr_truncated = curr_event_count > max(self.id_block_size - 2, 0)
 
         prev_id_full, prev_dt_full, _ = self._build_full_sequence(
             prev_ids,
@@ -210,6 +215,10 @@ class FaithfulNeuroformerDataset(TorchDataset):
                 else float(record.go_cue_time_s),
                 dtype=torch.float32,
             ),
+            "prev_event_count": torch.tensor(prev_event_count, dtype=torch.long),
+            "curr_event_count": torch.tensor(curr_event_count, dtype=torch.long),
+            "prev_truncated": torch.tensor(prev_truncated, dtype=torch.bool),
+            "curr_truncated": torch.tensor(curr_truncated, dtype=torch.bool),
         }
 
 
@@ -227,6 +236,10 @@ def collate_neuroformer_batch(batch: Sequence[Mapping[str, object]]) -> Dict[str
         "split": [item["split"] for item in batch],
         "target_id": torch.stack([item["target_id"] for item in batch]),
         "go_cue_time_s": torch.stack([item["go_cue_time_s"] for item in batch]),
+        "prev_event_count": torch.stack([item["prev_event_count"] for item in batch]),
+        "curr_event_count": torch.stack([item["curr_event_count"] for item in batch]),
+        "prev_truncated": torch.stack([item["prev_truncated"] for item in batch]),
+        "curr_truncated": torch.stack([item["curr_truncated"] for item in batch]),
     }
 
 
@@ -249,6 +262,47 @@ def maybe_limit_records(records, limit: Optional[int]):
     if limit is None or limit <= 0:
         return list(records)
     return list(records[:limit])
+
+
+def summarize_token_stats(dataloader: DataLoader) -> Dict[str, float]:
+    prev_counts = []
+    curr_counts = []
+    prev_truncated = 0
+    curr_truncated = 0
+    n_samples = 0
+    for batch in dataloader:
+        prev = batch["prev_event_count"].detach().cpu().numpy()
+        curr = batch["curr_event_count"].detach().cpu().numpy()
+        prev_counts.append(prev)
+        curr_counts.append(curr)
+        prev_truncated += int(batch["prev_truncated"].sum().item())
+        curr_truncated += int(batch["curr_truncated"].sum().item())
+        n_samples += int(prev.shape[0])
+    if n_samples == 0:
+        return {
+            "n_samples": 0,
+            "prev_tokens_mean": 0.0,
+            "prev_tokens_p95": 0.0,
+            "prev_tokens_max": 0.0,
+            "curr_tokens_mean": 0.0,
+            "curr_tokens_p95": 0.0,
+            "curr_tokens_max": 0.0,
+            "prev_truncation_rate": 0.0,
+            "curr_truncation_rate": 0.0,
+        }
+    prev_arr = np.concatenate(prev_counts)
+    curr_arr = np.concatenate(curr_counts)
+    return {
+        "n_samples": int(n_samples),
+        "prev_tokens_mean": float(prev_arr.mean()),
+        "prev_tokens_p95": float(np.percentile(prev_arr, 95)),
+        "prev_tokens_max": float(prev_arr.max()),
+        "curr_tokens_mean": float(curr_arr.mean()),
+        "curr_tokens_p95": float(np.percentile(curr_arr, 95)),
+        "curr_tokens_max": float(curr_arr.max()),
+        "prev_truncation_rate": float(prev_truncated / max(n_samples, 1)),
+        "curr_truncation_rate": float(curr_truncated / max(n_samples, 1)),
+    }
 
 
 def set_global_seed(seed: int) -> None:
@@ -697,6 +751,9 @@ def evaluate_faithful_neuroformer_loader(
     device: torch.device,
     max_generate_steps: int,
     true_past: bool,
+    compute_teacher_forced_loss: bool = True,
+    progress_prefix: Optional[str] = None,
+    progress_every: int = 25,
 ) -> Dict[str, object]:
     all_logrates = []
     all_targets = []
@@ -704,15 +761,22 @@ def evaluate_faithful_neuroformer_loader(
     all_unit_masks = []
     teacher_forced_loss = 0.0
     teacher_forced_batches = 0
+    started = time.time()
+    total_batches = len(dataloader)
 
     model.eval()
     with torch.no_grad():
-        for batch in dataloader:
+        for batch_idx, batch in enumerate(dataloader, start=1):
             batch = move_batch_to_device(batch, device)
-            preds, _, loss_dict = model(batch["x"], batch["y"])
-            teacher_forced_loss += float(compute_total_loss(loss_dict).detach().cpu().item())
-            teacher_forced_batches += 1
+            preds = None
+            if true_past or compute_teacher_forced_loss:
+                preds, _, loss_dict = model(batch["x"], batch["y"])
+                if compute_teacher_forced_loss:
+                    teacher_forced_loss += float(compute_total_loss(loss_dict).detach().cpu().item())
+                    teacher_forced_batches += 1
             if true_past:
+                if preds is None:
+                    raise RuntimeError("true_past evaluation requires teacher-forced forward outputs.")
                 logrates = decode_teacher_forced_logrates(
                     preds,
                     tokenizer,
@@ -735,6 +799,13 @@ def evaluate_faithful_neuroformer_loader(
             all_targets.append(batch["target_counts"].cpu())
             all_unit_ids.append(batch["unit_ids"].cpu())
             all_unit_masks.append(batch["unit_mask"].cpu())
+            if progress_prefix and (batch_idx == 1 or batch_idx % max(progress_every, 1) == 0 or batch_idx == total_batches):
+                print(json.dumps({
+                    "progress": progress_prefix,
+                    "batch": batch_idx,
+                    "total_batches": total_batches,
+                    "elapsed_s": round(time.time() - started, 2),
+                }))
 
     metrics = evaluate_prediction_tensors(
         log_rates=torch.cat(all_logrates, dim=0),
@@ -744,8 +815,13 @@ def evaluate_faithful_neuroformer_loader(
         null_lookup=null_lookup.cpu(),
     )
     metrics["n_samples"] = int(sum(x.shape[0] for x in all_logrates))
-    metrics["teacher_forced_loss"] = float(teacher_forced_loss / max(teacher_forced_batches, 1))
+    metrics["teacher_forced_loss"] = (
+        float(teacher_forced_loss / max(teacher_forced_batches, 1))
+        if teacher_forced_batches > 0
+        else None
+    )
     metrics["inference_mode"] = "true_past" if true_past else "rollout"
+    metrics["elapsed_s"] = float(round(time.time() - started, 4))
     return metrics
 
 
@@ -1097,6 +1173,11 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         compute_raw_null_rates(datasets["train"], global_unit_index, spec.bin_size_s),
         device=device,
     )
+    token_stats = {
+        "train": summarize_token_stats(train_loader),
+        "valid": summarize_token_stats(valid_loader),
+        "test": summarize_token_stats(test_loader),
+    }
 
     best_epoch = 0
     best_valid_metrics: Optional[Dict[str, object]] = None
@@ -1134,6 +1215,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
             device=device,
             max_generate_steps=bridge_cfg.max_generate_steps,
             true_past=False,
+            compute_teacher_forced_loss=False,
         )
         mean_train_loss = float(loss_total / max(loss_steps, 1))
         final_epoch_metrics = dict(valid_metrics)
@@ -1262,6 +1344,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
     }
     payload["history"] = history
     payload["bridge_config"] = asdict(bridge_cfg)
+    payload["token_stats"] = token_stats
     payload["model_fidelity_notes"] = [
         "Upstream Tokenizer and Neuroformer core retained.",
         "Compatibility layer maps Perich-Miller raw spike events into ID/dt token streams.",
@@ -1273,9 +1356,197 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
     return payload
 
 
+def evaluate_modes(
+    *,
+    model: Neuroformer,
+    tokenizer: Tokenizer,
+    loader: DataLoader,
+    trial_loader: Optional[DataLoader],
+    spec: BenchmarkProtocolSpec,
+    channel_capacity: int,
+    null_lookup: torch.Tensor,
+    device: torch.device,
+    max_generate_steps: int,
+    inference_mode: str,
+    split_name: str,
+    progress_every: int,
+) -> Tuple[Dict[str, object], Dict[str, object]]:
+    modes = ["rollout", "true_past"] if inference_mode == "both" else [inference_mode]
+    continuous_results: Dict[str, object] = {}
+    trial_results: Dict[str, object] = {}
+    for mode in modes:
+        true_past = mode == "true_past"
+        continuous_results[mode] = evaluate_faithful_neuroformer_loader(
+            model,
+            tokenizer,
+            loader,
+            spec=spec,
+            channel_capacity=channel_capacity,
+            null_lookup=null_lookup,
+            device=device,
+            max_generate_steps=max_generate_steps,
+            true_past=true_past,
+            compute_teacher_forced_loss=true_past,
+            progress_prefix=f"{split_name}:{mode}",
+            progress_every=progress_every,
+        )
+        if trial_loader is not None:
+            trial_results[mode] = evaluate_trial_aligned_loader(
+                build_trial_model_fn(
+                    model,
+                    tokenizer,
+                    spec=spec,
+                    channel_capacity=channel_capacity,
+                    max_generate_steps=max_generate_steps,
+                    device=device,
+                    true_past=true_past,
+                ),
+                trial_loader,
+                spec,
+                null_lookup,
+                device,
+            )
+    return continuous_results, trial_results
+
+
+def run_eval(args: argparse.Namespace) -> Dict[str, object]:
+    set_global_seed(args.seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    spec = BenchmarkProtocolSpec(
+        obs_window_s=args.obs_window,
+        pred_window_s=args.pred_window,
+        bin_size_s=args.bin_size,
+    )
+    bridge_cfg = FaithfulNeuroformerConfig(
+        hidden_size=args.hidden_size,
+        n_heads=args.n_heads,
+        dropout=args.dropout,
+        learning_rate=args.learning_rate,
+        weight_decay=args.weight_decay,
+        grad_norm_clip=args.grad_norm_clip,
+        betas_0=args.beta1,
+        betas_1=args.beta2,
+        dt_resolution=args.dt_resolution,
+        prev_id_block_size=args.prev_id_block_size,
+        id_block_size=args.id_block_size,
+        max_generate_steps=args.max_generate_steps,
+        lr_decay=not args.no_lr_decay,
+        warmup_tokens=args.warmup_tokens,
+    )
+    checkpoint_path = Path(args.checkpoint_path) if args.checkpoint_path else None
+    if checkpoint_path is None:
+        raise ValueError("--checkpoint-path is required for --mode eval")
+    output_dir = Path(args.output_dir) if args.output_dir else checkpoint_path.parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    datasets = load_split_datasets(dataset_config=args.dataset_config)
+    global_unit_index = build_global_unit_index(datasets)
+    channel_capacity = compute_max_units(datasets)
+    tokenizer = build_tokenizer(
+        global_unit_index=global_unit_index,
+        spec=spec,
+        dt_resolution=bridge_cfg.dt_resolution,
+    )
+    null_lookup = build_null_rate_lookup(
+        compute_raw_null_rates(datasets["train"], global_unit_index, spec.bin_size_s),
+        device=device,
+    )
+    model = create_faithful_neuroformer_model(
+        tokenizer=tokenizer,
+        spec=spec,
+        bridge_cfg=bridge_cfg,
+        config_path=args.neuroformer_config,
+    ).to(device)
+    state = torch.load(checkpoint_path, map_location=device)
+    model.load_state_dict(state["model_state_dict"])
+
+    splits = ["valid", "test"] if args.eval_split == "both" else [args.eval_split]
+    payload = {
+        "mode": "eval",
+        "model": "faithful_neuroformer",
+        "protocol_name": "canonical_protocol_v1",
+        "spec": asdict(spec),
+        "bridge_config": asdict(bridge_cfg),
+        "checkpoint_path": str(checkpoint_path),
+        "eval_split": args.eval_split,
+        "inference_mode": args.inference_mode,
+        "skip_trial_eval": bool(args.skip_trial_eval),
+        "continuous_metrics": {},
+        "trial_aligned_metrics": {},
+        "token_stats": {},
+        "notes": [
+            "Eval-only mode reuses an existing faithful Neuroformer checkpoint.",
+            "Rollout skips redundant teacher-forced forward passes to reduce formal eval runtime.",
+            "true_past continues to decode oracle-history outputs from a single teacher-forced forward pass per batch.",
+        ],
+    }
+    for split in splits:
+        records = maybe_limit_records(
+            build_continuous_windows(datasets[split], split, spec),
+            args.max_valid_windows if split == "valid" else args.max_test_windows,
+        )
+        if not records:
+            raise ValueError(f"No canonical {split} windows were generated for faithful Neuroformer eval.")
+        loader = build_window_loader(
+            tb_dataset=datasets[split],
+            records=records,
+            spec=spec,
+            global_unit_index=global_unit_index,
+            tokenizer=tokenizer,
+            prev_id_block_size=bridge_cfg.prev_id_block_size,
+            id_block_size=bridge_cfg.id_block_size,
+            channel_capacity=channel_capacity,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+        )
+        trial_loader = None
+        if not args.skip_trial_eval:
+            trial_records = maybe_limit_records(
+                build_trial_windows(datasets[split], split, spec),
+                args.max_trial_windows,
+            )
+            if trial_records:
+                trial_loader = build_window_loader(
+                    tb_dataset=datasets[split],
+                    records=trial_records,
+                    spec=spec,
+                    global_unit_index=global_unit_index,
+                    tokenizer=tokenizer,
+                    prev_id_block_size=bridge_cfg.prev_id_block_size,
+                    id_block_size=bridge_cfg.id_block_size,
+                    channel_capacity=channel_capacity,
+                    batch_size=args.batch_size,
+                    shuffle=False,
+                    num_workers=args.num_workers,
+                )
+        payload["token_stats"][split] = summarize_token_stats(loader)
+        continuous_results, trial_results = evaluate_modes(
+            model=model,
+            tokenizer=tokenizer,
+            loader=loader,
+            trial_loader=trial_loader,
+            spec=spec,
+            channel_capacity=channel_capacity,
+            null_lookup=null_lookup,
+            device=device,
+            max_generate_steps=bridge_cfg.max_generate_steps,
+            inference_mode=args.inference_mode,
+            split_name=split,
+            progress_every=args.progress_every,
+        )
+        payload["continuous_metrics"][split] = continuous_results
+        if trial_results:
+            payload["trial_aligned_metrics"][split] = trial_results
+        write_json(output_dir / "eval_results.json", payload)
+
+    print(json.dumps(payload, indent=2))
+    return payload
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Faithful Neuroformer bridge for benchmark 1.8.3")
-    parser.add_argument("--mode", type=str, default="smoke", choices=["smoke", "train"])
+    parser.add_argument("--mode", type=str, default="smoke", choices=["smoke", "train", "eval"])
     parser.add_argument("--obs-window", type=float, default=0.5)
     parser.add_argument("--pred-window", type=float, default=0.25)
     parser.add_argument("--bin-size", type=float, default=0.02)
@@ -1286,6 +1557,7 @@ def parse_args() -> argparse.Namespace:
         default=f"{NF_ROOT}/configs/V1AL/mconf.yaml",
     )
     parser.add_argument("--output-dir", type=str, default=None)
+    parser.add_argument("--checkpoint-path", type=str, default=None)
     parser.add_argument("--seed", type=int, default=25)
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=8)
@@ -1294,6 +1566,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-valid-windows", type=int, default=None)
     parser.add_argument("--max-test-windows", type=int, default=None)
     parser.add_argument("--max-trial-windows", type=int, default=None)
+    parser.add_argument("--eval-split", type=str, default="both", choices=["valid", "test", "both"])
+    parser.add_argument("--inference-mode", type=str, default="both", choices=["rollout", "true_past", "both"])
+    parser.add_argument("--skip-trial-eval", action="store_true")
+    parser.add_argument("--progress-every", type=int, default=25)
     parser.add_argument("--hidden-size", type=int, default=256)
     parser.add_argument("--n-heads", type=int, default=8)
     parser.add_argument("--dropout", type=float, default=0.2)
@@ -1315,8 +1591,10 @@ def main() -> None:
     args = parse_args()
     if args.mode == "smoke":
         run_smoke(args)
-    else:
+    elif args.mode == "train":
         run_train(args)
+    else:
+        run_eval(args)
 
 
 if __name__ == "__main__":

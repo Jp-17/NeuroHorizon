@@ -1804,3 +1804,53 @@
   复查后确认 `benchmark_models/neuroformer/configs/V1AL/mconf.yaml` 中确有 `window.prev = 0.15`、`window.curr = 0.05`，因此文档改写为“官方风格短窗口参考实验”而不是无依据猜测
 - IBL-MtM / Neuroformer 的“窗口是否不一致”容易被误写成主因  
   复查 faithful runner 后确认 train/eval 使用同一 spec，文档改为“窗口秒数一致，真正 mismatch 在训练目标 / mask geometry / token-count bridge”
+
+
+2026-03-19 03:40 CST
+
+开始执行 1.8 faithful benchmark 审计文档中 7.4 的实际落地工作，先完成 runner 改造、小规模验证和文档跟踪入口。
+
+1. 更新 faithful benchmark 代码入口：
+   - `neural-benchmark/faithful_ibl_mtm.py`
+     - 新增 `train_mask_mode=forward_pred`
+     - 新增 `train_protocol` 字段，显式标注 train/eval mask geometry 是否 `exact / partial` 对齐
+   - `neural-benchmark/faithful_neuroformer.py`
+     - 新增 `mode=eval`
+     - 新增 `--checkpoint-path`、`--eval-split`、`--inference-mode`、`--skip-trial-eval`、`--progress-every`
+     - rollout 评估不再额外做冗余 teacher-forced forward
+     - 新增 `token_stats`（prev/curr tokens mean/p95/max + truncation_rate）
+   - 新增对比脚本：`compare_faithful_ibl_mtm.py`、`compare_faithful_neuroformer.py`
+
+2. 完成小规模验证：
+   - IBL-MtM `forwardpred_smoke_v2`
+     - `bridge_config.train_mask_mode = forward_pred`
+     - `train_masking_mode = forward_pred`
+   - IBL-MtM `250ms_forwardpred_smoke_e1`
+     - best valid `fp-bps = -7.3364`
+     - held-out test `fp-bps = -8.4518`
+     - `history[0].train_mask_counts = {"forward_pred": 4}`
+   - Neuroformer `eval_smoke_v1`
+     - valid rollout `fp-bps = -11.6581`, `elapsed_s = 1.4330`
+     - valid true_past `fp-bps = -11.1578`, `elapsed_s = 0.2153`
+     - 当前 2 个 valid windows 下 `prev/curr truncation_rate = 0.0 / 0.0`
+
+3. 更新跟踪文档：
+   - `cc_todo/20260318-review/20260318-benchmark-faithful-audit-detail_codex.md`
+     - 新增 `8. 7.4 执行计划（2026-03-19）`
+     - 新增 `9. 7.4 执行进展`
+   - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
+     - 新增 `4.18 7.4 执行入口与小规模验证`
+
+**当前状态**：
+- runner 层改造和小验证已完成，准备先做一轮中间提交
+- 下一步固定顺序：
+  1. IBL-MtM `250ms combined_e10`
+  2. IBL-MtM `250ms forwardpred_e10`
+  3. Neuroformer `250ms` formal dual-mode eval
+  4. Neuroformer `150ms observation + 50ms prediction` reference run
+
+**遇到的问题与解决**：
+- 远程环境没有 `apply_patch`，因此改为使用远程 `python3` 做精确文件改写
+- IBL-MtM 的 `smoke` 入口最初未透传 `--train-mask-mode`，导致首次 smoke 仍走默认 `combined`
+  - 已修正 `run_smoke()`，当前 smoke 与小训练都已真实进入 `forward_pred` 路径
+- Neuroformer 的正式 runtime blocker 当前先通过 `eval-only` 模式拆解，而不是继续把 train 和 dual-mode full-data eval 强耦合在一起

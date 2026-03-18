@@ -253,6 +253,10 @@ def choose_training_masking_mode(
     return masking_mode
 
 
+def resolve_forward_pred_masking_name(model) -> str:
+    return "causal" if getattr(model, "use_prompt", False) else "forward-pred"
+
+
 def set_global_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -363,9 +367,35 @@ def run_ibl_train_forward(
     model,
     batch: Mapping[str, object],
     *,
+    spec: BenchmarkProtocolSpec,
     train_mask_mode: str,
     base_mask_ratio: float,
 ):
+    if train_mask_mode == "forward_pred":
+        mask_result = heldout_forward_pred(batch["spikes_data"], spec.obs_bins)
+        prev_mask = model.encoder.mask
+        prev_force_active = model.encoder.masker.force_active
+        model.encoder.mask = False
+        model.encoder.masker.force_active = False
+        try:
+            outputs = model(
+                mask_result["spikes"],
+                time_attn_mask=batch["time_attn_mask"],
+                space_attn_mask=batch["space_attn_mask"],
+                spikes_timestamps=batch["spikes_timestamps"],
+                spikes_spacestamps=batch["spikes_spacestamps"],
+                targets=batch["target"],
+                neuron_regions=batch["neuron_regions"],
+                masking_mode=resolve_forward_pred_masking_name(model),
+                eval_mask=mask_result["eval_mask"],
+                num_neuron=int(batch["n_units"][0].item()),
+                eid=batch["eid"][0],
+            )
+        finally:
+            model.encoder.mask = prev_mask
+            model.encoder.masker.force_active = prev_force_active
+        return outputs, "forward_pred"
+
     model.encoder.mask = True
     model.encoder.masker.force_active = True
     masking_mode = choose_training_masking_mode(
@@ -409,7 +439,7 @@ def run_ibl_eval_forward(
             spikes_spacestamps=batch["spikes_spacestamps"],
             targets=batch["target"],
             neuron_regions=batch["neuron_regions"],
-            masking_mode="causal" if getattr(model, "use_prompt", False) else "forward-pred",
+            masking_mode=resolve_forward_pred_masking_name(model),
             eval_mask=mask_result["eval_mask"],
             num_neuron=int(batch["n_units"][0].item()),
             eid=batch["eid"][0],
@@ -546,6 +576,29 @@ def build_trial_model_fn(model, spec: BenchmarkProtocolSpec):
     return predict
 
 
+def build_train_protocol_summary(train_mask_mode: str) -> Dict[str, str]:
+    if train_mask_mode == "forward_pred":
+        return {
+            "train_mask_mode": train_mask_mode,
+            "mask_geometry": "explicit_future_window_forward_pred",
+            "eval_geometry_match": "exact",
+            "objective_family": "canonical_forward_prediction_control",
+        }
+    if train_mask_mode in {"combined", "all"}:
+        return {
+            "train_mask_mode": train_mask_mode,
+            "mask_geometry": "upstream_ssl_multi_mask",
+            "eval_geometry_match": "partial",
+            "objective_family": "upstream_ssl_multitask",
+        }
+    return {
+        "train_mask_mode": train_mask_mode,
+        "mask_geometry": f"upstream_single_mask::{train_mask_mode}",
+        "eval_geometry_match": "partial",
+        "objective_family": "upstream_ssl_single_task",
+    }
+
+
 def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
     set_global_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -596,7 +649,22 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
         num_workers=0,
     )
 
-    bridge_cfg = FaithfulIBLMtMConfig(stitch_channels=channel_capacity)
+    bridge_cfg = FaithfulIBLMtMConfig(
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+        eps=args.eps,
+        warmup_pct=args.warmup_pct,
+        div_factor=args.div_factor,
+        grad_clip=args.grad_clip,
+        dropout=args.dropout,
+        hidden_size=args.hidden_size,
+        n_layers=args.n_layers,
+        n_heads=args.n_heads,
+        embed_mult=args.embed_mult,
+        stitch_channels=channel_capacity,
+        mask_ratio=args.mask_ratio,
+        train_mask_mode=args.train_mask_mode,
+    )
     model = create_faithful_ibl_mtm_model(
         session_ids=session_ids,
         unique_unit_counts=unique_unit_counts,
@@ -620,6 +688,7 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
     outputs, masking_mode = run_ibl_train_forward(
         model,
         batch,
+        spec=spec,
         train_mask_mode=bridge_cfg.train_mask_mode,
         base_mask_ratio=bridge_cfg.mask_ratio,
     )
@@ -811,6 +880,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
             outputs, masking_mode = run_ibl_train_forward(
                 model,
                 batch,
+                spec=spec,
                 train_mask_mode=bridge_cfg.train_mask_mode,
                 base_mask_ratio=bridge_cfg.mask_ratio,
             )
@@ -907,7 +977,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         test_metrics=test_metrics,
         notes=[
             "Faithful bridge keeps upstream IBL-MtM NDT1 + stitching + session prompting core.",
-            "Training keeps the upstream SSL multi-mask objective and samples mask modes per batch.",
+            "Training keeps the upstream SSL masking path unless train_mask_mode=forward_pred is explicitly requested.",
             "Held-out evaluation uses explicit one-step forward-pred masking on canonical windows.",
             "Batches are session-pure so upstream eid/session-token assumptions remain valid.",
         ],
@@ -915,11 +985,13 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
     payload["trial_aligned_test_metrics"] = dict(trial_metrics)
     payload["history"] = history
     payload["bridge_config"] = asdict(bridge_cfg)
+    payload["train_protocol"] = build_train_protocol_summary(bridge_cfg.train_mask_mode)
     payload["model_fidelity_notes"] = [
         "Upstream NDT1 core retained.",
         "Perich-Miller adaptation replaces IBL EID list with canonical recording IDs at runtime.",
         "Stitching target channels are adapted to the Perich-Miller max unit count.",
         "Region-based masks are only activated when real region annotations are available; otherwise training falls back to the upstream combined neuron/causal scheme.",
+        "The forward_pred training control matches the canonical held-out future-window geometry exactly when enabled.",
     ]
     write_json(output_dir / "results.json", payload)
     print(json.dumps(payload, indent=2))
@@ -964,7 +1036,7 @@ def parse_args() -> argparse.Namespace:
         "--train-mask-mode",
         type=str,
         default="combined",
-        choices=["combined", "all", "neuron", "causal", "intra-region", "inter-region"],
+        choices=["combined", "all", "neuron", "causal", "intra-region", "inter-region", "forward_pred"],
     )
     return parser.parse_args()
 

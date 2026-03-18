@@ -343,6 +343,99 @@ benchmark 线应继续尽量向 1.3.7 靠拢，但只统一到下面这层：
 3. `Neuroformer`：优先解 250ms formal dual-mode eval runtime，并补 history token truncation 统计。
 4. `Neuroformer short-window reference`：补一版 `150ms observation + 50ms prediction` 的 rollout / true_past 参考实验，但明确不替代当前 canonical benchmark。
 
+## 8. 7.4 执行计划（2026-03-19）
+
+按照 7.4 的优先级，本轮执行固定收敛为下面三件事：
+
+1. NDT2：不再新增训练或评估，只保留现状记录。
+2. IBL-MtM：补一版比 `multimask_e1` 更正式的 `250ms` 短训练，并增加一个显式 `forward_pred` 训练对照，用来直接测试 train/eval mask geometry mismatch 是否是主因。
+3. Neuroformer：先把 `250ms` dual-mode formal eval 做成可稳定完成、可恢复、可单独运行的流程；在此基础上再补一版 `150ms observation + 50ms prediction` 的参考实验。
+
+本轮实现默认采用下面的工程收口方式：
+
+- IBL-MtM：在 `faithful_ibl_mtm.py` 中新增 `train_mask_mode=forward_pred`，训练时直接使用与 held-out eval 相同的 future-window masking geometry；同时保留 `combined` 作为 faithful baseline。
+- Neuroformer：在 `faithful_neuroformer.py` 中新增 `eval-only` 模式，并把 `rollout` 与 `true_past` 从训练后绑定式评估中拆开，允许独立重跑 held-out eval；同时补充 token/truncation 统计，帮助判断 runtime 与 token density / truncation 的关系。
+- 对比输出：新增 `compare_faithful_ibl_mtm.py` 与 `compare_faithful_neuroformer.py`，统一产出 markdown/json 对比摘要。
+
+## 9. 7.4 执行进展
+
+### 9.1 已完成的代码改动（2026-03-19 第一轮）
+
+1. `faithful_ibl_mtm.py`
+   - 新增 `resolve_forward_pred_masking_name()`。
+   - 新增 `train_mask_mode=forward_pred`。
+   - 训练端现在支持显式 future-window held-out control，而不再只支持 upstream `combined / causal / neuron` 这类 masking family。
+   - 结果 JSON 新增 `train_protocol`，明确标注 train mask geometry 与 eval geometry 是否 `exact / partial` 对齐。
+
+2. `faithful_neuroformer.py`
+   - 新增 `mode=eval`，支持从 checkpoint 单独跑 held-out eval。
+   - 新增 `--checkpoint-path`、`--eval-split`、`--inference-mode`、`--skip-trial-eval`、`--progress-every`。
+   - `rollout` 评估不再额外做一遍冗余 teacher-forced forward；`true_past` 仍保留单次 teacher-forced decode 语义。
+   - 新增 `token_stats`：`prev/curr tokens mean/p95/max` 与 `prev/curr truncation_rate`。
+
+3. 对比脚本
+   - 新增 `neural-benchmark/compare_faithful_ibl_mtm.py`。
+   - 新增 `neural-benchmark/compare_faithful_neuroformer.py`。
+
+### 9.2 已完成的小规模验证
+
+#### IBL-MtM `forward_pred` smoke v2
+
+输出目录：`results/logs/phase1_benchmark_faithful_ibl_mtm_forwardpred_smoke_v2/`
+
+关键结果：
+- `bridge_config.train_mask_mode = forward_pred`
+- `train_masking_mode = forward_pred`
+- 说明新增训练控制分支已经真实生效，而不是只改了 CLI 参数。
+
+#### IBL-MtM `forward_pred` 小训练验证（1 epoch, limited windows）
+
+输出目录：`results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_forwardpred_smoke_e1/`
+
+关键结果：
+- `best valid fp-bps = -7.3364`
+- `test fp-bps = -8.4518`
+- `history[0].train_mask_counts = {"forward_pred": 4}`
+- `train_protocol.eval_geometry_match = exact`
+
+这说明：
+- 新增 `forward_pred` 训练模式不仅能跑通，还已经进入正式 train path；
+- 但在极小规模 `e1 + limited windows` 下，它并没有立刻优于旧 debug/multimask，后续必须看 full-data `e10` 的结果再下判断。
+
+#### Neuroformer `eval-only` smoke v1
+
+输出目录：`results/logs/phase1_benchmark_faithful_neuroformer_eval_smoke_v1/`
+
+运行配置：
+- checkpoint: `results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_debug_e1/best_model.pt`
+- split: `valid`
+- mode: `rollout + true_past`
+- windows: `max_valid_windows = 2`
+- `skip_trial_eval = true`
+- `max_generate_steps = 64`
+
+关键结果：
+- `valid rollout fp-bps = -11.6581`, `elapsed_s = 1.4330`
+- `valid true_past fp-bps = -11.1578`, `elapsed_s = 0.2153`
+- `token_stats.valid.prev_tokens_mean = 201.0`
+- `token_stats.valid.curr_tokens_mean = 114.5`
+- `token_stats.valid.prev_truncation_rate = 0.0`
+- `token_stats.valid.curr_truncation_rate = 0.0`
+
+这说明：
+- `eval-only` 和 dual-mode held-out path 已经可独立执行；
+- `true_past` 比 `rollout` 更快，且当前小样本上略好；
+- 在这 2 个 valid windows 上还没有出现 token truncation，至少当前 runtime blocker 不能简单归因为 block size 太小。
+
+### 9.3 下一步固定安排
+
+1. 先提交本轮 runner / compare / review 文档改动，形成一个可回滚的中间节点。
+2. 启动 IBL-MtM 两组 full-data `250ms e10`：
+   - `combined_e10`
+   - `forwardpred_e10`
+3. 用新的 `eval-only` 流程复跑 Neuroformer `250ms` formal dual-mode held-out eval。
+4. 再补 Neuroformer `150ms observation + 50ms prediction` 的参考实验。
+
 ## 最终判断
 
 当前 1.8 最值得坚持的路线，不是再证明 legacy 结果多漂亮，而是把下面这句话真正做实：
