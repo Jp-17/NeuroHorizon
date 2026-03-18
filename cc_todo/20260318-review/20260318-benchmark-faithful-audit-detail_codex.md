@@ -427,7 +427,21 @@ benchmark 线应继续尽量向 1.3.7 靠拢，但只统一到下面这层：
 - `true_past` 比 `rollout` 更快，且当前小样本上略好；
 - 在这 2 个 valid windows 上还没有出现 token truncation，至少当前 runtime blocker 不能简单归因为 block size 太小。
 
-### 9.3 下一步固定安排
+### 9.3 当前后台执行状态（2026-03-19 03:38 CST）
+
+- 中间提交已完成并推送：`cf450b2` `补充 7.4 faithful benchmark 执行入口`
+- 正式批次已启动：`screen` 会话 `phase1_benchmark_7_4`
+- 日志文件：`results/logs/phase1_benchmark_7_4.log`
+- 当前已确认进入第一阶段：`IBL-MtM combined_e10`
+- 当前顺序脚本固定按如下阶段运行：
+  1. `IBL-MtM combined_e10`
+  2. `IBL-MtM forwardpred_e10`
+  3. `IBL-MtM compare`
+  4. `Neuroformer 250ms formal eval-only`
+  5. `Neuroformer 150ms/50ms reference_e3`
+  6. `Neuroformer compare`
+
+### 9.4 下一步固定安排
 
 1. 先提交本轮 runner / compare / review 文档改动，形成一个可回滚的中间节点。
 2. 启动 IBL-MtM 两组 full-data `250ms e10`：
