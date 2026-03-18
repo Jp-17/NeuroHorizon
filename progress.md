@@ -1761,3 +1761,25 @@
   通过统一改写成 legacy internal reference，并把正式结论全部回收到 faithful 250ms gate
 - 1.3.7 的统一标准容易被误读成训练和评估都必须与 NeuroHorizon 完全同构  
   在新审计中明确区分：统一的是 split / continuous eval semantics / main metric，不是强制统一上游训练语义
+
+2026-03-19 02:02 CST
+
+针对 cc_todo/20260318-review/20260318-benchmark-faithful-audit-detail_codex.md 进行了定点补充解释，重点收紧并展开了 IBL-MtM 与 Neuroformer 的 faithful 审计表述。
+
+1. 更新 cc_todo/20260318-review/20260318-benchmark-faithful-audit-detail_codex.md：
+   - 展开解释 IBL-MtM 中“metadata 生态比 tensor shape 更重要”的原因
+   - 明确当前 Perich-Miller 上 combined mask 实际退化为 neuron + causal，以及这与 canonical forward prediction 的关系
+   - 修正 Neuroformer true_past 的表述，改为“语义已接通，但 faithful bridge 没有直接复用上游 simulation 脚本”
+   - 展开说明 token-level generation 与 count-based fp-bps / PSTH 指标之间为何不是无损等价
+   - 新增 full-data dual-mode held-out generation runtime 成本来源分析
+
+**执行结果**：
+- review 文档现在已经能更严格地区分训练语义原生与评估语义统一
+- IBL-MtM 的当前限制被明确收口为 metadata 生态不完整，而不再笼统写成 region 缺失
+- Neuroformer 的当前限制被明确收口为 runtime / benchmark bridge 成本，而不再误写成 true_past 尚未真正接通
+
+**遇到的问题与解决**：
+- 原文中对 Neuroformer true_past 的描述与当前 faithful_neuroformer.py 实现不完全一致  
+  通过复查 true_past / rollout 两条 held-out 代码路径后，将文档改写为“语义已接通、实现为 benchmark bridge 而非直接调用上游 simulation”
+- IBL-MtM 的 metadata 缺口容易被误解为只有 region 一项  
+  通过补充 session identity、eid 语义、region-conditioned task family 三层解释，收紧为更准确的 fidelity 判断
