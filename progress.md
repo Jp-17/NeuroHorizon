@@ -1729,3 +1729,35 @@
 **遇到的问题与解决**：
 - 需要保留 trial-aligned 与其他指标的价值，但又不能让它们在文字上与默认协议并列  
   已改成“按需启用的可选补充口径”，并把默认主线收紧为 continuous + 主 `fp-bps`
+
+
+## 2026-03-18 18:35
+
+**任务**：补做 1.8 faithful benchmark 详细审计，并同步清理 plan.md / results.md / 20260312-phase1-1.8-benchmark.md 中仍残留的旧 benchmark 强结论
+
+**完成内容**：
+1. 新增详细审计文档：
+   - cc_todo/20260318-review/20260318-benchmark-faithful-audit-detail_codex.md
+2. 新增本次任务记录：
+   - cc_todo/phase1-autoregressive/20260318-phase1-1.8-faithful-audit-detail.md
+3. 更新 cc_core_files/plan.md：
+   - 收紧 1.8 的实验目的和核心标准
+   - 在 1.3.4 中把 benchmark 对比回收到 legacy protocol-fix internal reference，不再写成正式公平 benchmark
+4. 更新 cc_core_files/results.md：
+   - 将旧 1.8 benchmark 主结果改写为 legacy simplified baselines 的内部参考
+   - 将 1.3.4 与 benchmark 的对照改写为 internal reference，而不是正式 benchmark 结论
+   - 收紧 1.4 / 1.5 中引用 benchmark 列的解释强度
+5. 更新 cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md：
+   - 明确 2026-03-12 的 Part A-C 仅保留为 legacy 历史记录
+   - 追加 detailed faithful 审计索引和当前优先级
+
+**执行结果**：
+- 当前 1.8 的文档叙事已经统一收口到三条线：legacy simplified baselines、protocol-fix internal reference、faithful 250ms gate
+- 文档中不再继续把旧 simplified baseline 写成 “Neuroformer 是最强竞争者” 或 “NeuroHorizon 已正式优于 benchmark” 这类强结论
+- 对 IBL-MtM / Neuroformer 的当前判断已经收口为：理论可做、桥接已通，但 formal benchmark 尚未完成
+
+**遇到的问题与解决**：
+- plan.md 与 results.md 中旧 benchmark 结论和后面的 faithful gate 状态互相冲突  
+  通过统一改写成 legacy internal reference，并把正式结论全部回收到 faithful 250ms gate
+- 1.3.7 的统一标准容易被误读成训练和评估都必须与 NeuroHorizon 完全同构  
+  在新审计中明确区分：统一的是 split / continuous eval semantics / main metric，不是强制统一上游训练语义

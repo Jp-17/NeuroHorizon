@@ -341,18 +341,26 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - [x] 分析：连续 vs trial-aligned 训练效果差异
 - [x] 分析：`per_neuron_psth_r2` 在不同预测窗口下的表现
 
-**Benchmark 对比分析**（引用 1.8.3 结果，条件完全一致：10 sessions、500ms obs_window、连续训练、同一数据划分）：
+**Legacy internal reference（protocol-fix legacy simplified baselines，非正式 benchmark）**：
 
-| 模型 | 250ms fp-bps | 500ms fp-bps | 1000ms fp-bps | 参数量 |
-|------|-------------|-------------|--------------|--------|
-| **NeuroHorizon** | **0.2115** | **0.1744** | **0.1317** | ~2.1M |
-| Neuroformer | 0.1856 | 0.1583 | 0.1210 | ~4.9M |
-| IBL-MtM | 0.1749 | 0.1531 | 0.1001 | ~10.7M |
-| NDT2 | 0.1691 | 0.1502 | 0.1079 | ~4.8M |
+> 说明：
+> - 下表仅保留为项目内 legacy simplified baseline 的 protocol-fix held-out internal reference
+> - 它们不是对原始 NDT2 / IBL-MtM / Neuroformer 的正式 faithful benchmark
+> - 当前正式 benchmark 状态以 1.8.3 的 faithful 250ms gate 为准
 
-NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer, +21% vs IBL-MtM, +25% vs NDT2），且参数量最小。
+| 模型 | 250ms test fp-bps | 500ms test fp-bps | 1000ms test fp-bps | 备注 |
+|------|-------------------|-------------------|--------------------|------|
+| **NeuroHorizon evalfix** | **0.2223** | **0.1740** | **0.1348** | phase1_v2_evalfix continuous held-out test |
+| Legacy Neuroformer-like | 0.1968 | 0.1579 | 0.1004 | protocol-fix held-out test |
+| Legacy IBL-MtM-like | 0.1859 | 0.1505 | 0.0869 | protocol-fix held-out test |
+| Legacy NDT2-like | 0.1791 | 0.1397 | 0.0989 | protocol-fix held-out test |
 
-- [x] Benchmark 对比分析（直接引用 1.8.3 结果，无需重训）
+**当前可保留的内部结论**：
+1. 在 protocol-fix legacy internal reference 上，NeuroHorizon 的 held-out continuous fp-bps 仍然更高。
+2. 这只能说明 NeuroHorizon 优于项目内简化 baseline，不构成对原始 benchmark 模型的正式公平比较。
+3. 当前 1.8 正式 benchmark 叙事必须回到 faithful 250ms gate：NDT2 只保留现状，IBL-MtM 继续 short formal run，Neuroformer 先解 runtime blocker。
+
+- [x] Legacy internal reference 整理（非正式 benchmark）
 
 #### 1.3.5 [x] IBL-MtM 风格 bps 对照指标（`ibl_mtm_bps`）
 > 依赖：`cc_todo/20260316-review/QA_codex.md` §1.8（尤其 §3.3）
@@ -614,12 +622,21 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 > 记录：`cc_todo/phase1-autoregressive/{date}-phase1-1.8-benchmark.md`
 
 **实验目的**：
-构建统一的多模型 benchmark，将 NDT2、Neuroformer、IBL-MtM 等对比模型适配到 torch_brain 的统一数据层和评估框架下，在与 NeuroHorizon 完全相同的数据划分和评估条件下进行长时程 forward prediction 对比实验，建立公平的 baseline。
+构建 1.8 的 benchmark 工作流，但要明确区分两件事：
+
+1. legacy simplified baselines 的内部参考价值
+2. original NDT2 / IBL-MtM / Neuroformer 的 faithful reproduction 是否真的成立
+
+当前正式目标不再是直接宣称公平 benchmark 已完成，而是：
+
+- 统一数据源、split、continuous held-out eval 和主指标
+- 尽量保留上游模型的输入契约、训练目标和推理程序
+- 用 250ms gate 先判断 faithful runner 在当前 Perich-Miller forward prediction setting 下到底是 objective mismatch、metadata mismatch、runtime mismatch，还是模型本身确实不适合
 
 **核心标准**：
-1. **统一数据层**：所有模型共用 torch_brain 提供的数据集接口（`get_sampling_intervals(split)` 获取 train/valid/test 划分、HDF5 spike events `spikes.timestamps + spikes.unit_index`、行为数据 `hand.vel/hand.pos`、unit metadata），通过薄适配层（约100–150行/模型）转换为各模型原生输入格式
-2. **统一评估指标**：所有模型在完全相同的 test intervals 上，用统一实现的 Poisson NLL、fp-bps（`torch_brain/utils/neurohorizon_metrics.py::fp_bps`）、PSTH-R²（`neurohorizon_metrics.py::psth_r2`）、R²（`neurohorizon_metrics.py::r2_score`）进行评估
-3. **不改造模型内部 pipeline**：各模型的 model architecture / training loop / inference code 保持原样，仅在数据输入和评估输出层做适配
+1. **统一 split 与连续评估语义**：所有模型共用 torch_brain 的 train / valid / test 来源；正式 continuous valid/test 必须对齐 deterministic canonical coverage。faithful runner 若不直接调用 SequentialFixedWindowSampler，也必须在语义上等价，并显式写明差异
+2. **统一主指标**：benchmark 主结果默认只认 global spike-weighted fp-bps + train-split raw-event null 的 held-out test；ibl_mtm_bps 仅作 comparison metric，per_neuron_psth_r2 仅作 trial-aligned 补充分析
+3. **训练语义尽量保留上游**：各模型的 architecture / training loop / inference code 应尽量保持原样；允许只在数据桥接、canonical windows 与统一评估接口上做兼容层，不再把项目内重写 wrapper 称作正式 benchmark
 
 **优先实现的对比模型**：
 
@@ -708,7 +725,7 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 > 依赖：1.8.2 完成（环境就绪），1.3.4 完成（NeuroHorizon baseline 结果）
 > 旧产出（legacy）：各模型简化 adapter（`neural_benchmark/adapters/`）、旧结果（`results/logs/phase1_benchmark_*/`）、旧图表（`results/figures/phase1_benchmark/`）
 > 当前产出（protocol-fix）：`neural-benchmark/repro_protocol.py`、`neural-benchmark/benchmark_protocol_repair.py`、`results/logs/phase1_benchmark_protocolfix_*/`、`results/logs/phase1_benchmark_protocolfix_comparison/comparison.md`
-> 记录：`cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`；审计：`cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
+> 记录：`cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`；审计：`cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`；补充审计：`cc_todo/20260318-review/20260318-benchmark-faithful-audit-detail_codex.md`
 
 > **状态说明**：
 > - 2026-03-12 的“完成”记录已被审计降级为 **legacy simplified baselines**，不再视为正式 benchmark 完成态
