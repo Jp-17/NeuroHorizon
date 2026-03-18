@@ -470,19 +470,23 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 - 数据划分默认沿用 dataset config 的 `train / valid / test`
 - continuous 训练默认使用 `RandomFixedWindowSampler`
 - continuous valid/test 默认使用 `SequentialFixedWindowSampler`
-- trial-aligned 训练默认使用 `TrialAlignedSampler(shuffle=True)`；valid/test 默认使用 `TrialAlignedSampler(shuffle=False)`
+- 默认实验协议使用 continuous；trial-aligned 仅在需要做 hold/reach 对齐分析或 trial-averaged 对照时按需启用，不作为默认设置
 - 代码位置：`examples/neurohorizon/train.py`；离线正式评估入口：`scripts/analysis/neurohorizon/eval_phase1_v2.py`
 
 **默认指标与聚合协议**：
 - 主指标：`global spike-weighted fp-bps + train-split null`
-- continuous 辅助指标：全局累计 `R-squared`
-- 对照指标：`ibl_mtm_bps`（per-neuron mean + eval-split null），仅作为 comparison metric，不替代主 `fp-bps`
-- trial 主指标：`per_neuron_psth_r2`；旧 `population-mean PSTH-R²` 仅作历史对照
+- 默认正式结果只使用主 `fp-bps`；`R-squared`、`ibl_mtm_bps`、`per_neuron_psth_r2` 均为按需启用的可选补充指标，默认不写入主结论
+- `ibl_mtm_bps` 仅在需要做 IBL-MtM 风格 comparison 时启用；`per_neuron_psth_r2` 仅在 trial-aligned 分析中启用
+- `per-bin fp-bps` 可在比较 long-horizon prediction decay 时启用：
+  - 通过 `fp_bps_per_bin_stats()` 先按 bin 分别累计 `nll_model / nll_null / spikes`
+  - 再用 `finalize_fp_bps_per_bin_from_stats()` 得到严格累计版 per-bin 曲线
+  - 训练期 dashboard 的 `val/fp_bps_bin{t}` 是 batch 级日志；正式衰减分析默认引用 `eval_phase1_v2.py` 的离线累计结果
+  - 简要实现说明参考 `cc_todo/20260316-review/QA_codex.md` Q1 的 `1.3 time` 与 `1.4 batch`
 - 代码位置：`torch_brain/utils/neurohorizon_metrics.py` 与 `scripts/analysis/neurohorizon/eval_phase1_v2.py`
 
 **报告与解释规则**：
 - continuous 正式表格与曲线默认引用离线 `eval_v2_{valid,test}_results.json`
-- per-bin `fp-bps` 的正式口径以离线累计结果为准；训练期 logger 只做监控，不直接作为正式结论来源
+- 非主指标若启用，必须在对应结果或文档中显式注明其用途是 comparison / diagnosis，而不是替代主 `fp-bps`
 - 对 baseline_v2（`query_aug + feedback=none`）可保留 `TF ≡ rollout` 说明；该说明不外推到 `1.9+` 显式 feedback 变体，也不自动外推到 `1.8.x` faithful runner
 
 **与现有任务的一致性**：
@@ -491,7 +495,7 @@ NeuroHorizon 在所有预测窗口上 fp-bps 最优（250ms: +14% vs Neuroformer
 - 因此后续 NeuroHorizon 结果若未特别声明，默认引用本节标准；与 external benchmark 协议不一致处必须单列说明
 
 - [x] 数据划分、dataloader 与 sampler 默认协议已固定
-- [x] 主指标 / 对照指标 / trial 指标默认口径已固定
+- [x] 主指标与可选补充指标的默认使用边界已固定
 - [x] `1.3.5` 与 `1.3.6` 是否符合该标准已明确写清
 
 ### 1.4 [x] 观察窗口长度实验

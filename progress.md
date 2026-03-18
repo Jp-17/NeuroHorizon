@@ -1702,3 +1702,30 @@
   直接按已经落地的事实项写回 `plan.md`，不沿用建议编号，避免之后再出现“建议 2 / 建议 3”与正文编号不一致的问题
 - 需要让 `1.8.x` benchmark 对比可以引用这套标准，但不能误写成 faithful baseline 已完全统一到 NeuroHorizon 协议  
   在 `1.3.7` 中明确写成“NeuroHorizon 结果默认遵循本标准；external benchmark 若协议不同，必须单列说明”
+
+## 2026-03-18 17:29
+
+**任务**：继续调整 `plan.md` 的 `1.3.7`，将默认协议进一步收紧为“continuous + 主 `fp-bps`”，并补充 `per-bin fp-bps` 在长时程 decay 分析中的定位与实现摘要
+
+**完成内容**：
+1. 修改 `1.3.7` 的“默认数据与 dataloader 协议”：
+   - continuous 保留为默认实验协议
+   - trial-aligned 改成仅在 hold/reach 对齐分析时按需启用，不再写成默认流程
+2. 修改 `1.3.7` 的“默认指标与聚合协议”：
+   - 默认正式结果只使用主 `global spike-weighted fp-bps + train-split null`
+   - `R-squared`、`ibl_mtm_bps`、`per_neuron_psth_r2` 改为按需启用的可选补充指标
+3. 在 `1.3.7` 中补充 `per-bin fp-bps`：
+   - 明确其主要用途是 long-horizon prediction decay 比较
+   - 简要写明其实现依赖 `fp_bps_per_bin_stats()` 与 `finalize_fp_bps_per_bin_from_stats()` 的逐 bin 严格累计
+   - 说明正式曲线默认引用 `eval_phase1_v2.py` 的离线累计结果，而不是训练期 batch 级 logger
+4. 同步更新任务记录：
+   - `cc_todo/phase1-autoregressive/20260318-phase1-1.2.5-1.3.7-plan-standard.md`
+
+**执行结果**：
+- `1.3.7` 现在已经更明确地区分默认协议与可选分析协议
+- 以后未特别说明的 NeuroHorizon 实验，默认理解为 continuous + 主 `fp-bps`
+- `per-bin fp-bps` 被保留为长时程衰减分析工具，而不是默认主榜单指标
+
+**遇到的问题与解决**：
+- 需要保留 trial-aligned 与其他指标的价值，但又不能让它们在文字上与默认协议并列  
+  已改成“按需启用的可选补充口径”，并把默认主线收紧为 continuous + 主 `fp-bps`
