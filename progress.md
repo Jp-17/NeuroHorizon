@@ -1638,3 +1638,38 @@
 
 **遇到的问题与解决**：
 - non-causal 三组重跑总时长较长，因此先做了中间提交 `a622359` / `3a87d7f`，再后台启动训练和对比脚本，完成后回填正式文档与结果
+
+## 2026-03-18 12:44
+
+**任务**：补强 1.8.3 三条 faithful 复现线的审计与执行文档，系统整理当前困难、关键适配设计、工程妥协、负结果原因分层，以及后续 250ms gate 优先的复现安排
+
+**完成内容**：
+1. 在 `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md` 新增：
+   - 三模型各自的关键适配设计 / 主要困难 / 当前妥协 / 对指标的可能影响
+   - 当前负结果原因的四层整理：已修掉实现 bug、fidelity/compatibility mismatch、benchmark-objective mismatch、工程 runtime blocker
+   - 250ms gate-first 的后续复现安排与扩窗规则
+2. 在 `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md` 新增：
+   - 当前困难、关键适配设计与妥协总结
+   - 当前负结果原因分层与后续任务重排
+3. 同步更新：
+   - `cc_core_files/results.md`
+   - `cc_core_files/scripts.md`
+   - `cc_core_files/plan.md`
+   使结果页、脚本页与计划页都收口到同一结论：
+   - NDT2：实现已打通，但更像 objective mismatch
+   - IBL-MtM：训练语义已修正，250ms full-data `multimask_e1` 仍显著为负
+   - Neuroformer：双模式语义已对齐，但 250ms formal full-data dual-mode eval 仍被 runtime blocker 卡住
+
+**关键判断**：
+1. 当前三个 faithful runner 的主要问题已不再是“是不是还在用 simplified wrapper”，而是“faithful 后是否仍适合当前 canonical benchmark”
+2. NDT2 / IBL-MtM / Neuroformer 的负结果不应再混成一个问题：  
+   - NDT2 更像 objective mismatch  
+   - IBL-MtM 需要区分 training underfit 与 benchmark mismatch  
+   - Neuroformer 先有明确的 runtime blocker
+3. `500ms / 1000ms` 现在不应被继续默认排队；必须先以各自 `250ms` gate 为前提逐模型放行
+
+**遇到的问题与解决**：
+- 现有文档里已有多轮 debug、protocol-fix、faithful bridge 与 strict review 记录，信息容易重复甚至口径冲突  
+  这次改成了“审计页负责批判性归因、执行页负责阶段状态、结果页和计划页只保留 gate 结论”的分工，避免后续继续漂移
+- 三模型当前问题性质不同，如果只写“结果不好”会导致后续任务仍旧被排成同一种长窗口重跑  
+  已明确拆成 objective mismatch、partial fidelity compromise 和 runtime blocker 三类，并据此重排后续任务

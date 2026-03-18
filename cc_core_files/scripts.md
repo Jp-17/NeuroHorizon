@@ -1032,7 +1032,14 @@
   ```
 - **输出**：`results/logs/phase1_benchmark_repro_faithful_ndt2_*`（`results.json`, `best_model.pt`, `last_model.pt`）
 - **依赖**：benchmark-env conda 环境，`neural_benchmark/repro_protocol.py`
-- **备注**：当前结果表明 faithful NDT2 在修正后的 canonical protocol 上仍显著为负，1.8.3 尚未完成
+- **关键适配设计**：
+  - canonical windows -> per-session variable-length flat token
+  - 训练继续保留 upstream `BrainBertInterface + ShuffleInfill`
+  - one-step fp 只在 held-out eval 端读取，不改写训练目标
+- **当前妥协**：
+  - 通过 compatibility bridge 驱动上游核心模型，而不是直接复用上游原生 task pipeline
+  - 不强求 train dataloader / sampler 与 NeuroHorizon 完全同构，只统一数据源 / split / eval / metric
+- **备注**：当前结果表明 faithful NDT2 在修正后的 canonical protocol 上仍显著为负，现阶段更像 objective mismatch，而不是残余实现 bug
 
 
 ### faithful_ibl_mtm.py（1.8.3 IBL-MtM faithful bridge）
@@ -1053,7 +1060,16 @@
   /root/miniconda3/bin/conda run -n benchmark-env     python neural-benchmark/faithful_ibl_mtm.py     --mode train --pred-window 0.25 --epochs 1 --batch-size 8     --output-dir results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_multimask_e1
   ```
 - **输出**：`results/logs/phase1_benchmark_repro_faithful_ibl_mtm_*`（`results.json`, `best_model.pt`, `last_model.pt`）
-- **备注**：当前已完成 smoke、limited-window debug e1 和 full-data 250ms multimask e1，结果仍显著为负
+- **关键适配设计**：
+  - canonical windows -> `NDT1` tensor contract
+  - 训练端恢复 upstream `ssl` multi-mask；held-out eval 单独做 one-step `forward_pred`
+  - session-pure batching 保持 `eid / session prompting` 语义
+- **当前妥协**：
+  - Perich-Miller 无 region annotation，`combined` 实际退化为 `neuron + causal`
+  - 为保住 prompting fidelity，牺牲了跨 session 混合训练分布
+- **当前 blocker / 风险**：
+  - 当前已完成 smoke、limited-window debug e1 和 full-data 250ms multimask e1，结果仍显著为负
+  - 下一步不是直接扩长窗口，而是先区分“训练轮数不足”还是“benchmark mismatch”
 
 ### faithful_neuroformer.py（1.8.3 Neuroformer faithful bridge）
 
@@ -1075,4 +1091,14 @@
   /root/miniconda3/bin/conda run -n benchmark-env     python neural-benchmark/faithful_neuroformer.py     --mode train --pred-window 0.25 --epochs 1 --batch-size 16 --max-generate-steps 192     --output-dir results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_dualmode_e1_g192
   ```
 - **输出**：`results/logs/phase1_benchmark_repro_faithful_neuroformer_*`（`results.json`, `best_model.pt`, `last_model.pt`）
-- **备注**：当前 dual-mode smoke 已稳定；250ms formal full-data dual-mode eval 仍被运行成本卡住
+- **关键适配设计**：
+  - raw spike events -> `ID / dt` token streams
+  - 保留 causal teacher forcing 与 autoregressive generation
+  - 同时输出 `rollout(true_past=False)` 与 `true_past=True`，再统一 re-bin 到 `20ms` counts
+- **当前妥协**：
+  - 显式关闭视觉 / 行为分支，只保留 neural generation 主体
+  - `true_past` 通过 teacher-forced 输出解码近似 oracle-history 语义
+  - 当前用 `max_generate_steps=192` 作为 250ms formal eval 的可执行性上限
+- **当前 blocker / 风险**：
+  - dual-mode smoke 已稳定，但 250ms formal full-data dual-mode eval 仍被运行成本卡住
+  - 当前最大问题是 formal eval 可执行性，而不是继续盲目扩 500ms / 1000ms
