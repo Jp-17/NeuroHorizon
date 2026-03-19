@@ -2143,3 +2143,36 @@
 **说明与判断**：
 - 当前本地克隆的 Neuroformer 上游 README / trainer 代码显示其原生训练器按 holdout loss 保存 best checkpoint，未见按 `fp-bps` 或 `true_past` 选 ckpt 的固定说明
 - 在当前 held-out forward prediction benchmark 目标下，继续采用 `valid rollout fp-bps` 作为 Neuroformer 的 checkpoint selection 更合理；`true_past` 保持为 oracle-history 诊断指标
+
+## 2026-03-20 04:38 CST - 1.8 benchmark canonical formal eval完成并继续跟踪150/50
+
+**完成事项**：
+1. 按 `1.8.3` 新规范继续跟踪当前 benchmark 长跑
+   - 以 `best ckpt -> formal valid/test` 作为 Neuroformer canonical 的正式结果口径
+   - 确认 formal eval 已设置 `skip_trial_eval = true`，不再输出 `test trial-aligned`
+2. 更新 benchmark 跟踪文档
+   - `cc_todo/1.8-benchmark_model/benchmark_index.md`：回填 canonical `500/250` 训练完成、formal eval 完成、可视化已落盘，以及 `150/50` 已启动训练
+   - `cc_todo/1.8-benchmark_model/20260319_benchmark_aligned_runs.md`：补 canonical 的 best epoch、formal valid/test rollout/true_past 指标、R²、耗时、token truncation、可视化索引和当前判断
+3. 继续跟踪 `Neuroformer 150/50 reference e50 aligned`
+   - 当前训练已启动，但目录下尚未产出首个 `last_model.pt / results.json`
+   - 后续将继续按 `1.8.3` 规范跟踪训练曲线、配置时间轴图和 formal eval
+
+**当前关键结果**：
+- `Neuroformer canonical 500/250 e50 aligned`
+  - best epoch：`42`
+  - formal valid rollout / true_past `fp-bps`：`-7.9923 / -8.5479`
+  - formal test rollout / true_past `fp-bps`：`-8.0350 / -8.5701`
+  - formal valid rollout / true_past `R²`：`-1.5235 / -2.5433`
+  - formal test rollout / true_past `R²`：`-1.5898 / -2.5650`
+  - test token truncation：`prev=0.0`, `curr=0.0`
+- 训练相关可视化已经落盘：
+  - `train_loss_curve.png`
+  - `valid_fp_bps_curve.png`
+  - `valid_r2_curve.png`
+  - `lr_curve.png`
+  - `training_config_timeline.png`
+
+**当前判断**：
+- canonical `500/250` 在 `best ckpt + formal valid/test` 口径下仍显著为负，且 `true_past` 没有优于 rollout
+- 当前更支持 `from-scratch + token/count mismatch + session conditioning不足` 是 Neuroformer faithful 线的主因，而不是单纯的 exposure accumulation
+- 下一步优先继续跟踪 `150/50` short-window reference，看短窗口是否能显著缓解负值，并在结果生成后继续回填 benchmark 文档

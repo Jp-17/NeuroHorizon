@@ -66,8 +66,13 @@
 - `Neuroformer 150/50 reference`
 - `NDT2` 当前只保留现状记录，不继续扩展
 
-## 当前状态（2026-03-20）
+## 当前状态（2026-03-20 04:38 CST）
 
 - `IBL-MtM combined_e50_aligned` 已完成，test `fp-bps = 0.1345`，相较 `combined_e10` 已从 near-zero 提升为明确正值
-- `Neuroformer canonical 500/250 e50 aligned` 正在执行，当前仍处于训练阶段
-- `Neuroformer 150/50 reference` 尚未开始，等待 canonical run 完成后继续
+- `Neuroformer canonical 500/250 e50 aligned` 已完成训练与 formal eval
+  - best epoch = `42`
+  - formal valid/test rollout `fp-bps = -7.9923 / -8.0350`
+  - formal valid/test true_past `fp-bps = -8.5479 / -8.5701`
+  - `skip_trial_eval = true`，formal eval 已按 `1.8.3` 新协议不再输出 `test trial-aligned`
+  - 训练曲线和配置时间轴图已落盘：`train_loss_curve.png / valid_fp_bps_curve.png / valid_r2_curve.png / lr_curve.png / training_config_timeline.png`
+- `Neuroformer 150/50 reference` 已启动训练，但尚未产出首个 checkpoint / results.json

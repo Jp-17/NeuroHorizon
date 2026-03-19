@@ -115,21 +115,38 @@ python neural-benchmark/faithful_neuroformer.py \
   --inference-mode both
 ```
 
-**当前进度**（2026-03-20 02:35 CST）：
-- 当前仍在训练中
-- 运行进程：`faithful_neuroformer.py --mode train --obs-window 0.5 --pred-window 0.25 --epochs 50`
-- 当前 checkpoint：`results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_canonical_e50_aligned/last_model.pt`
-- 最近一次 checkpoint 更新时间：`2026-03-20 02:35:02 +0800`
-- formal eval 尚未开始
-- 正式结果协议：训练结束后使用 `best_model.pt` 重新计算 `valid / test` continuous `rollout / true_past`；自本次协议修订起，不再要求 `test trial-aligned`
+**当前结果**（2026-03-20 04:38 CST）：
+- 训练已完成，formal eval 已完成
+- best epoch：`42`
+- 训练 loss：最终 epoch `train_loss = 1.5963`
+- 最佳 val `fp-bps`：`-7.9923`（selection metric = valid rollout fp-bps）
+- formal valid rollout / true_past `fp-bps`：`-7.9923 / -8.5479`
+- formal test rollout / true_past `fp-bps`：`-8.0350 / -8.5701`
+- formal valid rollout / true_past `R²`：`-1.5235 / -2.5433`
+- formal test rollout / true_past `R²`：`-1.5898 / -2.5650`
+- formal eval 耗时：
+  - valid rollout / true_past：`627.5s / 36.4s`
+  - test rollout / true_past：`1252.2s / 72.4s`
+- checkpoint：
+  - best：`results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_canonical_e50_aligned/best_model.pt`
+  - last：`results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_canonical_e50_aligned/last_model.pt`
+- token stats（test）：
+  - `prev_truncation_rate = 0.0`
+  - `curr_truncation_rate = 0.0`
+- formal eval 已按新协议执行：`skip_trial_eval = true`，不再输出 `test trial-aligned`
 
-**待回填结果**：
-- 训练 loss
-- 最佳 val `fp-bps`
-- test `fp-bps`
-- `rollout / true_past`
-- token stats
-- training curves 与 `training_config_timeline.png`
+**可视化**：
+- `results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_canonical_e50_aligned/train_loss_curve.png`
+- `results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_canonical_e50_aligned/valid_fp_bps_curve.png`
+- `results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_canonical_e50_aligned/valid_r2_curve.png`
+- `results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_canonical_e50_aligned/lr_curve.png`
+- `results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_canonical_e50_aligned/training_config_timeline.png`
+- formal eval：`results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_canonical_e50_aligned/formal_eval/eval_results.json`
+
+**与 baseline / 当前判断**：
+- canonical `500/250` aligned 长跑在 `best ckpt + formal valid/test` 口径下仍显著为负，且 `true_past` 没有优于 rollout
+- 这说明当前瓶颈不是单纯的 exposure accumulation；`from-scratch + token/count mismatch + session conditioning不足` 仍然是更可信的主因
+- 当前已完成训练曲线与配置时间轴图，满足 `1.8.3` 对可视化产物的最小要求
 
 ## 3. Neuroformer 150/50 reference e50 aligned
 
@@ -170,20 +187,20 @@ python neural-benchmark/faithful_neuroformer.py \
   --eval-split both \
   --inference-mode both
 ```
-- 当前状态：尚未开始；等待 canonical `500/250` run 完成后执行
+- 当前状态（2026-03-20 04:38 CST）：已启动训练，但目录下尚未产出 `last_model.pt / results.json`
 - 正式 eval：必须同时记录 `rollout / true_past`
 
 ## 当前结论
 
 1. `IBL-MtM combined_e50_aligned` 已经从 near-zero 提升为正值，是当前 1.8 benchmark 里最值得继续推进的一条 faithful benchmark 路线。
-2. `Neuroformer canonical e50 aligned` 仍在训练中，因此当前还不能对 aligned 长跑是否有效下结论。
-3. `Neuroformer 150/50` 仍作为 reference sanity experiment 保留，但不替代 canonical benchmark。
+2. `Neuroformer canonical e50 aligned` 在 `best ckpt + formal valid/test` 口径下依然明显失败，目前还不能支持其作为可竞争 benchmark。
+3. `Neuroformer 150/50` 仍作为 reference sanity experiment 保留；其价值在于判断短窗口是否显著缓解当前负值问题。
 
 ## 后续安排
 
-1. 等待 `Neuroformer canonical 500/250 e50 aligned` 训练完成，补 formal eval（`rollout / true_past`）和训练曲线。
-2. canonical 完成后继续执行 `Neuroformer 150/50 reference e50 aligned`。
-3. 全部完成后，将 aligned 长跑结果继续回填到：
+1. 继续跟踪 `Neuroformer 150/50 reference e50 aligned`，等待首个 checkpoint、results.json 和训练曲线生成。
+2. `150/50` 完成后执行 formal eval（`rollout / true_past`，不跑 `test trial-aligned`）。
+3. reference run 完成后，将 aligned 长跑结果继续回填到：
    - `cc_todo/1.8-benchmark_model/benchmark_index.md`
    - `cc_todo/1.8-benchmark_model/20260312_benchmark_main_task_log.md`
    - `cc_todo/1.8-benchmark_model/20260318_benchmark_faithful_audit_detail_codex.md`
