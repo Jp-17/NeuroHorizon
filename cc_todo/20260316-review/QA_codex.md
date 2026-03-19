@@ -36,7 +36,7 @@
 - `neural-benchmark/benchmark_models/ibl-mtm/src/utils/eval_utils.py`
 - `cc_core_files/plan.md`
 - `cc_core_files/results.md`
-- `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`
+- `cc_todo/1.8-benchmark_model/20260316_benchmark_legacy_audit_codex.md`
 
 ### 官方来源
 
@@ -718,7 +718,7 @@ Neuroformer 原始 repo 的训练 / 推理范式可以概括为：
 3. 必须保留它的 autoregressive generation；
 4. 最后再把生成的 spike events re-bin 回统一 fp-bps 口径。
 
-这也正是 `1.8.3-benchmark-audit_codex.md` 里已经指出的问题：  
+这也正是 `20260316_benchmark_legacy_audit_codex.md` 里已经指出的问题：  
 当前仓库中的 `neural-benchmark/adapters/neuroformer_adapter.py` 只是一个 **simplified Neuroformer-like causal transformer**，并不是原始 Neuroformer。
 
 ---
@@ -977,7 +977,7 @@ repo 里的 NDT1 主体是：
 - `nn.TransformerEncoder`
 - 线性 head
 
-这在 `1.8.3-benchmark-audit_codex.md` 里已经被定性为：
+这在 `20260316_benchmark_legacy_audit_codex.md` 里已经被定性为：
 
 > **legacy simplified baseline**
 

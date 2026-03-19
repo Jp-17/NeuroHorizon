@@ -1,3 +1,8 @@
+# 20260312 Benchmark Main Task Log
+
+> 总入口：`cc_todo/1.8-benchmark_model/benchmark_index.md`
+> 本文档定位：1.8 benchmark 主任务流水记录
+
 # Phase 1.8: Benchmark 对比实验记录
 
 > **日期**：2026-03-12
@@ -268,7 +273,7 @@
 ### 本次完成内容
 
 1. **整合审计结论**  
-   结合 `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md` 原审计与其末尾 Claude 补充，确认旧 1.8.3 的主要问题是：
+   结合 `cc_todo/1.8-benchmark_model/20260316_benchmark_legacy_audit_codex.md` 原审计与其末尾 Claude 补充，确认旧 1.8.3 的主要问题是：
    - 旧 adapter 不是原始 benchmark 模型的忠实适配
    - 旧结果本质上是 validation model-selection 数字
    - 与 NeuroHorizon 不共享完全一致的 sampler / held-out test / PSTH 链路
@@ -845,7 +850,7 @@ cd /root/autodl-tmp/NeuroHorizon
 
 #### 4.17 详细 faithful 审计补充索引（2026-03-18）
 
-1. 详细审计文档：cc_todo/20260318-review/20260318-benchmark-faithful-audit-detail_codex.md
+1. 详细审计文档：cc_todo/1.8-benchmark_model/20260318_benchmark_faithful_audit_detail_codex.md
 2. 当前统一说法：
    - legacy simplified baseline 只保留为 internal reference
    - faithful runner 已打通，但 formal benchmark 仍处于 250ms gate

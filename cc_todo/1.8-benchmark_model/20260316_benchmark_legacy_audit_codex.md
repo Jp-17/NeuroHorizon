@@ -21,7 +21,7 @@
 **证据**：
 
 - `plan.md` 将 1.8.3 描述为“各模型适配代码（neural_benchmark/adapters/）”和“模型适配与对比实验”，并明确写成 benchmark 对比，`cc_core_files/plan.md:531-585`。
-- 任务记录也把这些实现写成 `NDT2Wrapper / IBLMtMWrapper / NeuroformerWrapper`，`cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md:136-152`。
+- 任务记录也把这些实现写成 `NDT2Wrapper / IBLMtMWrapper / NeuroformerWrapper`，`cc_todo/1.8-benchmark_model/20260312_benchmark_main_task_log.md:136-152`。
 - 但真实代码里：
   - `neural_benchmark/adapters/ndt2_adapter.py:22-27` 明确写着 `Simplified NDT2 model wrapper`，并说明 “Instead of using the full BrainBertInterface, we build a minimal NDT2-style model”。
   - `neural_benchmark/adapters/ibl_mtm_adapter.py:17-29` 实际是一个项目内手写的 `IBLMtMWrapper`，没有调用 IBL-MtM 原始训练/推理栈。
@@ -102,7 +102,7 @@
   - 250ms: 1588
   - 500ms: 1127
   - 1000ms: 655
-  见 `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md:118-122`
+  见 `cc_todo/1.8-benchmark_model/20260312_benchmark_main_task_log.md:118-122`
 - NeuroHorizon `eval_v2_results.json` 中 continuous eval 的 `n_samples` 实际只有：
   - 250ms: 841
   - 500ms: 607
@@ -129,7 +129,7 @@
   - `neural_benchmark/visualize_benchmarks.py:155-168`
   - `neural_benchmark/visualize_benchmarks.py:214-218`
   - radar 图里的 NLL 也取的是最后一次 `history['val_loss'][-1]`，`neural_benchmark/visualize_benchmarks.py:249-253`
-- 但文档里写成了“Best R² 汇总”，`cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md:228-234`，`cc_core_files/results.md:657-663`。
+- 但文档里写成了“Best R² 汇总”，`cc_todo/1.8-benchmark_model/20260312_benchmark_main_task_log.md:228-234`，`cc_core_files/results.md:657-663`。
 
 **数字证据（250ms）**：
 
@@ -200,8 +200,8 @@
 
 有两点需要客观肯定：
 
-1. **你们确实发现并修复了一个真实的数据泄漏问题**：IBL-MtM / Neuroformer 的 future input 未清零会导致异常高分，这个排查是有效的，`cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md:172-176`。
-2. **spike timestamp 相对时间 bug 的修复也是必要的**：这说明这一轮工作并非毫无价值，而是把一个原本不可信的探索 pipeline 往“至少能跑通”推进了一步，`cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md:167-170`。
+1. **你们确实发现并修复了一个真实的数据泄漏问题**：IBL-MtM / Neuroformer 的 future input 未清零会导致异常高分，这个排查是有效的，`cc_todo/1.8-benchmark_model/20260312_benchmark_main_task_log.md:172-176`。
+2. **spike timestamp 相对时间 bug 的修复也是必要的**：这说明这一轮工作并非毫无价值，而是把一个原本不可信的探索 pipeline 往“至少能跑通”推进了一步，`cc_todo/1.8-benchmark_model/20260312_benchmark_main_task_log.md:167-170`。
 
 但这两点只能说明“工程调试有效”，不能自动推出“benchmark 对比成立”。
 

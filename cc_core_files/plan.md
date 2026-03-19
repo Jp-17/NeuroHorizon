@@ -619,7 +619,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 ### 1.8 Benchmark 对比实验：多模型长时程预测 Baseline
 > 依赖：1.3.4 完成（NeuroHorizon baseline 结果），`cc_todo/phase0-env-baseline/20260309-phase0-0.4-benchmark-analysis.md` §0.4.2–§0.4.3
 > 产出：`neural_benchmark/`（目录）、`neural_benchmark/benchmark_model.md`、各模型适配代码与实验结果
-> 记录：`cc_todo/phase1-autoregressive/{date}-phase1-1.8-benchmark.md`
+> 记录：`cc_todo/1.8-benchmark_model/benchmark_index.md`
 
 **实验目的**：
 构建 1.8 的 benchmark 工作流，但要明确区分两件事：
@@ -652,7 +652,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 **参照实验**：1.3.4 v2 实验（6 个条件：3 窗口 × 2 模式，fp-bps/R²/PSTH-R² 指标）
 
-#### 1.8.1 [x] 模型调研与文档整理 <!-- 记录：cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md -->
+#### 1.8.1 [x] 模型调研与文档整理 <!-- 记录：cc_todo/1.8-benchmark_model/20260312_benchmark_main_task_log.md -->
 
 > 依赖：`cc_todo/phase0-env-baseline/20260309-phase0-0.4-benchmark-analysis.md` §0.4.2–§0.4.3
 > 产出：`neural_benchmark/benchmark_model.md`
@@ -683,7 +683,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - [ ] 调研 IBL-MtM 并整理到 benchmark_model.md
 - [ ] 添加备选模型备注（NEDS, STNDT, NDT3）
 
-#### 1.8.2 [x] 环境配置与模型部署 <!-- 记录：cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md -->
+#### 1.8.2 [x] 环境配置与模型部署 <!-- 记录：cc_todo/1.8-benchmark_model/20260312_benchmark_main_task_log.md -->
 
 > 依赖：1.8.1 完成
 > 产出：`neural_benchmark/benchmark_models/` 下各模型代码、`neural_benchmark/envs/` conda 环境
@@ -720,117 +720,57 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - [ ] Clone IBL-MtM + 安装依赖 + 验证
 - [ ] 记录环境配置结果（成功/失败/兼容性问题）
 
-#### 1.8.3 [ ] 模型适配与对比实验（2026-03-17 审查后重开）
+#### 1.8.3 [ ] 模型适配与对比实验（faithful benchmark 持续维护）
 
-> 依赖：1.8.2 完成（环境就绪），1.3.4 完成（NeuroHorizon baseline 结果）
-> 旧产出（legacy）：各模型简化 adapter（`neural_benchmark/adapters/`）、旧结果（`results/logs/phase1_benchmark_*/`）、旧图表（`results/figures/phase1_benchmark/`）
-> 当前产出（protocol-fix）：`neural-benchmark/repro_protocol.py`、`neural-benchmark/benchmark_protocol_repair.py`、`results/logs/phase1_benchmark_protocolfix_*/`、`results/logs/phase1_benchmark_protocolfix_comparison/comparison.md`
-> 记录：`cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`；审计：`cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md`；补充审计：`cc_todo/20260318-review/20260318-benchmark-faithful-audit-detail_codex.md`
+> 依赖：1.8.2 完成（环境就绪），1.3.4 完成（NeuroHorizon baseline 结果），1.3.7（NeuroHorizon 默认数据与指标标准）
+> 总入口：`cc_todo/1.8-benchmark_model/benchmark_index.md`
+> 主任务记录：`cc_todo/1.8-benchmark_model/20260312_benchmark_main_task_log.md`
+> legacy 审计：`cc_todo/1.8-benchmark_model/20260316_benchmark_legacy_audit_codex.md`
+> faithful 审计：`cc_todo/1.8-benchmark_model/20260318_benchmark_faithful_audit_detail_codex.md`
+> faithful 审计执行记录：`cc_todo/1.8-benchmark_model/20260318_benchmark_faithful_audit_task_log.md`
 
-> **状态说明**：
-> - 2026-03-12 的“完成”记录已被审计降级为 **legacy simplified baselines**，不再视为正式 benchmark 完成态
-> - 2026-03-17 已完成 legacy checkpoint 的 **protocol-fix reevaluation**（统一 valid/test continuous + trial-aligned 评估）
-> - 2026-03-17 已完成 **NDT2 faithful bridge smoke**（`neural-benchmark/faithful_ndt2.py`），确认上游 `BrainBertInterface` 已能在 canonical windows 上跑通 loss / predict / metric 链路
-> - 2026-03-17 已完成 **NDT2 faithful runner 全链路扩展**（train / best-valid / held-out test / trial-aligned eval）
-> - 2026-03-17 已完成 **NDT2 faithful 250ms full-data 初步重跑**：修复 `causal=False` fidelity bug 后，20 epoch held-out test `fp-bps = -0.0078`、`PSTH-R² = 0.3833`；虽较错误配置显著提升，但仍明显低于 legacy NDT2-like `0.1791 / 0.6710`
-> - 2026-03-17 已完成 **NDT2 optimizer/scheduler 对齐实验**：直接复用上游 `configure_optimizers()` + `accumulate=16` 的 60 epoch 结果仅 `fp-bps = -0.7156`；缩放 warmup 后仍为 `-0.6779`，说明“完整上游预训练时标直接迁移”在当前 benchmark 上明显欠拟合
-> - 2026-03-17 已完成 **NDT2 variable-length tokenization / padding 修复**：旧 faithful bridge 将所有 session 强行扩成全局 `72-channel` flat tokens，且 `pad_token=20` 会在 `max_spatial_tokens=9` 的 mixed-session batch 上触发 position 越界；修复后 full-data 250ms 重跑得到 `f8align_pad8_e10: -0.6707 / 0.0575` 与 `projectfix_pad8_e10: -0.6570 / -0.5924`，说明此前 `causalfix_e20` 的 near-zero 结果已被 data-path bug 污染，不能再作为主参考
-> - 2026-03-18 已完成 **IBL-MtM faithful bridge smoke + 250ms debug e1**（`neural-benchmark/faithful_ibl_mtm.py`）：上游 `NDT1 + stitching + session prompting` 已能在 canonical windows 上跑通 train / best-valid / held-out test / trial-eval，但 debug 结果仍显著为负（test `fp-bps = -7.4991`）
-> - 2026-03-18 已完成 **IBL-MtM faithful 250ms full-data multimask e1**：训练端已恢复 upstream `ssl` combined multi-mask（当前在 Perich-Miller 上实际采样 `neuron + causal`），held-out test `fp-bps = -2.9547`、trial `fp-bps = -1.9327`；相较旧 debug 明显改善，但仍显著为负
-> - 2026-03-18 已完成 **Neuroformer dual-mode smoke 复核**：`rollout(true_past=False)` 与 `true_past=True` 都已对齐统一 held-out eval；smoke valid `fp-bps = -13.8295 / -10.9855`
-> - 2026-03-18 已确认 **Neuroformer 250ms full-data dual-mode formal eval runtime blocker**：训练后进入 held-out generation，`30 min+` 仍未产出最终 `results.json`；引入数据支持的 `max_generate_steps=192` 后，`13 min+` 仍未到 checkpoint
-> - **faithful reproduction of original NDT2 / IBL-MtM / Neuroformer 仍未完成为正式 benchmark 结果**；当前主线已从“把 pipeline 接通”转为“以 250ms gate 先做原因归因、blocker 解除和短正式训练收口”，因此 500ms / 1000ms 暂不继续
-> - 2026-03-19 已完成 **IBL-MtM 250ms short formal run**：`combined_e10` best valid / test `fp-bps = -0.0026 / -0.0017`，trial `fp-bps = 0.0396`；新增 exact-geometry control `forwardpred_e10` 反而显著更差（test `fp-bps = -1.9843`），说明 train/eval mask geometry mismatch 不是当前主因
-> - 2026-03-19 已完成 **Neuroformer 250ms formal dual-mode eval**：test rollout / true_past `fp-bps = -8.8025 / -9.3982`，formal eval 已可执行；同时 token stats 显示 `prev/curr truncation_rate = 0 / 0`，当前极差结果不能归因于 block size truncation
-> - 2026-03-19 已完成 **Neuroformer 150ms observation + 50ms prediction reference run**：test rollout / true_past `fp-bps = -8.0744 / -8.9540`，较 canonical `500/250` 略有改善但仍显著为负，说明问题不只是 horizon 太长
-> - 因此当前 250ms gate 的最新结论是：`NDT2` 继续暂停；`IBL-MtM` 保留 `combined` 路线并可考虑继续 `e20/e30`；`Neuroformer` 当前不建议进入 500ms / 1000ms 扩展
+**定位**：
+- `1.8.3` 不再把 benchmark 结果写成一段段状态说明，而是作为 benchmark 持续维护规范的入口
+- 所有新的 benchmark 模型实现优化、协议调整、复现实验与结果回填，统一记录到 `cc_todo/1.8-benchmark_model/`
+- benchmark 主协议继续遵守 `1.3.7`：统一 `train/valid/test` 来源、continuous held-out eval 语义、主指标 `fp-bps`、补充 `per-bin fp-bps`；trial-aligned 仅作为补充分析
 
-- [x] 旧 1.8.3 pipeline 审计与 legacy 降级
-- [x] legacy checkpoint 的 protocol-fix valid/test/PSTH 重评估
-- [x] NDT2 faithful runner（smoke → train/held-out test/trial-eval）与 250ms causal-fix 初步重跑
-- [x] IBL-MtM faithful bridge（smoke + 250ms debug e1 + 250ms full-data multimask e1）
-- [x] Neuroformer faithful bridge（smoke + 250ms debug e1 + dual-mode smoke 复核）
-- [ ] 250ms gate 收口（NDT2 原因归因 / IBL 短正式训练 / Neuroformer formal dual-mode eval 可执行）
-- [ ] 500ms faithful 扩展（仅在对应模型通过 250ms gate 后）
-- [ ] 1000ms faithful 扩展（仅在对应模型通过 500ms gate 后）
+**任务记录规范**：
+- 每次新的 benchmark 实现优化任务都固定写入：`cc_todo/1.8-benchmark_model/{date}_{content}.md`
+- 每份任务记录至少必须包含：
+  - 想法描述、动机与目的、相比现有方案的改动点、模型改进实现方案、涉及改动模块、想法摘要
+  - 详细实验配置（数据集、sessions 数、采样方式、obs/pred 窗口）
+  - 关键超参数（至少 `epoch / batch_size / lr / weight_decay`）
+  - 训练 loss 结果、train 期间最佳 val `fp-bps`、test `fp-bps`、test checkpoint 标识/时间
+  - 各条件指标结果（至少 `fp-bps / per-bin fp-bps`）
+  - 与 baseline 的对比
+  - 若模型支持多 inference 模式，必须同时记录 `rollout` 与 `teacher-forced / true_past`
+  - 可视化索引（训练曲线、配置时间轴图、benchmark 对比图）
+  - 当前结论、后续安排
 
-> **当前 250ms gate 策略**：
-> - NDT2：先收口 objective mismatch，不再优先跑长窗口
-> - IBL-MtM：先在 faithful multi-mask 语义下补一版比 `multimask_e1` 更正式的 250ms 训练
-> - Neuroformer：先解决 250ms dual-mode formal eval 的运行成本 blocker
-> - 任一模型在 250ms gate 未过前，不进入自身的 500ms / 1000ms faithful 任务
+**实验执行规范**（复用 `1.9.0 Step 3 -- 实验验证`）：
+- 默认优先跑最小必要验证，再做正式 benchmark 条件
+- 具体实验条件可按每次 benchmark 任务内容裁剪，例如 Neuroformer 除 canonical `500/250` 外，可增加 `150/50` reference sanity run
+- 若模型支持多 inference 模式，正式 eval 必须在同一任务记录中并排报告 `rollout` 与 `teacher-forced / true_past`
 
+**实验记录规范**（复用 `1.9.0 Step 4 -- 实验记录`，但路径改为 1.8）：
+- 任务记录：`cc_todo/1.8-benchmark_model/{date}_{content}.md`
+- 脚本：`scripts/phase1-autoregressive-1.8-benchmark_model/{date}_{content}/`
+- 日志：`results/logs/phase1-autoregressive-1.8-benchmark_model/{date}_{content}/`
+- 可视化：`results/figures/phase1-autoregressive-1.8-benchmark_model/{date}_{content}/`
+- `趋势图更新` 与 `results.tsv 更新` 不适用于 1.8 benchmark，不再要求
+- legacy / protocol-fix / faithful 的历史结果目录保持原名，仅在新任务记录中引用，不做目录重命名
 
-**数据集详情**：
-- **Legacy 说明**：以下 Part A / Part B / Part C 主要保留 2026-03-12 simplified baseline pipeline 的历史记录，供审计对照使用，不再代表正式 benchmark 完成态
-- Perich-Miller Population 2018，初级运动皮层（M1），center-out reaching（8 方向）
-- 3 只猕猴（Chewie 4s, Jaco 3s, Mihi 3s），10 sessions，407 global units（max 71/session）
-- 数据格式：HDF5 spike events via torch_brain，config: `perich_miller_10sessions.yaml`
-- 数据划分：`get_sampling_intervals(split)` 统一 train/valid/test
-- 取样方式：**连续滑动窗口取样**（Continuous Sliding Window，非 trial-aligned）——在各 split 返回的连续时间区间内，以固定窗口（obs_window + pred_window）按 50% overlap 滑动采样，不依赖 trial 边界
-- 样本数（250ms/500ms/1000ms pred_window，obs=500ms，50% overlap）：16890/12512/8129 train, 1588/1127/655 valid, 3121/2207/1284 test
+**当前维护中的 benchmark 任务**：
+- `IBL-MtM combined aligned`：见 `cc_todo/1.8-benchmark_model/20260319_benchmark_aligned_runs.md`
+- `Neuroformer canonical 500/250`：见 `cc_todo/1.8-benchmark_model/20260319_benchmark_aligned_runs.md`
+- `Neuroformer 150/50 reference`：见 `cc_todo/1.8-benchmark_model/20260319_benchmark_aligned_runs.md`
+- `NDT2` 当前仅保留现状记录，不进入新的 benchmark 扩展
 
-**Part A: 适配层开发**
-
-为每个模型编写薄适配层（adapter），放在 `neural_benchmark/adapters/` 下：
-
-| 模型 | 适配层核心逻辑 | 估算行数 |
-|------|---------------|---------|
-| NDT2 | torch_brain spike events → 20ms binned counts → spatiotemporal patches | 约 100 行 |
-| Neuroformer | torch_brain spike events → neuron ID + dt token 序列 | 约 150 行 |
-| IBL-MtM | torch_brain spike events → 20ms binned counts → IBL session dict 格式 | 约 120 行 |
-
-**适配层职责**：
-- 从 torch_brain `Dataset` 读取 `get_sampling_intervals(split)` 获取统一的 train/valid/test 区间
-- 在各区间内切出原始 spike events（`spikes.timestamps + spikes.unit_index`）
-- 转换为模型原生输入格式（binning / tokenization / patching）
-- 模型推理后，将输出转换为统一格式 `[B, T, N]` log_rate（或 rate），对接 `neurohorizon_metrics.py` 的评估函数
-
-**评估统一化**：
-- 所有模型在**完全相同的 test intervals** 上评估
-- 统一调用 `fp_bps()`, `r2_score()`, `psth_r2()`, `PoissonNLLLoss` 计算指标
-- Null model: `compute_null_rates()` 从训练集计算 per-neuron mean（所有模型共用同一 null model）
-
-**Part B: 训练与评估实验**
-
-参照 1.3.4 的实验设计，对每个适配后的模型进行训练和评估：
-
-**实验配置**（参照 1.3.4，每个模型至少覆盖以下条件）：
-
-| 条件 | 训练模式 | pred_window | obs_window | 备注 |
-|------|---------|-------------|------------|------|
-| 250ms-cont | 连续 | 250ms | 500ms | 与 1.3.4 对标 |
-| 500ms-cont | 连续 | 500ms | 500ms | 与 1.3.4 对标 |
-| 1000ms-cont | 连续 | 1000ms | 500ms | 与 1.3.4 对标 |
-
-注：各模型是否支持 trial-aligned 模式视适配情况而定；连续模式为必做
-
-**评估指标**（与 1.3.4 完全一致）：
-- fp-bps（整体 + per-bin 衰减曲线）
-- R²
-- PSTH-R²（trial-aligned eval，8 方向）
-- Poisson NLL
-
-**Part C: 对比分析与可视化**
-
-与 NeuroHorizon 1.3.4 结果进行横向对比：
-
-**可视化（至少 4 张图）**：
-1. **多模型 fp-bps 对比柱状图**：各模型在 250ms/500ms/1000ms 下的 fp-bps，含 NeuroHorizon baseline
-2. **per-bin fp-bps 衰减对比**：各模型的 per-bin fp-bps 随预测步数的衰减曲线叠加
-3. **多模型 R² 对比柱状图**：各模型在 3 个窗口下的 R²
-4. **综合对比表 + 雷达图**：fp-bps / R² / PSTH-R² / Poisson NLL 四指标对比
-
-- [x] NDT2 适配层开发 + 单元测试
-- [x] Neuroformer 适配层开发 + 单元测试
-- [x] IBL-MtM 适配层开发 + 单元测试
-- [x] NDT2 训练实验（250ms/500ms/1000ms）
-- [x] Neuroformer 训练实验（250ms/500ms/1000ms）
-- [x] IBL-MtM 训练实验（250ms/500ms/1000ms）
-- [x] 各模型评估（fp-bps / R² / PSTH-R² / Poisson NLL）
-- [x] 与 NeuroHorizon 1.3.4 结果的横向对比分析
-- [x] 对比可视化图表生成
-- [x] 结果记录到 cc_core_files/results.md
+- [x] benchmark 文档入口统一到 `cc_todo/1.8-benchmark_model/`
+- [x] benchmark 任务记录模板固定
+- [x] benchmark 实验执行/记录规范与 `1.9.0 Step 3 / Step 4` 对齐
+- [ ] 当前 aligned faithful benchmark 任务持续回填
+- [ ] 仅在模型通过当前 gate 后，再决定是否扩展新的 benchmark 条件
 
 ### 1.9 增量模型优化管理
 > 定位：支持不断的模型迭代优化记录和实验的增量验证工作

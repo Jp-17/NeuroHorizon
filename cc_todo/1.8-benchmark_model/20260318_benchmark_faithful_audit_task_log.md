@@ -1,15 +1,20 @@
+# 20260318 Benchmark Faithful Audit Task Log
+
+> 总入口：`cc_todo/1.8-benchmark_model/benchmark_index.md`
+> 本文档定位：faithful 审计执行流水记录
+
 # 2026-03-18 | Phase 1.8 faithful 审计补充与文档收口
 
 ## 对应计划
 
 - cc_core_files/plan.md -> 1.8.3
-- 审查文档：cc_todo/20260318-review/20260318-benchmark-faithful-audit-detail_codex.md
+- 审查文档：cc_todo/1.8-benchmark_model/20260318_benchmark_faithful_audit_detail_codex.md
 
 ## 本次任务目标
 
 1. 从代码层严格复核 1.8 当前 faithful 线是否如文档所述推进。
 2. 对照 1.3.7 的统一标准，明确当前 benchmark 线哪些已经统一、哪些只是语义对齐、哪些仍不能混写。
-3. 把 plan.md、results.md、20260312-phase1-1.8-benchmark.md 中仍残留的旧 benchmark 强结论收口到 legacy internal reference + faithful 250ms gate 未完成。
+3. 把 plan.md、results.md、20260312_benchmark_main_task_log.md 中仍残留的旧 benchmark 强结论收口到 legacy internal reference + faithful 250ms gate 未完成。
 
 ## 本次检查的核心代码与文档
 
@@ -21,17 +26,17 @@
 - neural-benchmark/faithful_neuroformer.py
 - cc_core_files/plan.md
 - cc_core_files/results.md
-- cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md
+- cc_todo/1.8-benchmark_model/20260312_benchmark_main_task_log.md
 
 ## 本次完成内容
 
 1. 新增 detailed review：
-   - cc_todo/20260318-review/20260318-benchmark-faithful-audit-detail_codex.md
+   - cc_todo/1.8-benchmark_model/20260318_benchmark_faithful_audit_detail_codex.md
 
 2. 文档口径收口：
    - cc_core_files/plan.md
    - cc_core_files/results.md
-   - cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md
+   - cc_todo/1.8-benchmark_model/20260312_benchmark_main_task_log.md
 
 3. 本次收口的核心判断：
    - legacy simplified baselines 只保留为内部参考，不再视为正式 benchmark

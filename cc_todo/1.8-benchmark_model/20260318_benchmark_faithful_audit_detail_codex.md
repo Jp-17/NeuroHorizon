@@ -12,7 +12,7 @@
 
 - cc_core_files/plan.md
 - cc_core_files/results.md
-- cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md
+- cc_todo/1.8-benchmark_model/20260312_benchmark_main_task_log.md
 - neural_benchmark/adapters/*.py
 - neural-benchmark/repro_protocol.py
 - neural-benchmark/faithful_ndt2.py

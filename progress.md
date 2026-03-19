@@ -1977,3 +1977,17 @@
 **遇到的问题与解决**：
 - 当前 `main`、`dev/benchmark`、`dev/latent`、`dev/diffusion` 的远端同步关系刚发生变化，容易导致“是 cherry-pick 还是直接快进”判断混乱
   先重新 fetch 并核对四个分支的 commit 关系，再按最新状态执行“先在 main 修改，再把三个开发分支直接 forward 到 main”的策略
+
+
+## 2026-03-19 23:48 Benchmark 文档体系重构
+
+- 新建 benchmark 文档根目录：`cc_todo/1.8-benchmark_model/`
+- 新增总入口：`cc_todo/1.8-benchmark_model/benchmark_index.md`
+- 迁移文档：
+  - `cc_todo/20260316-review/1.8.3-benchmark-audit_codex.md` -> `cc_todo/1.8-benchmark_model/20260316_benchmark_legacy_audit_codex.md`
+  - `cc_todo/20260318-review/20260318-benchmark-faithful-audit-detail_codex.md` -> `cc_todo/1.8-benchmark_model/20260318_benchmark_faithful_audit_detail_codex.md`
+  - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md` -> `cc_todo/1.8-benchmark_model/20260312_benchmark_main_task_log.md`
+  - `cc_todo/phase1-autoregressive/20260318-phase1-1.8-faithful-audit-detail.md` -> `cc_todo/1.8-benchmark_model/20260318_benchmark_faithful_audit_task_log.md`
+- `plan.md` 的 `1.8.3` 已重写为 benchmark 持续维护规范，实验执行/记录默认复用 `1.9.0 Step 3 / Step 4`，但路径统一改为 `1.8-benchmark_model`
+- 新增当前 aligned 长跑记录：`cc_todo/1.8-benchmark_model/20260319_benchmark_aligned_runs.md`
+- 说明：`progress.md` 历史日志保留旧路径原文；自此以后 benchmark 文档统一迁移到 `cc_todo/1.8-benchmark_model/`
