@@ -36,17 +36,15 @@ def main() -> None:
             'path': args.baseline_json,
             'train_protocol': baseline.get('train_protocol', {}),
             'best_valid_fp_bps': metric(baseline, 'best_valid_metrics', 'fp_bps'),
+            'formal_valid_fp_bps': metric(baseline, 'formal_valid_metrics', 'fp_bps'),
             'test_fp_bps': metric(baseline, 'test_metrics', 'fp_bps'),
-            'trial_fp_bps': metric(baseline, 'trial_aligned_test_metrics', 'trial_fp_bps'),
-            'per_neuron_psth_r2': metric(baseline, 'trial_aligned_test_metrics', 'per_neuron_psth_r2'),
         },
         'control': {
             'path': args.control_json,
             'train_protocol': control.get('train_protocol', {}),
             'best_valid_fp_bps': metric(control, 'best_valid_metrics', 'fp_bps'),
+            'formal_valid_fp_bps': metric(control, 'formal_valid_metrics', 'fp_bps'),
             'test_fp_bps': metric(control, 'test_metrics', 'fp_bps'),
-            'trial_fp_bps': metric(control, 'trial_aligned_test_metrics', 'trial_fp_bps'),
-            'per_neuron_psth_r2': metric(control, 'trial_aligned_test_metrics', 'per_neuron_psth_r2'),
         },
     }
     if summary['baseline']['test_fp_bps'] is not None and summary['control']['test_fp_bps'] is not None:
@@ -54,10 +52,10 @@ def main() -> None:
 
     md = (
         '# Faithful IBL-MtM 250ms Compare\n\n'
-        '| Run | train_mask_mode | best valid fp-bps | test fp-bps | trial fp-bps | per_neuron_psth_r2 |\n'
-        '|---|---:|---:|---:|---:|---:|\n'
-        f"| baseline | {summary['baseline']['train_protocol'].get('train_mask_mode')} | {summary['baseline']['best_valid_fp_bps']} | {summary['baseline']['test_fp_bps']} | {summary['baseline']['trial_fp_bps']} | {summary['baseline']['per_neuron_psth_r2']} |\n"
-        f"| control | {summary['control']['train_protocol'].get('train_mask_mode')} | {summary['control']['best_valid_fp_bps']} | {summary['control']['test_fp_bps']} | {summary['control']['trial_fp_bps']} | {summary['control']['per_neuron_psth_r2']} |\n\n"
+        '| Run | train_mask_mode | best valid fp-bps | formal valid fp-bps | test fp-bps |\n'
+        '|---|---:|---:|---:|---:|\n'
+        f"| baseline | {summary['baseline']['train_protocol'].get('train_mask_mode')} | {summary['baseline']['best_valid_fp_bps']} | {summary['baseline']['formal_valid_fp_bps']} | {summary['baseline']['test_fp_bps']} |\n"
+        f"| control | {summary['control']['train_protocol'].get('train_mask_mode')} | {summary['control']['best_valid_fp_bps']} | {summary['control']['formal_valid_fp_bps']} | {summary['control']['test_fp_bps']} |\n\n"
         f"Delta test fp-bps: {summary.get('delta_test_fp_bps')}\n"
     )
     (output_dir / 'comparison.json').write_text(json.dumps(summary, indent=2) + '\n')

@@ -30,13 +30,27 @@
 - obs/pred：`500ms / 250ms`
 - 关键超参数：`epoch=50, batch_size=16, lr=1e-4, weight_decay=0.01`
 
+**训练 / 评估命令**：
+```bash
+python neural-benchmark/faithful_ibl_mtm.py \
+  --mode train \
+  --epochs 50 \
+  --batch-size 16 \
+  --grad-accum-steps 1 \
+  --num-workers 4 \
+  --train-mask-mode combined \
+  --output-dir results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_combined_e50_aligned
+
+python neural-benchmark/plot_benchmark_history.py \
+  --results-json results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_combined_e50_aligned/results.json
+```
+
 **当前结果**：
 - 训练 loss：最终 `train_loss = 0.3151`
 - 最佳 val `fp-bps`：`0.1311`
 - test `fp-bps`：`0.1345`
-- test trial `fp-bps`：`0.1116`
-- test `per_neuron_psth_r2`：`0.5679`
 - checkpoint：`results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_combined_e50_aligned/best_model.pt`
+- 注：本轮历史结果里仍保留了 `test trial-aligned` 补充指标；自本次协议修订起，IBL-MtM 正式 benchmark 主流程不再要求 `test trial-aligned`
 
 **可视化**：
 - `results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_combined_e50_aligned/train_loss_curve.png`
@@ -72,12 +86,42 @@
 - obs/pred：`500ms / 250ms`
 - 关键超参数：`epoch=50, batch_size=8, grad_accum=20, lr=1e-4, weight_decay=1.0`
 
-**当前进度**（2026-03-19 23:48 CST）：
+**训练 / 正式评估命令**：
+```bash
+python neural-benchmark/faithful_neuroformer.py \
+  --mode train \
+  --obs-window 0.5 \
+  --pred-window 0.25 \
+  --epochs 50 \
+  --batch-size 8 \
+  --grad-accum-steps 20 \
+  --num-workers 0 \
+  --weight-decay 1.0 \
+  --warmup-tokens 80000000 \
+  --output-dir results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_canonical_e50_aligned
+
+python neural-benchmark/faithful_neuroformer.py \
+  --mode eval \
+  --obs-window 0.5 \
+  --pred-window 0.25 \
+  --batch-size 8 \
+  --grad-accum-steps 20 \
+  --num-workers 0 \
+  --weight-decay 1.0 \
+  --warmup-tokens 80000000 \
+  --checkpoint-path results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_canonical_e50_aligned/best_model.pt \
+  --output-dir results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_canonical_e50_aligned/formal_eval \
+  --eval-split both \
+  --inference-mode both
+```
+
+**当前进度**（2026-03-20 02:35 CST）：
 - 当前仍在训练中
 - 运行进程：`faithful_neuroformer.py --mode train --obs-window 0.5 --pred-window 0.25 --epochs 50`
 - 当前 checkpoint：`results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_canonical_e50_aligned/last_model.pt`
-- 最近一次 checkpoint 更新时间：`2026-03-19 23:44:17 +0800`
+- 最近一次 checkpoint 更新时间：`2026-03-20 02:35:02 +0800`
 - formal eval 尚未开始
+- 正式结果协议：训练结束后使用 `best_model.pt` 重新计算 `valid / test` continuous `rollout / true_past`；自本次协议修订起，不再要求 `test trial-aligned`
 
 **待回填结果**：
 - 训练 loss
@@ -96,6 +140,36 @@
   - 采样方式：canonical continuous benchmark protocol
   - obs/pred：`150ms / 50ms`
   - 关键超参数：`epoch=50, batch_size=8, grad_accum=20, lr=1e-4, weight_decay=1.0`
+- 训练 / 正式评估命令：
+```bash
+python neural-benchmark/faithful_neuroformer.py \
+  --mode train \
+  --obs-window 0.15 \
+  --pred-window 0.05 \
+  --epochs 50 \
+  --batch-size 8 \
+  --grad-accum-steps 20 \
+  --num-workers 0 \
+  --weight-decay 1.0 \
+  --warmup-tokens 80000000 \
+  --max-generate-steps 96 \
+  --output-dir results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned
+
+python neural-benchmark/faithful_neuroformer.py \
+  --mode eval \
+  --obs-window 0.15 \
+  --pred-window 0.05 \
+  --batch-size 8 \
+  --grad-accum-steps 20 \
+  --num-workers 0 \
+  --weight-decay 1.0 \
+  --warmup-tokens 80000000 \
+  --max-generate-steps 96 \
+  --checkpoint-path results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned/best_model.pt \
+  --output-dir results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned/formal_eval \
+  --eval-split both \
+  --inference-mode both
+```
 - 当前状态：尚未开始；等待 canonical `500/250` run 完成后执行
 - 正式 eval：必须同时记录 `rollout / true_past`
 

@@ -1102,10 +1102,6 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         build_continuous_windows(datasets["test"], "test", spec),
         args.max_test_windows,
     )
-    test_trial_records = maybe_limit_records(
-        build_trial_windows(datasets["test"], "test", spec),
-        args.max_trial_windows,
-    )
     if not train_records:
         raise ValueError("No canonical training windows were generated for faithful Neuroformer.")
     if not valid_records:
@@ -1152,20 +1148,6 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         shuffle=False,
         num_workers=args.num_workers,
     )
-    test_trial_loader = build_window_loader(
-        tb_dataset=datasets["test"],
-        records=test_trial_records,
-        spec=spec,
-        global_unit_index=global_unit_index,
-        tokenizer=tokenizer,
-        prev_id_block_size=bridge_cfg.prev_id_block_size,
-        id_block_size=bridge_cfg.id_block_size,
-        channel_capacity=channel_capacity,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=args.num_workers,
-    )
-
     model = create_faithful_neuroformer_model(
         tokenizer=tokenizer,
         spec=spec,
@@ -1291,6 +1273,28 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
 
     best_state = torch.load(best_checkpoint_path, map_location=device)
     model.load_state_dict(best_state["model_state_dict"])
+    formal_valid_metrics_rollout = evaluate_faithful_neuroformer_loader(
+        model,
+        tokenizer,
+        valid_loader,
+        spec=spec,
+        channel_capacity=channel_capacity,
+        null_lookup=null_lookup,
+        device=device,
+        max_generate_steps=bridge_cfg.max_generate_steps,
+        true_past=False,
+    )
+    formal_valid_metrics_true_past = evaluate_faithful_neuroformer_loader(
+        model,
+        tokenizer,
+        valid_loader,
+        spec=spec,
+        channel_capacity=channel_capacity,
+        null_lookup=null_lookup,
+        device=device,
+        max_generate_steps=bridge_cfg.max_generate_steps,
+        true_past=True,
+    )
     test_metrics_rollout = evaluate_faithful_neuroformer_loader(
         model,
         tokenizer,
@@ -1313,36 +1317,6 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         max_generate_steps=bridge_cfg.max_generate_steps,
         true_past=True,
     )
-    trial_metrics_rollout = evaluate_trial_aligned_loader(
-        build_trial_model_fn(
-            model,
-            tokenizer,
-            spec=spec,
-            channel_capacity=channel_capacity,
-            max_generate_steps=bridge_cfg.max_generate_steps,
-            device=device,
-            true_past=False,
-        ),
-        test_trial_loader,
-        spec,
-        null_lookup,
-        device,
-    )
-    trial_metrics_true_past = evaluate_trial_aligned_loader(
-        build_trial_model_fn(
-            model,
-            tokenizer,
-            spec=spec,
-            channel_capacity=channel_capacity,
-            max_generate_steps=bridge_cfg.max_generate_steps,
-            device=device,
-            true_past=True,
-        ),
-        test_trial_loader,
-        spec,
-        null_lookup,
-        device,
-    )
 
     payload = make_result_payload(
         model_name="faithful_neuroformer",
@@ -1360,12 +1334,16 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
             "Evaluation uses autoregressive generation and 20 ms count re-binning.",
             "Held-out test reports both rollout (true_past=False) and oracle-history (true_past=True) modes.",
             "Visual and behavior branches are disabled because Perich-Miller has no matching inputs.",
+            "Formal benchmark reports best-ckpt continuous valid/test metrics; test trial-aligned is no longer part of the default 1.8.3 protocol.",
         ],
     )
     payload["selection_metric_mode"] = "rollout"
-    payload["trial_aligned_test_metrics"] = {
-        "rollout": dict(trial_metrics_rollout),
-        "true_past": dict(trial_metrics_true_past),
+    payload["selection_metric_split"] = "valid"
+    payload["selection_metric_name"] = "fp_bps"
+    payload["formal_eval_checkpoint"] = str(best_checkpoint_path)
+    payload["formal_valid_metrics"] = {
+        "rollout": formal_valid_metrics_rollout,
+        "true_past": formal_valid_metrics_true_past,
     }
     payload["history"] = history
     payload["bridge_config"] = asdict(bridge_cfg)
@@ -1611,7 +1589,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-trial-windows", type=int, default=None)
     parser.add_argument("--eval-split", type=str, default="both", choices=["valid", "test", "both"])
     parser.add_argument("--inference-mode", type=str, default="both", choices=["rollout", "true_past", "both"])
-    parser.add_argument("--skip-trial-eval", action="store_true")
+    parser.add_argument("--skip-trial-eval", dest="skip_trial_eval", action="store_true")
+    parser.add_argument("--with-trial-eval", dest="skip_trial_eval", action="store_false")
     parser.add_argument("--progress-every", type=int, default=25)
     parser.add_argument("--hidden-size", type=int, default=256)
     parser.add_argument("--n-heads", type=int, default=8)
@@ -1627,6 +1606,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-generate-steps", type=int, default=256)
     parser.add_argument("--warmup-tokens", type=int, default=50000)
     parser.add_argument("--no-lr-decay", action="store_true")
+    parser.set_defaults(skip_trial_eval=True)
     return parser.parse_args()
 
 

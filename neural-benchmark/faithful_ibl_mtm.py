@@ -790,10 +790,6 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         build_continuous_windows(datasets["test"], "test", spec),
         args.max_test_windows,
     )
-    test_trial_records = maybe_limit_records(
-        build_trial_windows(datasets["test"], "test", spec),
-        args.max_trial_windows,
-    )
     if not train_records:
         raise ValueError("No canonical training windows were generated for faithful IBL-MtM.")
     if not valid_records:
@@ -831,17 +827,6 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         shuffle=False,
         num_workers=args.num_workers,
     )
-    test_trial_loader = build_window_loader(
-        tb_dataset=datasets["test"],
-        records=test_trial_records,
-        spec=spec,
-        global_unit_index=global_unit_index,
-        recording_n_units=recording_n_units,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=args.num_workers,
-    )
-
     model = create_faithful_ibl_mtm_model(
         session_ids=session_ids,
         unique_unit_counts=unique_unit_counts,
@@ -976,6 +961,14 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
 
     best_state = torch.load(best_checkpoint_path, map_location=device)
     model.load_state_dict(best_state["model_state_dict"])
+    formal_valid_metrics = evaluate_faithful_ibl_loader(
+        model,
+        valid_loader,
+        spec=spec,
+        channel_capacity=channel_capacity,
+        null_lookup=null_lookup,
+        device=device,
+    )
     test_metrics = evaluate_faithful_ibl_loader(
         model,
         test_loader,
@@ -983,13 +976,6 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         channel_capacity=channel_capacity,
         null_lookup=null_lookup,
         device=device,
-    )
-    trial_metrics = evaluate_trial_aligned_loader(
-        build_trial_model_fn(model, spec),
-        test_trial_loader,
-        spec,
-        null_lookup,
-        device,
     )
 
     payload = make_result_payload(
@@ -1005,9 +991,14 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
             "Training keeps the upstream SSL masking path unless train_mask_mode=forward_pred is explicitly requested.",
             "Held-out evaluation uses explicit one-step forward-pred masking on canonical windows.",
             "Batches are session-pure so upstream eid/session-token assumptions remain valid.",
+            "Formal benchmark reports best-ckpt continuous valid/test metrics; test trial-aligned is no longer part of the default 1.8.3 protocol.",
         ],
     )
-    payload["trial_aligned_test_metrics"] = dict(trial_metrics)
+    payload["selection_metric_split"] = "valid"
+    payload["selection_metric_mode"] = "forward_pred"
+    payload["selection_metric_name"] = "fp_bps"
+    payload["formal_eval_checkpoint"] = str(best_checkpoint_path)
+    payload["formal_valid_metrics"] = dict(formal_valid_metrics)
     payload["history"] = history
     payload["bridge_config"] = asdict(bridge_cfg)
     payload["train_protocol"] = build_train_protocol_summary(bridge_cfg.train_mask_mode)

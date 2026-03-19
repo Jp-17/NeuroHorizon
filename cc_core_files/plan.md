@@ -744,19 +744,47 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
   - 各条件指标结果（至少 `fp-bps / per-bin fp-bps`）
   - 与 baseline 的对比
   - 若模型支持多 inference 模式，必须同时记录 `rollout` 与 `teacher-forced / true_past`
+  - 每次训练和评估的脚本命令
   - 可视化索引（训练曲线、配置时间轴图、benchmark 对比图）
   - 当前结论、后续安排
 
-**实验执行规范**（复用 `1.9.0 Step 3 -- 实验验证`）：
-- 默认优先跑最小必要验证，再做正式 benchmark 条件
-- 具体实验条件可按每次 benchmark 任务内容裁剪，例如 Neuroformer 除 canonical `500/250` 外，可增加 `150/50` reference sanity run
-- 若模型支持多 inference 模式，正式 eval 必须在同一任务记录中并排报告 `rollout` 与 `teacher-forced / true_past`
+**当前固定脚本入口**：
+- IBL-MtM faithful 训练入口：`neural-benchmark/faithful_ibl_mtm.py`
+- Neuroformer faithful 训练 / 正式评估入口：`neural-benchmark/faithful_neuroformer.py`
+- benchmark history 可视化入口：`neural-benchmark/plot_benchmark_history.py`
+- 若一轮任务使用批量编排脚本（例如 `neural-benchmark/run_faithful_1p8_aligned.sh`），必须在任务记录中同时写明批量脚本和底层 train/eval 命令；若脚本入口后续变更，需在对应任务记录中单独说明
 
-**实验记录规范**（复用 `1.9.0 Step 4 -- 实验记录`，但路径改为 1.8）：
+**实验执行规范**：
+- 开始实验前必须明确确认本轮 benchmark 是否遵循 `1.3.7 NeuroHorizon 实验默认数据与指标标准`
+- 如果与 `1.3.7` 不一致，必须在任务记录中书面记录差异项、原因和影响范围
+- benchmark 默认使用 `train / valid / test` split；`valid` 用于 checkpoint selection 和中期诊断，`test` 只用于训练结束后的正式 held-out 报告
+- continuous benchmark 默认采样语义参照 `1.3.7`：
+  - continuous 训练默认使用 `RandomFixedWindowSampler`
+  - continuous valid/test 默认使用 `SequentialFixedWindowSampler`
+  - faithful runner 若不直接调用上述 sampler 类，也必须在任务记录中说明其 train / valid / test 窗口构造在语义上与之等价
+- 默认优先跑最小必要验证，再做正式 benchmark 条件；正式条件可按任务内容裁剪，例如 Neuroformer 除 canonical `500/250` 外，可增加 `150/50` reference sanity run
+- 训练过程中必须按 eval epoch 持续记录 `train loss` 和 `valid fp-bps` 曲线，并显式保存 `last` checkpoint
+- `best` checkpoint 默认以 `max(valid fp-bps)` 为主进行选择；`loss curve` 用作稳定性审计和异常剔除依据。若 `best fp-bps` 对应 checkpoint 出现明显训练崩坏、数值异常或不合理抖动，必须在任务记录中说明最终采用的 checkpoint 及其理由
+- 正式结果必须在训练结束后使用 `best` checkpoint 重新计算 continuous `valid` 和 `test` 的 `fp-bps` 等指标，不允许直接用训练过程中某个 epoch 的即时验证值代替正式结果
+- benchmark 主指标为 continuous `fp-bps`，`per-bin fp-bps` 用于窗口衰减分析；其他 comparison metric 按需要补充
+- IBL-MtM 和 Neuroformer 的 benchmark 主流程默认不要求 `test trial-aligned`；如后续确需保留，只能作为附加分析，不能替代 continuous held-out 主结果
+- 若模型支持多 inference 模式，正式 eval 必须在同一任务记录中并排报告 `rollout` 与 `teacher-forced / true_past`
+- Neuroformer 默认按 `valid rollout fp-bps` 选择 `best_model.pt`
+  - 说明：当前本地克隆的上游 README / trainer 代码显示其原生训练器按 holdout loss 保存 best checkpoint，未看到按 `fp-bps` 或 `true_past` 选 ckpt 的固定规则
+  - 在当前 benchmark 目标是 held-out forward prediction 的前提下，`rollout fp-bps` 更接近正式测试语义，因此默认用作 model selection；`teacher-forced / true_past` 仅作为 oracle-history 诊断指标
+
+**实验记录规范**：
 - 任务记录：`cc_todo/1.8-benchmark_model/{date}_{content}.md`
 - 脚本：`scripts/phase1-autoregressive-1.8-benchmark_model/{date}_{content}/`
 - 日志：`results/logs/phase1-autoregressive-1.8-benchmark_model/{date}_{content}/`
 - 可视化：`results/figures/phase1-autoregressive-1.8-benchmark_model/{date}_{content}/`
+- 每份任务记录除上面的内容项外，还必须显式写出：
+  - 每次训练命令
+  - 每次正式评估命令
+  - `best` checkpoint 的文件路径、选择依据以及最终用于 formal valid/test 的 checkpoint 标识
+- 除 training curves 外，benchmark 任务默认补充：
+  - 配置时间轴图（至少 `lr / weight_decay / effective_batch_size / warmup_progress`）
+  - benchmark 对比图或结果表
 - `趋势图更新` 与 `results.tsv 更新` 不适用于 1.8 benchmark，不再要求
 - legacy / protocol-fix / faithful 的历史结果目录保持原名，仅在新任务记录中引用，不做目录重命名
 
@@ -818,7 +846,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 **Step 4 -- 实验记录**（遵循 CLAUDE.md 中"任务执行中"的记录规范）：
 - **任务记录**: `cc_todo/phase1-autoregressive/1.9-module-optimization/{date}_{module_name}.md`
-  - 必须包含：改进想法摘要、实现方案、涉及改动模块、详细实验配置（数据集、sessions 数、采样方式、obs/pred 窗口）、每次实验的关键超参数（至少包括 `epoch`、`batch_size`、`lr`、`weight_decay`）、训练 loss 结果、train 期间最佳 `val fp-bps`、test `fp-bps`、test 使用的 checkpoint 标识/时间、各条件指标结果（至少 `fp-bps` / `per-bin fp-bps`）、与 baseline 的对比
+  - 必须包含：改进想法摘要、实现方案、涉及改动模块、详细实验配置（数据集、sessions 数、采样方式、obs/pred 窗口）、每次实验的关键超参数（至少包括 `epoch`、`batch_size`、`lr`、`weight_decay`）、训练 loss 结果、train 期间最佳 `val fp-bps`、test `fp-bps`、test 使用的 checkpoint 标识/时间、各条件指标结果（至少 `fp-bps` / `per-bin fp-bps`）、与 baseline 的对比、记录每次训练和评估的脚本命令
 - **脚本**: `scripts/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
 - **实验日志**: `results/logs/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
 - **可视化**: `results/figures/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`

@@ -2117,3 +2117,29 @@
 - `baseline_v2` 的 current evalfix 结果分散在 `phase1_v2_evalfix_{window}_{cont,trial}` 目录
   - 解决：分别从 continuous 和 trial 目录读取 `eval_v2_{valid,test}_results.json`，再与 1.9 tuning 的 current evalfix 结果逐窗口对齐比较
 
+## 2026-03-20 02:37 CST - 1.8.3 benchmark 协议与 formal eval 规范收口
+
+**完成事项**：
+1. 更新 `cc_core_files/plan.md` 的 `1.8.3`
+   - 不再写“复用 1.9.0 Step 3/4”，直接写入 benchmark 的实验执行规范和实验记录规范
+   - 明确 continuous benchmark 的 `train/valid/test`、sampler 语义、best ckpt 选择、best-ckpt formal `valid/test` 结果要求
+   - 明确 `IBL-MtM / Neuroformer` 主流程不再要求 `test trial-aligned`
+   - 明确 Neuroformer 默认按 `valid rollout fp-bps` 选择 `best_model.pt`
+   - 在 `1.9.0 Step 4` 中补充“记录每次训练和评估的脚本命令”
+2. 更新 benchmark 文档入口与当前任务记录
+   - `cc_todo/1.8-benchmark_model/benchmark_index.md` 新增协议约束、固定脚本入口和命令记录要求
+   - `cc_todo/1.8-benchmark_model/20260319_benchmark_aligned_runs.md` 补充当前 `IBL-MtM / Neuroformer` 的训练命令、正式 eval 命令和最新进度时间戳
+3. 更新 faithful benchmark runner 的正式结果口径
+   - `neural-benchmark/faithful_ibl_mtm.py`：训练结束后加载 `best_model.pt` 重新计算 continuous `valid/test`，写入 `formal_valid_metrics`，不再把 `test trial-aligned` 作为默认结果输出
+   - `neural-benchmark/faithful_neuroformer.py`：默认 `skip_trial_eval=True`；训练结果和 eval-only 统一到 best-ckpt continuous `valid/test`，Neuroformer 继续按 `valid rollout fp-bps` 选 best
+   - `neural-benchmark/compare_faithful_ibl_mtm.py` 同步改为对比 `best valid / formal valid / test`，不再以 trial 指标为主
+
+**当前运行状态**：
+- `screen` 会话 `phase1_benchmark_aligned` 仍在运行
+- `IBL-MtM combined_e50_aligned` 已完成并保持正值结果
+- `Neuroformer canonical 500/250 e50 aligned` 仍在训练；最近一次 `last_model.pt` 更新时间为 `2026-03-20 02:35:02 +0800`
+- 本次文档与 runner 修改未中断当前 benchmark 长跑
+
+**说明与判断**：
+- 当前本地克隆的 Neuroformer 上游 README / trainer 代码显示其原生训练器按 holdout loss 保存 best checkpoint，未见按 `fp-bps` 或 `true_past` 选 ckpt 的固定说明
+- 在当前 held-out forward prediction benchmark 目标下，继续采用 `valid rollout fp-bps` 作为 Neuroformer 的 checkpoint selection 更合理；`true_past` 保持为 oracle-history 诊断指标

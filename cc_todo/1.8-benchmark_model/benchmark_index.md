@@ -30,7 +30,25 @@
 - 各条件指标结果（至少 `fp-bps / per-bin fp-bps`）
 - 与 baseline 的对比
 - 如模型支持多 inference 模式，必须同时记录 `rollout` 与 `teacher-forced / true_past`
+- 每次训练和评估的脚本命令
 - 可视化索引、当前结论、后续安排
+
+## 当前协议约束
+
+- benchmark continuous 主协议继续遵守 `1.3.7`：
+  - train split 语义对齐 `RandomFixedWindowSampler`
+  - valid/test 语义对齐 `SequentialFixedWindowSampler`
+  - faithful runner 若不直接调用上述 sampler，也必须在任务记录中说明语义等价性
+- `best` checkpoint 默认按 `valid fp-bps` 选择，并在训练结束后用该 checkpoint 重新计算正式 `valid / test` continuous 指标
+- `IBL-MtM` 和 `Neuroformer` 当前 benchmark 主流程不要求 `test trial-aligned`
+- `Neuroformer` 当前默认按 `valid rollout fp-bps` 选择 `best_model.pt`，`teacher-forced / true_past` 只作诊断和补充报告
+
+## 当前建议脚本入口
+
+- `neural-benchmark/faithful_ibl_mtm.py`
+- `neural-benchmark/faithful_neuroformer.py`
+- `neural-benchmark/plot_benchmark_history.py`
+- `neural-benchmark/run_faithful_1p8_aligned.sh`
 
 ## 路径规范
 
@@ -48,7 +66,7 @@
 - `Neuroformer 150/50 reference`
 - `NDT2` 当前只保留现状记录，不继续扩展
 
-## 当前状态（2026-03-19）
+## 当前状态（2026-03-20）
 
 - `IBL-MtM combined_e50_aligned` 已完成，test `fp-bps = 0.1345`，相较 `combined_e10` 已从 near-zero 提升为明确正值
 - `Neuroformer canonical 500/250 e50 aligned` 正在执行，当前仍处于训练阶段
