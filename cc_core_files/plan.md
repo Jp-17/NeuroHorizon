@@ -770,7 +770,6 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - IBL-MtM 和 Neuroformer 的 benchmark 主流程默认不要求 `test trial-aligned`；如后续确需保留，只能作为附加分析，不能替代 continuous held-out 主结果
 - 若模型支持多 inference 模式，正式 eval 必须在同一任务记录中并排报告 `rollout` 与 `teacher-forced / true_past`
 - Neuroformer 默认按 `valid rollout fp-bps` 选择 `best_model.pt`
-  - 说明：当前本地克隆的上游 README / trainer 代码显示其原生训练器按 holdout loss 保存 best checkpoint，未看到按 `fp-bps` 或 `true_past` 选 ckpt 的固定规则
   - 在当前 benchmark 目标是 held-out forward prediction 的前提下，`rollout fp-bps` 更接近正式测试语义，因此默认用作 model selection；`teacher-forced / true_past` 仅作为 oracle-history 诊断指标
 
 **实验记录规范**：
@@ -778,14 +777,11 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 脚本：`scripts/phase1-autoregressive-1.8-benchmark_model/{date}_{content}/`
 - 日志：`results/logs/phase1-autoregressive-1.8-benchmark_model/{date}_{content}/`
 - 可视化：`results/figures/phase1-autoregressive-1.8-benchmark_model/{date}_{content}/`
-- 每份任务记录除上面的内容项外，还必须显式写出：
-  - 每次训练命令
-  - 每次正式评估命令
-  - `best` checkpoint 的文件路径、选择依据以及最终用于 formal valid/test 的 checkpoint 标识
-- 除 training curves 外，benchmark 任务默认补充：
-  - 配置时间轴图（至少 `lr / weight_decay / effective_batch_size / warmup_progress`）
-  - benchmark 对比图或结果表
-- `趋势图更新` 与 `results.tsv 更新` 不适用于 1.8 benchmark，不再要求
+  - 除 training curves 外，还必须补充：
+    - 随预测窗口长度变化的 `fp-bps` 趋势图
+    - 每个预测窗口的 `per-bin fp-bps` 衰减曲线
+    - 配置时间轴图（至少 `lr / weight_decay / effective_batch_size / warmup_progress`）
+    - 一个表格型 PNG，用于汇总每次模型改进在不同预测窗口下的最佳 `val fp-bps`、test `fp-bps`、test checkpoint 标识/时间等核心结果
 - legacy / protocol-fix / faithful 的历史结果目录保持原名，仅在新任务记录中引用，不做目录重命名
 
 **当前维护中的 benchmark 任务**：
@@ -853,6 +849,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
   - 除 training curves 外，还必须补充：
     - 随预测窗口长度变化的 `fp-bps` 趋势图
     - 每个预测窗口的 `per-bin fp-bps` 衰减曲线
+    - 配置时间轴图（至少 `lr / weight_decay / effective_batch_size / warmup_progress`）
     - 一个表格型 PNG，用于汇总每次模型改进在不同预测窗口下的最佳 `val fp-bps`、test `fp-bps`、test checkpoint 标识/时间等核心结果
 - **汇总更新**: `cc_core_files/scripts.md` 和 `cc_core_files/results.md` 按 CLAUDE.md 规范更新
 - **TSV 更新**: 将预测窗口实验结果追加到 `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`，至少记录每个窗口的最佳 `val fp-bps`、test `fp-bps`、test checkpoint 标识/时间以及必要备注
