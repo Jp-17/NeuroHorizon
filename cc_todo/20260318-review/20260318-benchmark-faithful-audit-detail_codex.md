@@ -621,3 +621,47 @@ benchmark 线应继续尽量向 1.3.7 靠拢，但只统一到下面这层：
 | session conditioning | 上游主要依赖全局 vocab + 原任务场景 | faithful 仅 decode 时 session-constrained | 保持不变 | 当前主要先看对齐优化协议后的走势 | 若仍很差，再讨论更显式 conditioning |
 
 当前判断：Neuroformer 与上游最关键的不一致不只是 epoch，更是 `weight_decay / warmup / effective batch` 这组训练协议。因此这轮必须先把这些对齐，再讨论“模型本身是否不适合当前 benchmark”。
+
+
+## 13. aligned 参数对齐长跑执行进展（2026-03-19）
+
+### 13.1 已完成的实现准备
+
+1. `faithful_ibl_mtm.py`
+   - 新增 `grad_accum_steps`
+   - `history` 新增 `weight_decay / grad_accum_steps / effective_batch_size / optimizer_steps / warmup_progress`
+   - `optimizer_protocol` 已写入结果 JSON
+2. `faithful_neuroformer.py`
+   - 新增 `grad_accum_steps`
+   - `history` 新增 `weight_decay / grad_accum_steps / effective_batch_size / tokens_seen / optimizer_steps / warmup_progress`
+   - `optimizer_protocol` 已写入训练 / eval 结果 JSON
+3. 新增 `neural-benchmark/plot_benchmark_history.py`
+   - 自动输出 `train_loss / valid_fp_bps / valid_r2 / lr / training_config_timeline`
+   - IBL-MtM 额外输出 `train_mask_counts_curve`
+4. 新增 `neural-benchmark/run_faithful_1p8_aligned.sh`
+   - 统一顺序执行 IBL-MtM `combined_e50_aligned`
+   - Neuroformer canonical `500/250 e50 aligned`
+   - Neuroformer `150/50 e50 aligned`
+   - 训练后自动补 formal eval 与 history 图
+
+### 13.2 smoke 与对齐检查
+
+- `IBL-MtM`：`batch=16, grad_accum=1` smoke 已通过，说明可以直接按上游 batch 目标启动正式长跑，无需先退回 `8 x accum 2`。
+- `Neuroformer`：`grad_accum`、`tokens_seen`、`warmup_progress`、`optimizer_protocol` 均已成功写入 smoke 结果 JSON，history 绘图脚本也已验证可运行。
+
+### 13.3 当前后台执行状态
+
+- 已启动后台会话：`screen -S phase1_benchmark_aligned`
+- 主日志：`results/logs/phase1_benchmark_aligned.log`
+- 当前已确认进入的第一条正式运行命令：
+  - `IBL-MtM combined_e50_aligned`
+  - `batch_size=16`
+  - `grad_accum_steps=1`
+  - `epochs=50`
+- 之后脚本会顺序继续：
+  1. `IBL-MtM` history plotting + e10/e50 compare
+  2. `Neuroformer canonical 500/250 e50 aligned`
+  3. `Neuroformer canonical formal dual-mode eval`
+  4. `Neuroformer 150/50 e50 aligned`
+  5. `Neuroformer 150/50 formal dual-mode eval`
+  6. canonical/reference compare

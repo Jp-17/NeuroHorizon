@@ -7,7 +7,7 @@ ENV=benchmark-env
 cd "$ROOT"
 
 run_py() {
-  "$PYTHON" run -n "$ENV" python "$@"
+  "$PYTHON" run --no-capture-output -n "$ENV" python "$@"
 }
 
 IBL_DIR=results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_combined_e50_aligned
