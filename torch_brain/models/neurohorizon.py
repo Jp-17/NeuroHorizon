@@ -65,6 +65,13 @@ class NeuroHorizon(nn.Module):
         prediction_memory_train_mix_prob: float = 0.0,
         prediction_memory_input_dropout: float = 0.0,
         prediction_memory_input_noise_std: float = 0.0,
+        decoder_train_mode: str = "parallel_teacher_forced",
+        decoder_rollout_prob_mode: str = "fixed",
+        decoder_rollout_prob: float = 0.0,
+        decoder_rollout_prob_start: float = 0.0,
+        decoder_rollout_prob_end: float = 0.0,
+        decoder_rollout_prob_ramp_epochs: int = 0,
+        decoder_rollout_detach_predictions: bool = True,
     ):
         super().__init__()
 
@@ -100,13 +107,51 @@ class NeuroHorizon(nn.Module):
             raise ValueError("prediction_memory_input_dropout must be in [0, 1)")
         if prediction_memory_input_noise_std < 0.0:
             raise ValueError("prediction_memory_input_noise_std must be >= 0")
+        if decoder_train_mode not in {"parallel_teacher_forced", "scheduled_sampling"}:
+            raise ValueError(
+                "decoder_train_mode must be 'parallel_teacher_forced' or 'scheduled_sampling'"
+            )
+        if decoder_rollout_prob_mode not in {"fixed", "linear_ramp"}:
+            raise ValueError("decoder_rollout_prob_mode must be 'fixed' or 'linear_ramp'")
+        for name, value in {
+            "decoder_rollout_prob": decoder_rollout_prob,
+            "decoder_rollout_prob_start": decoder_rollout_prob_start,
+            "decoder_rollout_prob_end": decoder_rollout_prob_end,
+        }.items():
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be in [0, 1]")
+        if decoder_rollout_prob_ramp_epochs < 0:
+            raise ValueError("decoder_rollout_prob_ramp_epochs must be >= 0")
+        if decoder_rollout_prob_end < decoder_rollout_prob_start:
+            raise ValueError(
+                "decoder_rollout_prob_end must be >= decoder_rollout_prob_start"
+            )
         self.prediction_memory_train_mix_prob = prediction_memory_train_mix_prob
         self.prediction_memory_input_dropout = prediction_memory_input_dropout
         self.prediction_memory_input_noise_std = prediction_memory_input_noise_std
+        self.decoder_train_mode = decoder_train_mode
+        self.decoder_rollout_prob_mode = decoder_rollout_prob_mode
+        self.decoder_rollout_prob = decoder_rollout_prob
+        self.decoder_rollout_prob_start = decoder_rollout_prob_start
+        self.decoder_rollout_prob_end = decoder_rollout_prob_end
+        self.decoder_rollout_prob_ramp_epochs = decoder_rollout_prob_ramp_epochs
+        self.decoder_rollout_detach_predictions = decoder_rollout_detach_predictions
         self.requires_target_counts = (
             decoder_variant in {"prediction_memory", "local_prediction_memory"}
             or feedback_method != "none"
         )
+        self.supports_decoder_scheduled_sampling = self.requires_target_counts
+        if self.decoder_train_mode == "scheduled_sampling" and not self.supports_decoder_scheduled_sampling:
+            raise ValueError(
+                "decoder scheduled sampling requires an explicit conditioning path; "
+                "feedback_method='none' with decoder_variant='query_aug' is unsupported"
+            )
+        initial_rollout_prob = (
+            decoder_rollout_prob
+            if decoder_rollout_prob_mode == "fixed"
+            else decoder_rollout_prob_start
+        )
+        self.current_decoder_rollout_prob = float(initial_rollout_prob)
 
         self.unit_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
         self.session_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
@@ -178,6 +223,11 @@ class NeuroHorizon(nn.Module):
             else:
                 self.feedback_encoder = None
 
+    def set_decoder_rollout_prob(self, rollout_prob: float):
+        if not 0.0 <= rollout_prob <= 1.0:
+            raise ValueError("rollout_prob must be in [0, 1]")
+        self.current_decoder_rollout_prob = float(rollout_prob)
+
     def _encode_history(
         self,
         input_unit_index,
@@ -231,6 +281,29 @@ class NeuroHorizon(nn.Module):
 
         feedback_flat = self.feedback_encoder(counts_flat, unit_flat, mask_flat)
         return feedback_flat.reshape(B, T_pred, self.dim)
+
+    def _build_feedback_from_history(self, history_counts, unit_embs, target_unit_mask):
+        if self.feedback_encoder is None:
+            return None
+
+        batch_size = unit_embs.shape[0]
+        history_len = len(history_counts) + 1
+        feedback_tokens = [
+            torch.zeros(
+                batch_size,
+                self.dim,
+                device=unit_embs.device,
+                dtype=unit_embs.dtype,
+            )
+        ]
+        for counts in history_counts:
+            feedback_tokens.append(
+                self.feedback_encoder(counts, unit_embs, target_unit_mask)
+            )
+        feedback = torch.stack(feedback_tokens, dim=1)
+        if feedback.shape[1] != history_len:
+            raise RuntimeError("feedback history length mismatch")
+        return feedback
 
     def _encode_counts_to_memory_tokens(self, counts, unit_embs, unit_mask):
         if self.prediction_memory_encoder is None:
@@ -412,7 +485,7 @@ class NeuroHorizon(nn.Module):
 
     def _build_prediction_memory_rollout(
         self,
-        prev_predicted_counts,
+        history_counts,
         unit_embs,
         unit_mask,
         cur_time_emb,
@@ -427,7 +500,7 @@ class NeuroHorizon(nn.Module):
             dtype=unit_embs.dtype,
         )
         memory_slots = [zero_memory]
-        for counts in prev_predicted_counts:
+        for counts in history_counts:
             memory_slots.append(self._encode_counts_to_memory_tokens(counts, unit_embs, unit_mask))
 
         memory = torch.stack(memory_slots, dim=1)
@@ -443,6 +516,153 @@ class NeuroHorizon(nn.Module):
         )
         prediction_memory_mask = prediction_memory_mask.unsqueeze(0).expand(B, -1, -1)
         return prediction_memory, prediction_memory_time_emb, prediction_memory_mask
+
+    def _select_decoder_condition_counts(self, target_counts_t, predicted_counts_t):
+        predicted_source = (
+            predicted_counts_t.detach()
+            if self.decoder_rollout_detach_predictions
+            else predicted_counts_t
+        )
+        if not self.training or self.decoder_train_mode != "scheduled_sampling":
+            return target_counts_t
+
+        rollout_prob = self.current_decoder_rollout_prob
+        if rollout_prob <= 0.0:
+            return target_counts_t
+        if rollout_prob >= 1.0:
+            return predicted_source
+
+        mix_mask = (
+            torch.rand(target_counts_t.shape[0], 1, device=target_counts_t.device)
+            < rollout_prob
+        )
+        return torch.where(mix_mask, predicted_source, target_counts_t)
+
+    def _select_memory_source_counts(self, conditioning_counts_t, bootstrap_counts_t=None):
+        if (
+            not self.training
+            or self.prediction_memory_train_mix_prob <= 0.0
+            or bootstrap_counts_t is None
+        ):
+            return conditioning_counts_t
+
+        if self.prediction_memory_train_mix_prob >= 1.0:
+            return bootstrap_counts_t
+
+        mix_mask = (
+            torch.rand(conditioning_counts_t.shape[0], 1, device=conditioning_counts_t.device)
+            < self.prediction_memory_train_mix_prob
+        )
+        return torch.where(mix_mask, bootstrap_counts_t, conditioning_counts_t)
+
+    def _forward_autoregressive(
+        self,
+        *,
+        input_unit_index,
+        input_timestamps,
+        input_token_type,
+        input_mask,
+        latent_index,
+        latent_timestamps,
+        bin_timestamps,
+        target_unit_index,
+        target_unit_mask,
+        target_counts=None,
+        bootstrap_predicted_counts=None,
+    ) -> TensorType["batch", "n_bins", "n_units"]:
+        latents, latent_time_emb = self._encode_history(
+            input_unit_index,
+            input_timestamps,
+            input_token_type,
+            input_mask,
+            latent_index,
+            latent_timestamps,
+        )
+
+        if target_counts is not None and target_counts.shape[1] != bin_timestamps.shape[1]:
+            raise ValueError(
+                "target_counts length must match bin_timestamps length, got "
+                f"{target_counts.shape[1]} vs {bin_timestamps.shape[1]}"
+            )
+        if (
+            bootstrap_predicted_counts is not None
+            and bootstrap_predicted_counts.shape[1] != bin_timestamps.shape[1]
+        ):
+            raise ValueError(
+                "bootstrap_predicted_counts length must match bin_timestamps length, got "
+                f"{bootstrap_predicted_counts.shape[1]} vs {bin_timestamps.shape[1]}"
+            )
+
+        B = input_unit_index.shape[0]
+        T_pred = bin_timestamps.shape[1]
+        unit_embs = self.unit_emb(target_unit_index)
+
+        all_log_rates = []
+        conditioning_history = []
+        memory_history = []
+
+        for t in range(T_pred):
+            cur_queries = self.bin_emb[:, : t + 1, :].expand(B, -1, -1).clone()
+            cur_time_emb = self.rotary_emb(bin_timestamps[:, : t + 1])
+
+            feedback = None
+            prediction_memory = None
+            prediction_memory_time_emb = None
+            prediction_memory_mask = None
+
+            if self.decoder_variant in {"prediction_memory", "local_prediction_memory"}:
+                prediction_memory, prediction_memory_time_emb, prediction_memory_mask = (
+                    self._build_prediction_memory_rollout(
+                        memory_history,
+                        unit_embs,
+                        target_unit_mask,
+                        cur_time_emb,
+                        local_only=self.decoder_variant == "local_prediction_memory",
+                    )
+                )
+            elif self.feedback_encoder is not None:
+                feedback = self._build_feedback_from_history(
+                    conditioning_history,
+                    unit_embs,
+                    target_unit_mask,
+                )
+
+            cur_repr = self.ar_decoder(
+                cur_queries,
+                cur_time_emb,
+                latents,
+                latent_time_emb,
+                feedback=feedback,
+                prediction_memory=prediction_memory,
+                prediction_memory_time_emb=prediction_memory_time_emb,
+                prediction_memory_mask=prediction_memory_mask,
+            )
+            latest_repr = cur_repr[:, -1:, :]
+            log_rate_t = self.head(latest_repr, unit_embs)
+            all_log_rates.append(log_rate_t)
+
+            predicted_counts_t = torch.exp(log_rate_t.squeeze(1).clamp(-10, 10))
+            if target_counts is None:
+                conditioning_counts_t = predicted_counts_t
+            else:
+                conditioning_counts_t = self._select_decoder_condition_counts(
+                    target_counts[:, t, :],
+                    predicted_counts_t,
+                )
+            conditioning_history.append(conditioning_counts_t)
+
+            if self.decoder_variant in {"prediction_memory", "local_prediction_memory"}:
+                bootstrap_counts_t = None
+                if bootstrap_predicted_counts is not None:
+                    bootstrap_counts_t = bootstrap_predicted_counts[:, t, :]
+                memory_history.append(
+                    self._select_memory_source_counts(
+                        conditioning_counts_t,
+                        bootstrap_counts_t=bootstrap_counts_t,
+                    )
+                )
+
+        return torch.cat(all_log_rates, dim=1)
 
     def forward(
         self,
@@ -465,6 +685,37 @@ class NeuroHorizon(nn.Module):
         if self.requires_target_counts and target_counts is None:
             raise ValueError(
                 f"target_counts is required for decoder_variant={self.decoder_variant!r}"
+            )
+
+        if self.training and self.decoder_train_mode == "scheduled_sampling":
+            bootstrap_predicted_counts = None
+            if (
+                self.decoder_variant in {"prediction_memory", "local_prediction_memory"}
+                and self.prediction_memory_train_mix_prob > 0.0
+            ):
+                bootstrap_predicted_counts = self._bootstrap_prediction_counts(
+                    input_unit_index=input_unit_index,
+                    input_timestamps=input_timestamps,
+                    input_token_type=input_token_type,
+                    input_mask=input_mask,
+                    latent_index=latent_index,
+                    latent_timestamps=latent_timestamps,
+                    bin_timestamps=bin_timestamps,
+                    target_unit_index=target_unit_index,
+                    target_unit_mask=target_unit_mask,
+                )
+            return self._forward_autoregressive(
+                input_unit_index=input_unit_index,
+                input_timestamps=input_timestamps,
+                input_token_type=input_token_type,
+                input_mask=input_mask,
+                latent_index=latent_index,
+                latent_timestamps=latent_timestamps,
+                bin_timestamps=bin_timestamps,
+                target_unit_index=target_unit_index,
+                target_unit_mask=target_unit_mask,
+                target_counts=target_counts,
+                bootstrap_predicted_counts=bootstrap_predicted_counts,
             )
 
         latents, latent_time_emb = self._encode_history(
@@ -546,75 +797,17 @@ class NeuroHorizon(nn.Module):
     ):
         if self.unit_emb.is_lazy():
             raise ValueError("Unit vocabulary not initialized.")
-
-        latents, latent_time_emb = self._encode_history(
-            input_unit_index,
-            input_timestamps,
-            input_token_type,
-            input_mask,
-            latent_index,
-            latent_timestamps,
+        return self._forward_autoregressive(
+            input_unit_index=input_unit_index,
+            input_timestamps=input_timestamps,
+            input_token_type=input_token_type,
+            input_mask=input_mask,
+            latent_index=latent_index,
+            latent_timestamps=latent_timestamps,
+            bin_timestamps=bin_timestamps,
+            target_unit_index=target_unit_index,
+            target_unit_mask=target_unit_mask,
         )
-
-        B = input_unit_index.shape[0]
-        T_pred = bin_timestamps.shape[1]
-        unit_embs = self.unit_emb(target_unit_index)
-
-        all_log_rates = []
-        prev_predicted_counts: List[torch.Tensor] = []
-
-        for t in range(T_pred):
-            cur_queries = self.bin_emb[:, : t + 1, :].expand(B, -1, -1).clone()
-            cur_time_emb = self.rotary_emb(bin_timestamps[:, : t + 1])
-
-            feedback = None
-            prediction_memory = None
-            prediction_memory_time_emb = None
-            prediction_memory_mask = None
-
-            if self.decoder_variant in {"prediction_memory", "local_prediction_memory"}:
-                prediction_memory, prediction_memory_time_emb, prediction_memory_mask = (
-                    self._build_prediction_memory_rollout(
-                        prev_predicted_counts,
-                        unit_embs,
-                        target_unit_mask,
-                        cur_time_emb,
-                        local_only=self.decoder_variant == "local_prediction_memory",
-                    )
-                )
-            elif self.feedback_encoder is not None:
-                fb_list = []
-                for s in range(t + 1):
-                    if s == 0 or len(prev_predicted_counts) == 0:
-                        fb_list.append(
-                            torch.zeros(B, self.dim, device=latents.device, dtype=latents.dtype)
-                        )
-                    else:
-                        fb_list.append(
-                            self.feedback_encoder(
-                                prev_predicted_counts[s - 1],
-                                unit_embs,
-                                target_unit_mask,
-                            )
-                        )
-                feedback = torch.stack(fb_list, dim=1)
-
-            cur_repr = self.ar_decoder(
-                cur_queries,
-                cur_time_emb,
-                latents,
-                latent_time_emb,
-                feedback=feedback,
-                prediction_memory=prediction_memory,
-                prediction_memory_time_emb=prediction_memory_time_emb,
-                prediction_memory_mask=prediction_memory_mask,
-            )
-            latest_repr = cur_repr[:, -1:, :]
-            log_rate_t = self.head(latest_repr, unit_embs)
-            all_log_rates.append(log_rate_t)
-            prev_predicted_counts.append(torch.exp(log_rate_t.squeeze(1).clamp(-10, 10)))
-
-        return torch.cat(all_log_rates, dim=1)
 
     def tokenize(self, data: Data) -> Dict:
         hist_end = self.hist_window

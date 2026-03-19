@@ -634,6 +634,91 @@
 - **依赖**：Python 标准库
 - **备注**：`results.tsv` 中 `fp_bps_*` 记录 best-ckpt rollout-valid，`best_val_fp_bps_* / best_test_fp_bps_*` 记录 best-ckpt teacher-forced valid/test
 
+### verify_decoder_scheduled_sampling.py（1.9 Decoder SS 功能验证）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/verify_decoder_scheduled_sampling.py`
+- **功能用途**：验证 decoder scheduled sampling 的语义边界
+  - 检查 `rollout_prob=0` 时是否数值回退到 teacher-forced 训练路径
+  - 检查 `rollout_prob=1` 时训练 forward 是否不再读取 GT counts 作为条件输入
+  - 检查 `baseline_v2` 类无显式 conditioning 路线是否被显式拒绝
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon_dev_20260320_decoder_scheduled_sampling
+  python scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/verify_decoder_scheduled_sampling.py
+  ```
+- **输出**：stdout 验证结果
+- **依赖**：poyo conda 环境
+- **备注**：Step 2 checkpoint 前的最小语义验证
+
+### run_decoder_scheduled_sampling_smoke.sh（1.9 Decoder SS Smoke Run）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/run_decoder_scheduled_sampling_smoke.sh`
+- **功能用途**：执行 decoder scheduled sampling 的代表性 smoke matrix
+  - 跑功能验证脚本
+  - 跑 `memory-only / fixed-0.50 / linear-0→0.50 / hybrid` 四组设置
+  - 覆盖 `250ms / 500ms / 1000ms` 三个窗口
+  - 对每个 smoke run 补 best-ckpt teacher-forced / rollout valid eval
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon_dev_20260320_decoder_scheduled_sampling
+  bash scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/run_decoder_scheduled_sampling_smoke.sh
+  ```
+- **输出**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling_smoke/`
+- **依赖**：poyo conda 环境
+- **备注**：用于验证 train / eval / config override / current-worktree import 链路
+
+### run_decoder_scheduled_sampling_experiments.sh（1.9 Decoder SS 正式实验）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/run_decoder_scheduled_sampling_experiments.sh`
+- **功能用途**：按完整 `7 settings × 3 windows` 矩阵顺序执行正式训练和离线评估
+  - `memory-only`
+  - `decoder-ss-only`：fixed `0.25 / 0.50 / 0.75`
+  - `decoder-ss-only`：linear `0→0.50 / 0→0.75`
+  - `hybrid`：`mix_prob=0.35 + linear 0→0.50`
+  - 每个 setting/window 训练完成后自动补 best-ckpt teacher-forced / rollout 的 `valid/test`
+  - 末尾调用结果收集脚本
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon_dev_20260320_decoder_scheduled_sampling
+  bash scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/run_decoder_scheduled_sampling_experiments.sh
+  ```
+- **输出**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/{setting}/{window}/`
+- **依赖**：poyo conda 环境
+- **备注**：默认顺序执行，适合放到 `screen` 中长期运行
+
+### collect_decoder_scheduled_sampling_results.py（1.9 Decoder SS 结果汇总）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/collect_decoder_scheduled_sampling_results.py`
+- **功能用途**：汇总 decoder scheduled sampling 的 setting-level 评估结果
+  - 读取每个 setting/window 的 best-ckpt teacher-forced / rollout valid/test JSON
+  - 写出矩阵级 summary JSON
+  - 以 setting 为粒度更新 `results.tsv`
+  - 调用 `plot_optimization_progress.py` 刷新总趋势图
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon_dev_20260320_decoder_scheduled_sampling
+  python scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/collect_decoder_scheduled_sampling_results.py
+  ```
+- **输入**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/{setting}/{window}/eval_*_best_{valid,test}.json`
+  - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+- **输出**：
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/decoder_scheduled_sampling_matrix_summary.json`
+  - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/optimization_progress.{png,pdf}`
+- **依赖**：Python 标准库
+- **备注**：当前按 setting 写入 `results.tsv`，便于将 `memory-only / decoder-ss-only / hybrid` 直接放在同一趋势图里
+
 ### run_prediction_memory_alignment_smoke.sh（1.9 Alignment Smoke Run）
 
 - **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/run_prediction_memory_alignment_smoke.sh`

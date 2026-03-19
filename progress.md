@@ -2176,3 +2176,45 @@
 - canonical `500/250` 在 `best ckpt + formal valid/test` 口径下仍显著为负，且 `true_past` 没有优于 rollout
 - 当前更支持 `from-scratch + token/count mismatch + session conditioning不足` 是 Neuroformer faithful 线的主因，而不是单纯的 exposure accumulation
 - 下一步优先继续跟踪 `150/50` short-window reference，看短窗口是否能显著缓解负值，并在结果生成后继续回填 benchmark 文档
+
+## 2026-03-20 05:30 CST - 1.9 decoder scheduled sampling 实现 checkpoint
+
+**完成事项**：
+1. 完成 `decoder scheduled sampling` 训练主链路实现
+   - `torch_brain/models/neurohorizon.py`：新增 training-time step-by-step autoregressive decode 路径
+   - 新增 `decoder_train_mode`、`decoder_rollout_prob_mode`、`decoder_rollout_prob*`
+   - 支持 `memory-only / decoder-ss-only / hybrid` 三类设置
+   - 对 `baseline_v2` 类无显式 conditioning 路线显式报错
+2. 打通当前 worktree 源码优先导入
+   - `examples/neurohorizon/train.py`
+   - `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+   - 避免命中环境里已安装的旧版 `torch_brain`
+3. 新增本轮 1.9 配置与脚本
+   - 三窗口基础模型配置：`neurohorizon_decoder_scheduled_sampling_{250,500,1000}ms.yaml`
+   - 三窗口基础训练配置：`train_1p9_decoder_scheduled_sampling_{250,500,1000}ms.yaml`
+   - 新增功能验证、smoke、正式实验、结果汇总脚本
+4. 更新文档与任务记录
+   - `cc_core_files/model.md`
+   - `cc_core_files/plan.md`
+   - `cc_core_files/scripts.md`
+   - `cc_todo/phase1-autoregressive/1.9-module-optimization/20260320_decoder_scheduled_sampling.md`
+
+**功能验证结果**：
+- `verify_decoder_scheduled_sampling.py` 已通过
+  - `rollout_prob=0` 时回退到 teacher-forced train path：`zero_prob_delta=7.450581e-09`
+  - `rollout_prob=1` 时不再读取 GT counts：`target_independence_delta=0.0`
+  - `baseline_v2` 类路径会被显式拒绝
+- `decoder_ss_fixed_050` 的 smoke 已在真实数据训练链路中启动，说明新训练路径能被 Hydra 配置、训练入口和评估入口正确命中
+
+**当前运行状态**：
+- `run_decoder_scheduled_sampling_smoke.sh` 正在后台继续执行
+- 已完成 `memory_only_mix035` 的 `250ms / 500ms / 1000ms` smoke train + valid teacher-forced/rollout eval
+- `decoder_ss_fixed_050 250ms` 已开始训练
+
+**遇到的问题与解决**：
+- 问题 1：远程 worktree 带有 unrelated dirty changes，不能直接在原工作树开发
+  - 解决：新建干净分支工作树 `dev/20260320_decoder_scheduled_sampling`
+- 问题 2：训练入口最初命中了环境里的已安装 `torch_brain`，Hydra 报 `NeuroHorizon.__init__()` 不认识新参数
+  - 解决：在训练和评估入口显式将当前 repo root 插到 `sys.path` 最前，强制优先使用当前 worktree 源码
+- 问题 3：一次错误 rsync 在 worktree 根目录落下了 `train.py / eval_phase1_v2.py / verify_decoder_scheduled_sampling.py`
+  - 解决：删除误拷贝文件，仅保留项目正确路径下的版本

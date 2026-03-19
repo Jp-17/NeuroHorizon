@@ -887,6 +887,34 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 > 结果: 250ms fp-bps= / 500ms fp-bps= / 1000ms fp-bps=
 -->
 
+##### 20260320_decoder_scheduled_sampling -- Decoder Scheduled Sampling
+> 状态: 实施中
+> 分支: `dev/20260320_decoder_scheduled_sampling`
+> 文档: `cc_core_files/model.md` 中“2026-03-20 — Decoder Scheduled Sampling”
+> 任务记录: `cc_todo/phase1-autoregressive/1.9-module-optimization/20260320_decoder_scheduled_sampling.md`
+> 脚本: `scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/`
+> 日志: `results/logs/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/`
+> 可视化: `results/figures/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/`
+> commit: 待提交
+> 结果: 待补
+
+- 核心设计：在当前 `local_prediction_memory` 路线上新增 training-time step-by-step autoregressive decode，并按 `rollout_prob` 在上一步 GT / predicted counts 之间切换
+- 与 `prediction_memory_train_mix_prob` 的关系：
+  - `mix_prob` 是 memory token 来源混合
+  - `decoder scheduled sampling` 是 decoder 主训练路径条件输入混合
+- 必做实验保持 1.9 统一规范：10 sessions、连续滑动窗口、obs=500ms、pred=250/500/1000ms
+- 三类正式设置：
+  - `memory-only`
+  - `decoder-ss-only`
+  - `hybrid`
+- 实现约束：
+  - `baseline_v2`（`feedback_method=none`）不可启用 scheduled sampling，必须报错
+  - 训练和评估入口都优先导入当前 repo 源码，避免命中环境中的旧安装包
+- 当前进度：
+  - 代码实现完成
+  - 功能验证通过
+  - smoke / 正式实验待脚本执行完成
+
 ##### 20260312_prediction_memory_decoder -- Structured Prediction Memory Decoder
 > 状态: 已放弃
 > 分支: `dev/20260312_prediction_memory_decoder`

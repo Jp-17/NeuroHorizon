@@ -13,6 +13,11 @@ import shutil
 import csv
 from collections import defaultdict
 from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 import hydra
 import lightning as L
@@ -164,6 +169,23 @@ class TrainWrapper(L.LightningModule):
         """Set null rate lookup tensor for fp-bps computation."""
         self.null_rate_lookup = null_rate_lookup
 
+    def _decoder_rollout_prob_for_epoch(self) -> float:
+        if getattr(self.model, "decoder_train_mode", "parallel_teacher_forced") != "scheduled_sampling":
+            return 0.0
+
+        schedule_mode = getattr(self.model, "decoder_rollout_prob_mode", "fixed")
+        if schedule_mode == "fixed":
+            return float(getattr(self.model, "decoder_rollout_prob", 0.0))
+
+        start = float(getattr(self.model, "decoder_rollout_prob_start", 0.0))
+        end = float(getattr(self.model, "decoder_rollout_prob_end", start))
+        ramp_epochs = int(getattr(self.model, "decoder_rollout_prob_ramp_epochs", 0))
+        if ramp_epochs <= 0:
+            return end
+
+        progress = min(max(self.current_epoch, 0) / float(ramp_epochs), 1.0)
+        return start + (end - start) * progress
+
     def _new_metric_state(self, device: torch.device):
         return {
             "ss_res": torch.zeros((), device=device, dtype=torch.float64),
@@ -185,6 +207,11 @@ class TrainWrapper(L.LightningModule):
 
     def on_test_epoch_start(self):
         self._test_metrics = self._new_metric_state(self.device)
+
+    def on_train_epoch_start(self):
+        rollout_prob = self._decoder_rollout_prob_for_epoch()
+        if hasattr(self.model, "set_decoder_rollout_prob"):
+            self.model.set_decoder_rollout_prob(rollout_prob)
 
     def _shared_eval_step(self, batch, stage: str):
         forward_kwargs = dict(batch["model_inputs"])
@@ -324,6 +351,10 @@ class TrainWrapper(L.LightningModule):
         }
 
     def training_step(self, batch, batch_idx):
+        rollout_prob = self._decoder_rollout_prob_for_epoch()
+        if hasattr(self.model, "set_decoder_rollout_prob"):
+            self.model.set_decoder_rollout_prob(rollout_prob)
+
         # Forward pass (pass target_counts for decoder variants that require shift-right feedback)
         forward_kwargs = dict(batch["model_inputs"])
         if getattr(self.model, "requires_target_counts", False):
@@ -342,6 +373,14 @@ class TrainWrapper(L.LightningModule):
         loss = self.loss_fn(log_rate[mask], target[mask])
 
         self.log("train_loss", loss, prog_bar=True)
+        self.log(
+            "train/decoder_rollout_prob",
+            torch.tensor(rollout_prob, device=self.device, dtype=torch.float32),
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+            sync_dist=False,
+        )
 
         # Log statistics
         with torch.no_grad():

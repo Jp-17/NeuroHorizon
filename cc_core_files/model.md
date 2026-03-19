@@ -143,6 +143,67 @@ PerNeuronMLPHead
 
 （按时间倒序排列，新的改进想法添加在此处）
 
+### 2026-03-20 — Decoder Scheduled Sampling
+
+> 状态: 实施中
+> 分支: `dev/20260320_decoder_scheduled_sampling`
+> cc_todo: `cc_todo/phase1-autoregressive/1.9-module-optimization/20260320_decoder_scheduled_sampling.md`
+> commit: 待提交
+
+**想法描述**：
+在当前最优 `20260313_prediction_memory_alignment_tuning` 路线上，新增一条训练期 `decoder scheduled sampling` 路径，直接让 decoder 主训练链路暴露在更接近 rollout 推理的条件分布下，并与现有 `prediction_memory_train_mix_prob` 做严格对比。
+
+**动机与目的**：
+- 现有 1.9 路线虽然通过 `prediction_memory_train_mix_prob` 缩小了 gap，但 `teacher-forced fp-bps` 仍明显高于 rollout `fp-bps`，说明暴露偏差并未真正消失。
+- 当前 `mix_prob` 的作用点仅在 memory token 来源上：它先用 `generate()` 的无梯度 bootstrap rollout 结果替换部分 training-time memory counts，但主训练 forward 仍是并行 teacher-forced。
+- 因此需要测试更强的分布对齐方式：在训练 forward 本身做 step-by-step autoregressive decoding，并按概率在“上一步真值 counts”和“上一步模型预测 counts”之间切换。
+
+**和 `prediction_memory_train_mix_prob` 的关系**：
+- `prediction_memory_train_mix_prob`：memory 通道级分布对齐。改变的是 decoder 读取的 memory token 来源，不改变主训练 forward 的并行 teacher-forced 语义。
+- `decoder scheduled sampling`：decoder 主路径级分布对齐。改变的是训练期每一步真正条件在什么 counts 上。
+- 两者同属“训练分布向 rollout 推理分布靠近”的方法，但作用点不同，因此本轮实验拆成：
+  - `memory-only`
+  - `decoder-ss-only`
+  - `hybrid`
+
+**新方案定义**：
+- 新增 `decoder_train_mode`、`decoder_rollout_prob_mode` 等模型配置
+- 对 `local_prediction_memory` / `prediction_memory` / 显式 feedback 路线支持 training-time step-by-step autoregressive decoding
+- 对 `baseline_v2`（`feedback_method=none`）显式报错，防止把无条件路径误当作 scheduled sampling
+- 三窗口 `250ms / 500ms / 1000ms` 都按 `1.9.0` 严格协议执行
+
+**批判性分析**：
+- 优点：
+  - 直接作用于暴露偏差主问题，而不是只修补 memory side channel
+  - 可明确比较 `memory-only / decoder-ss-only / hybrid` 三种机制
+  - 复用现有 1.9 指标、训练入口和离线评估入口
+- 风险：
+  - training-time step-by-step decoder 明显更慢，正式三窗口矩阵会比前几轮更重
+  - 若 decoder scheduled sampling 与 memory mix 同时启用，解释性会下降
+  - 若实现不小心走到环境里的已安装包而非当前 repo，实验会静默跑旧代码
+- 替代方案：
+  - 继续只调 `mix_prob / dropout / noise`
+  - 仅在 `1000ms` 窗口先做 schedule 筛选
+
+**修改方案**：
+- 在 `torch_brain/models/neurohorizon.py` 中新增 training-time autoregressive decode 路径
+- 在 `examples/neurohorizon/train.py` 中按 epoch 计算并记录当前 `decoder_rollout_prob`
+- 在训练和评估入口中显式优先导入当前 repo 根目录，避免命中环境里的旧版 `torch_brain`
+- 新增本轮 1.9 的基础配置、验证脚本、smoke 脚本、正式实验脚本与结果收集脚本
+
+**基本功能验证方案**：
+- `rollout_prob=0` 时，新路径数值上回退到 teacher-forced train path
+- `rollout_prob=1` 时，训练 forward 不再读取 GT counts 作为条件输入
+- `feedback_method=none + query_aug` 路线启用 scheduled sampling 时必须显式报错
+- smoke 通过 `250/500/1000ms × 4` 代表性设置验证 train + eval 链路
+
+**当前验证结果**：
+- 代码级验证已通过：
+  - `zero_prob_delta=7.45e-09`
+  - `target_independence_delta=0.0`
+  - baseline_v2-like 路线会被显式拒绝
+- smoke / 正式实验结果待本轮脚本跑完后补充
+
 ### 2026-03-13 — Prediction Memory Alignment Tuning
 
 > 状态: 验证中
