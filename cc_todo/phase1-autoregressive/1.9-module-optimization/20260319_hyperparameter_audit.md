@@ -6,12 +6,12 @@
 
 ## 1. 核心结论
 
-1. **训练主干基本一致**：四轮 1.9 正式实验都复用了 `examples/neurohorizon/train.py`，因此共享同一损失、优化器和 scheduler 逻辑：`PoissonNLLLoss`、`SparseLamb`、`OneCycleLR(cos)`。
+1. **训练主干基本一致，而且明显继承自项目内适配版 POYO+ 而不是 raw defaults**：四轮 1.9 正式实验都复用了 `examples/neurohorizon/train.py`，因此共享同一损失、优化器和 scheduler 逻辑：`PoissonNLLLoss`、`SparseLamb`、`OneCycleLR(cos)`；这条优化主干和 `examples/poyo_plus` 保持同源，但 batch / epoch / precision / eval cadence 已经在 Phase 0/Phase 1 初期被改写过一轮。
 2. **真正破坏严格可比性的点只有两个**：
    - `20260313_prediction_memory_alignment` 和 `20260313_prediction_memory_alignment_tuning` 的 `1000ms` 配置把 `batch_size` 从 `32` 提到了 `64`，从而把 `max_lr` 从 `0.001` 抬到了 `0.002`。
    - 1.9 汇总脚本仍以 `results.tsv` 中的 legacy `baseline_v2=0.2115 / 0.1744 / 0.1317` 为参考，而不是当前 evalfix valid / test 主结果。
-3. **1.9 结果当前本质上是 continuous-valid rollout 对比，不是 held-out test 主结论**：批量脚本调用 `eval_phase1_v2.py --skip-trial`，且没有传 `--split test`，因此默认读取 `valid` split；也没有补 trial-aligned `per_neuron_psth_r2`。
-4. **超参数优化空间仍然很大，但现在先要做的是“口径收口”而不是盲目搜索**：在 `1000ms` 的 batch/lr 漂移和 valid/test 混写没有收口前，继续讨论“是否超过 baseline_v2”并不稳。
+3. **历史 1.9 主表本质上仍是 continuous-valid rollout 对比，但最优 tuning 分支已经补出 current evalfix valid/test**：批量脚本原始调用 `eval_phase1_v2.py --skip-trial`，且没有传 `--split test`，因此历史 `eval_rollout.json` 默认读取 `valid` split；不过 2026-03-20 已补 `20260313_prediction_memory_alignment_tuning` 的 rollout `valid/test` evalfix JSON 和 trial-aligned 指标，current held-out test 仍低于 baseline_v2：`-0.0232 / -0.0104 / -0.0075`。
+4. **超参数优化空间仍然很大，但现在先要做的是“口径收口”而不是盲目搜索**：在 `1000ms` 的 batch/lr 漂移和 current valid/test 还没有对齐到所有 1.9 分支前，继续讨论“是否超过 baseline_v2”并不稳。
 
 ## 2. baseline_v2 当前正式训练口径
 
@@ -46,6 +46,27 @@
 | legacy continuous-valid | 0.2115 | 0.1744 | 0.1317 | `results.tsv` 当前仍在用的旧 1.3.4 引用值 |
 | evalfix valid | 0.2164 | 0.1823 | 0.1374 | 当前更合理的 valid 主参考 |
 | evalfix test | 0.2223 | 0.1740 | 0.1348 | 当前正式 held-out test 主参考 |
+
+### 2.4 与 `examples/poyo_plus` 原始/适配配置相比
+
+| item | raw `examples/poyo_plus/defaults.yaml` | Phase 0 `train_baseline_10sessions.yaml` | `baseline_v2` / 1.9 formal |
+|------|----------------------------------------|------------------------------------------|-----------------------------|
+| 优化器 / scheduler | `SparseLamb + OneCycleLR(cos)` | 相同 | 相同 |
+| `base_lr / weight_decay / lr_decay_start` | `3.125e-5 / 1e-4 / 0.5` | 相同 | 相同 |
+| `epochs` | `1000` | `500` | `300` |
+| `batch_size` | `128` | `64` | `250/500ms=64`；`1000ms baseline_v2=32`；`alignment/tuning 1000ms=64` |
+| `eval_epochs` | `1` | `10` | `10` |
+| `precision` | `32` | `bf16-mixed` | `bf16-mixed` |
+| train transform | 无额外 transform | `UnitDropout(200,30,80,4)` | 与 Phase 0 适配版相同 |
+| train sampler | `RandomFixedWindowSampler` | 相同 | 相同 |
+| valid/test sampler | `DistributedStitchingFixedWindowSampler(step=sequence_length/2)` | 相同 | evalfix 口径改为 `SequentialFixedWindowSampler` |
+| 任务 / readout | 泛化多任务框架 | `cursor_velocity_2d` 行为解码 | `spike_counts` forward prediction + `fp-bps/R²/PSTH-R²` |
+
+补充判断：
+- `baseline_v2` 和 1.9 的训练规程，**更接近项目内 Phase 0 已适配过的 POYO+ baseline**，而不是 raw `poyo_plus` 的原始训练默认值。
+- 真正被 1.9 延续下来的，是 `SparseLamb + OneCycleLR(cos)`、线性 lr scaling、`base_lr=3.125e-5`、`weight_decay=1e-4` 这条优化主干；`epochs / batch / precision / eval cadence / transforms` 这些更显眼的训练超参，其实在 Phase 0/Phase 1 交接时就已经改过。
+- 因此当前 1.9 超参数讨论，本质上是在 **`baseline_v2`-relative / adapted-POYO+-relative** 的局部优化，而不是重新回到 `examples/poyo_plus` 原始 regime 做 optimizer 级重调。
+- 另外，POYO+ Phase 0 的验证/测试主要面向行为解码，使用 `DistributedStitchingFixedWindowSampler(step=0.5s)`；NeuroHorizon baseline_v2 和 1.9 的 current 主口径已经切换到 spike-count forward prediction + evalfix `SequentialFixedWindowSampler`，所以两边数值不能直接横比，只能比较训练规程 lineage。
 
 ## 3. 1.9 各轮正式实验的超参与口径审查
 
@@ -93,7 +114,23 @@
 | `20260313_prediction_memory_alignment` | -0.0280 | -0.0227 | -0.0245 |
 | `20260313_prediction_memory_alignment_tuning` | -0.0219 | -0.0214 | -0.0130 |
 
-这不能直接当作严格 apples-to-apples，因为 1.9 目前没有同步输出 test split，但它能说明：**即使按更宽松的 legacy valid 口径看起来“只差不到 0.01”，切换到 current test 口径后差距仍然是负的。**
+这张表对四轮历史模块仍有解释价值，但不能直接当作严格 apples-to-apples：截至 2026-03-20，只有 `20260313_prediction_memory_alignment_tuning` 已经补 current evalfix `test`；其余分支仍主要保留 valid rollout 总表。它至少说明：**即使按更宽松的 legacy valid 口径看起来“只差不到 0.01”，切换到 current test 口径后差距仍然是负的。**
+
+### 4.4 2026-03-20 最优 1.9 分支的 evalfix valid/test 补评估
+
+对象：`20260313_prediction_memory_alignment_tuning`
+
+| window | rollout evalfix valid | vs baseline valid | rollout evalfix test | vs baseline test | test PSTH-R² | vs baseline test PSTH | test trial fp-bps |
+|--------|------------------------|-------------------|----------------------|------------------|--------------|-----------------------|-------------------|
+| 250ms | `0.1949` | `-0.0215` | `0.1991` | `-0.0232` | `0.6785` | `+0.0705` | `0.2182` |
+| 500ms | `0.1635` | `-0.0188` | `0.1637` | `-0.0104` | `0.6210` | `+0.0054` | `0.1841` |
+| 1000ms | `0.1264` | `-0.0109` | `0.1273` | `-0.0075` | `0.5738` | `-0.1110` | `0.0744` |
+
+补充判断：
+- continuous held-out test `fp-bps` 仍然三窗口全部低于 baseline_v2，说明这轮 tuning 还不能改写“1.9 尚未超过 baseline_v2”的主结论。
+- 差距最小的仍是 `1000ms`，但这个窗口仍混入 `batch_size=64 -> max_lr=0.002` 的 parity 问题，因此不能把 `-0.0075` 解读成“已经基本追平”。
+- trial-aligned 指标呈现出与 continuous 指标不同的现象：`250/500ms` 的 test `PSTH-R²` 已经略高于 baseline_v2，但 `trial_fp_bps` 仍落后，说明 tuning 更像是在改善 trial-averaged 平滑结构，而不是全面提高 spike-wise information gain。
+- `1000ms` 上 trial 指标仍明显落后（`PSTH-R² -0.1110`，`trial fp-bps` 相对 baseline_test 约 `-0.0890`），进一步说明长窗口的“接近 baseline”结论还不稳。
 
 ## 5. 当前仍未系统探索的超参数空间
 
@@ -155,10 +192,10 @@
 
 ## 6. 建议的后续执行顺序
 
-1. **补文档口径**：在 `model.md` 中明确区分 legacy baseline、current evalfix valid 和 current evalfix test。
-2. **重跑 / 重评估 1000ms parity**：优先处理 `alignment` 和 `tuning` 的 `1000ms batch/lr` 不一致。
-3. **给最优 1.9 checkpoint 补 valid/test evalfix**：至少补 `20260313_prediction_memory_alignment_tuning` 的 `250 / 500 / 1000ms rollout valid/test`。
-4. **只在口径收口后再做超参调优**：优先从 `500ms` 的 `mix_prob / dropout / noise` 开始，不建议立刻大范围扫 optimizer。
+1. **[x] 补文档口径（2026-03-20 已执行）**：`model.md` 已明确区分 legacy baseline、current evalfix valid 和 current evalfix test，并补入 `poyo_plus -> adapted poyo_plus -> baseline_v2 / 1.9` 的训练规程 lineage。
+2. **[ ] 重跑 / 重评估 1000ms parity**：优先处理 `alignment` 和 `tuning` 的 `1000ms batch/lr` 不一致。
+3. **[x] 给最优 1.9 checkpoint 补 valid/test evalfix（2026-03-20 已执行）**：已补 `20260313_prediction_memory_alignment_tuning` 的 `250 / 500 / 1000ms rollout valid/test`，结果文件为 `eval_rollout_evalfix_{valid,test}.json`。
+4. **[ ] 只在口径收口后再做超参调优**：优先从 `500ms` 的 `mix_prob / dropout / noise` 开始，不建议立刻大范围扫 optimizer。
 
 ## 7. 本次审查使用的命令
 
@@ -169,14 +206,19 @@ grep -Hn 'epochs:\|batch_size:\|eval_epochs:\|precision:\|seed:\|num_workers:'  
 
 grep -Hn 'base_lr:\|weight_decay:\|lr_decay_start:' examples/neurohorizon/configs/defaults.yaml
 grep -RIn 'SparseLamb\|OneCycleLR\|optim.base_lr\|weight_decay' examples/neurohorizon/train.py
+grep -Hn 'epochs:\|batch_size:\|eval_epochs:\|precision:\|seed:\|num_workers:' examples/poyo_plus/configs/defaults.yaml examples/poyo_plus/configs/train_baseline_10sessions.yaml
+grep -Hn 'base_lr:\|weight_decay:\|lr_decay_start:' examples/poyo_plus/configs/defaults.yaml
+grep -n 'RandomFixedWindowSampler\|DistributedStitchingFixedWindowSampler\|step=self.sequence_length / 2' examples/poyo_plus/train.py
 sed -n '1,80p' cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv
 sed -n '1,220p' scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/collect_prediction_memory_alignment_results.py
 sed -n '1,220p' scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/collect_prediction_memory_alignment_tuning_results.py
 sed -n '1,200p' results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/250ms/eval_rollout.json
+python3 scripts/analysis/neurohorizon/eval_phase1_v2.py --log-dir results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/250ms --rollout --split valid --output results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/250ms/eval_rollout_evalfix_valid.json
+python3 scripts/analysis/neurohorizon/eval_phase1_v2.py --log-dir results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/250ms --rollout --split test --output results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/250ms/eval_rollout_evalfix_test.json
 ```
 
 ## 8. 本次结论的边界
 
-- 这次审查没有新增训练，只核对了当前仓库和现有结果文件。
-- 因此本文能回答的是“当前实验到底是不是同口径”和“下一轮最值得改什么”，不能替代新的重跑结果。
-- 真正要回答“1.9 是否已经超过 baseline_v2”，仍然必须在 evalfix valid/test 口径和 1000ms batch/lr 公平性收口后再下结论。
+- 这次审查没有新增训练，但 2026-03-20 确实新增了 `20260313_prediction_memory_alignment_tuning` 的 rollout `evalfix valid/test` 补评估。
+- 因此本文现在能回答两类问题：一是“当前实验到底是不是同口径”，二是“当前最优 1.9 分支在 current evalfix valid/test 下到底离 baseline_v2 还差多少”。
+- 真正要回答“1.9 是否已经超过 baseline_v2”，仍然必须在 evalfix valid/test 口径和 `1000ms` batch/lr 公平性同时收口后再下结论。

@@ -2080,3 +2080,40 @@
 
 **遇到的问题与解决**：
 - 无额外实现问题，本次仅调整文档层级和信息密度
+
+## 2026-03-20 02:31 CST
+
+### 任务：补 1.9 超参数审查中的 POYO+ 对照口径，并给最优 1.9 分支补 current evalfix valid/test
+
+**完成内容**：
+1. 扩充 `cc_todo/phase1-autoregressive/1.9-module-optimization/20260319_hyperparameter_audit.md`
+   - 新增 `examples/poyo_plus/defaults.yaml`、`train_baseline_10sessions.yaml` 与 `baseline_v2 / 1.9` 的训练规程对照
+   - 明确记录：1.9 继承的是 adapted-POYO+ / baseline_v2 的优化主干，而不是 raw POYO+ defaults
+   - 将第 6 节中的“补文档口径”和“给最优 1.9 checkpoint 补 valid/test evalfix”标记为已执行
+
+2. 更新 `cc_core_files/model.md`
+   - 在 v2 baseline 小节补充 `poyo_plus -> adapted poyo_plus -> baseline_v2 / 1.9` 的训练规程 lineage
+   - 在 `20260313_prediction_memory_alignment_tuning` 小节补充 current evalfix `valid/test` 和 trial 指标
+   - 明确写出：current continuous test `fp-bps` 仍然三窗口全部低于 baseline_v2，`1000ms` 的“接近 baseline”仍受 batch/lr parity 污染
+
+3. 补跑 `20260313_prediction_memory_alignment_tuning` 的 rollout evalfix `valid/test`
+   - 新生成：
+     - `250ms/eval_rollout_evalfix_{valid,test}.json`
+     - `500ms/eval_rollout_evalfix_{valid,test}.json`
+     - `1000ms/eval_rollout_evalfix_{valid,test}.json`
+   - 关键结果：
+     - valid `fp-bps`：`0.1949 / 0.1635 / 0.1264`
+     - test `fp-bps`：`0.1991 / 0.1637 / 0.1273`
+     - 相对 baseline_v2 test 差值：`-0.0232 / -0.0104 / -0.0075`
+     - test `PSTH-R²`：`0.6785 / 0.6210 / 0.5738`
+
+4. 更新 `cc_core_files/results.md`
+   - 新增 `2026-03-20 最优 1.9 分支 evalfix valid/test 补评估` 小节
+   - 记录 current evalfix `valid/test` continuous 与 trial-aligned 结果，并补上与 baseline_v2 的差值解释
+
+**遇到的问题与解决**：
+- `20260313_prediction_memory_alignment_tuning` 新生成的 evalfix JSON 与旧 `eval_rollout.json` schema 不同，字段是 `continuous / trial_aligned` 而不是旧脚本里常见的 `metrics`
+  - 解决：先核对 JSON schema，再统一按 `continuous['fp_bps'] / trial_aligned['per_neuron_psth_r2']` 读取，避免把新旧格式混用
+- `baseline_v2` 的 current evalfix 结果分散在 `phase1_v2_evalfix_{window}_{cont,trial}` 目录
+  - 解决：分别从 continuous 和 trial 目录读取 `eval_v2_{valid,test}_results.json`，再与 1.9 tuning 的 current evalfix 结果逐窗口对齐比较
+

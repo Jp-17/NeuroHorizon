@@ -133,6 +133,9 @@ PerNeuronMLPHead
 - baseline_v2 的正式窗口级 batch / max_lr 为：`250ms=64/0.002`、`500ms=64/0.002`、`1000ms=32/0.001`；共同设置为 `epochs=300`、`eval_epochs=10`、`seed=42`、`precision=bf16-mixed`、`UnitDropout(max=200,min=30,mode=80,peak=4)`。
 - 当前 1.9 汇总脚本仍使用 `results.tsv` 中的 legacy baseline_v2 行（`0.2115 / 0.1744 / 0.1317`）作为默认参考；baseline_v2 的当前正式主口径已更新为 evalfix valid `0.2164 / 0.1823 / 0.1374` 与 test `0.2223 / 0.1740 / 0.1348`。
 - 因此下文 1.9 小节里的 `vs baseline_v2` 默认应理解为“vs legacy continuous-valid reference”，不能直接等同于“vs current evalfix test”。
+- 与 `examples/poyo_plus/configs/defaults.yaml` 的 raw 训练默认值相比，baseline_v2 已经明显偏离原始 POYO+ regime：`epochs 1000 -> 300`、`batch_size 128 -> 64/32`、`eval_epochs 1 -> 10`、`precision 32 -> bf16-mixed`，并新增了 `UnitDropout`；但 `SparseLamb + OneCycleLR(cos)`、`base_lr=3.125e-5`、`weight_decay=1e-4`、`lr_decay_start=0.5` 这条优化主干仍保持同源。
+- 与项目内 Phase 0 的 `examples/poyo_plus/configs/train_baseline_10sessions.yaml` 相比，baseline_v2 / 1.9 的训练规程更接近这版“已适配 POYO+ baseline”：同样使用 `batch_size=64`、`eval_epochs=10`、`bf16-mixed`、相同 `UnitDropout`、相同 10-session 数据集，以及 train-time `RandomFixedWindowSampler`；真正变化更大的是任务定义和评估协议，从行为解码 + `DistributedStitchingFixedWindowSampler(step=0.5s)` 切到了 spike-count forward prediction + evalfix `SequentialFixedWindowSampler`。
+- 因此 1.9 这几轮实验的超参数，本质上是在 `baseline_v2` / adapted-POYO+ 这条训练规程上做局部结构与 memory-specific 调整，而不是重新回到 raw POYO+ defaults 做 optimizer 级重调。
 
 ---
 
@@ -225,6 +228,9 @@ PerNeuronMLPHead
 - 批量脚本额外统一覆盖了 `num_workers=2`；baseline_v2 的主训练脚本未覆盖该项，沿用配置默认 `num_workers=4`。这更像运行时差异，不是核心优化差异。
 - 当前汇总仍调用 `eval_phase1_v2.py --skip-trial` 的默认 `split=valid`，因此表中 rollout 指标是 continuous-valid，而不是 held-out test，也没有补 `per_neuron_psth_r2`。
 - 如果改按 current evalfix baseline 计算，rollout 相对 baseline 的差值应为：vs valid `-0.0160 / -0.0297 / -0.0156`；vs test `-0.0219 / -0.0214 / -0.0130`。
+- 从训练规程 lineage 看，这轮 tuning 仍完全沿用了 `baseline_v2` / adapted-POYO+ 的优化主干：`SparseLamb + OneCycleLR(cos)`、`base_lr=3.125e-5`、`weight_decay=1e-4`、`eval_epochs=10`、`bf16-mixed`，没有单独探索 optimizer family、weight decay 或 scheduler。
+- 2026-03-20 已为当前最优 checkpoint 补 `evalfix rollout valid/test`：`250ms=0.1949 / 0.1991`、`500ms=0.1635 / 0.1637`、`1000ms=0.1264 / 0.1273`；相对 baseline_v2 current evalfix test 的连续 `fp-bps` 差值分别为 `-0.0232 / -0.0104 / -0.0075`。
+- 同次补评估的 trial-aligned test 指标为：`PSTH-R²=0.6785 / 0.6210 / 0.5738`，`trial fp-bps=0.2182 / 0.1841 / 0.0744`；这说明 `250/500ms` 的 trial-averaged 平滑结构已经接近甚至略高于 baseline，但 continuous `fp-bps` 仍未追平，而 `1000ms` 的 trial 指标仍明显落后。
 
 **结果解读**：
 - 小范围 tuning 是有效的，但收益集中在 `250ms` 和 `1000ms`，`500ms` 基本持平。
@@ -240,10 +246,12 @@ PerNeuronMLPHead
   - `250ms`: `0.0711`
   - `500ms`: `0.1197`
   - `1000ms`: `0.1656`
+- 如果改按 2026-03-20 新补的 current evalfix `test` 来看，三个窗口的 continuous `fp-bps` 仍都低于 baseline_v2；其中 `1000ms` 差距最小（`-0.0075`），但该窗口仍混入 `batch/lr` 漂移，因此不能据此宣称“已经追平”。
+- 新补的 test trial 指标提示了一个更细的现象：`250/500ms` 的 `PSTH-R²` 已经略高于 baseline_v2，但 `trial fp-bps` 仍偏低，说明 tuning 更像是在改善 trial-averaged 结构平滑度，而不是全面提高 spike-wise information gain。
 
 **当前判断**：
 - 这轮 tuning 证明上一轮的方向是对的，而且 `mix_prob` 提高、`noise/dropout` 降低的组合整体上是正收益。
-- 当前最接近 `baseline_v2` 的窗口已经变成 `1000ms`，差距不到 `0.01 fp-bps`。
+- 当前最接近 `baseline_v2` 的窗口仍是 `1000ms`，continuous test 差距不到 `0.01 fp-bps`；但由于该窗口的 `batch/lr` parity 还没收口，而且 trial 指标仍落后，这个“接近”还不能直接上升为主结论。
 - 由于 `500ms` 收益很有限，这更像是“同一方向上的细化成功”，而不是已经找到最终最优点；如果继续推进，下一轮应优先围绕 `mix_prob` 和 regularization 的窗口依赖性做更细调优。
 
 ### 2026-03-13 — Prediction Memory Alignment Training
