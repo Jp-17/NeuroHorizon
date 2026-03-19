@@ -845,37 +845,43 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 **Step 1 -- 想法记录与讨论**（在提出改进想法时）：
 - 在 `cc_core_files/model.md` 中新增一节，标注日期和改进名称
-- 记录：想法描述、动机与目的、相比现有方案的改动点
+- 记录：想法描述、动机与目的、相比现有方案的改动点、模型改进的实现方案、涉及改动模块
 - 进行充分的批判性分析：优缺点、风险、替代方案
-- 基于当前仓库代码实现，给出大致的修改方案和基本功能验证方案
+- 基于当前仓库代码实现，给出可落地的修改方案和基本功能验证方案
 - 标记状态为"提出"
 
 **Step 2 -- 分支创建与代码实施**（在用户确认可实施时）：
-- 在当前 git 状态基础上创建分支 `dev/{date}_{module_name}`
+- 如果用户未明确指定实施分支，则默认在当前 git 状态基础上创建并切换到分支 `dev/{date}_{module_name}`
 - 按 `model.md` 中该节的修改方案进行代码改动
 - 完成基本功能验证（代码可跑、无错误）
 - 在 `model.md` 中更新状态为"实施中"
 - **Step 2 完成后立即执行一次 `git commit` + `git push`**：提交当前轮的代码、配置、文档和最小验证结果，作为实现阶段 checkpoint；即使后续正式实验效果不佳，也必须保留这一版实现记录
 
 **Step 3 -- 实验验证**（按优先级依次进行）：
-1. **必做 -- 预测窗口实验**（参照 1.3.4）：
+1. **必做 -- 协议确认 + 预测窗口实验**（实验骨架参照 1.3.4，默认协议参照 1.3.7）：
+   - 开始实验前必须明确确认本轮实验是否遵循 `1.3.7 NeuroHorizon 实验默认数据与指标标准`
+   - 如果与 `1.3.7` 不一致，必须在任务记录中书面记录差异项、原因和影响范围
    - 数据: `examples/neurohorizon/configs/dataset/perich_miller_10sessions.yaml`
    - 采样方式: 连续滑动窗口（非 trial-aligned）
    - 观察窗口: 500ms
    - 预测窗口: 250ms / 500ms / 1000ms（3 个条件）
-   - 评估指标: fp-bps / R-squared / PSTH-R-squared / Poisson NLL
+   - 默认至少记录的指标: `fp-bps` / `per-bin fp-bps`
+   - `R-squared` / `PSTH-R-squared` / `Poisson NLL` 作为补充指标按需要记录
 2. **可选 -- 观察窗口实验**（参照 1.4，用户确认后执行）
 3. **可选 -- Session 数目实验**（参照 1.5，用户确认后执行）
 
 **Step 4 -- 实验记录**（遵循 CLAUDE.md 中"任务执行中"的记录规范）：
 - **任务记录**: `cc_todo/phase1-autoregressive/1.9-module-optimization/{date}_{module_name}.md`
-  - 必须包含：改进想法摘要、详细实验配置（数据集、sessions 数、采样方式、obs/pred 窗口）、训练 loss 结果、各条件 metric 结果（fp-bps 等）、与 baseline 的对比
+  - 必须包含：改进想法摘要、实现方案、涉及改动模块、详细实验配置（数据集、sessions 数、采样方式、obs/pred 窗口）、每次实验的关键超参数（至少包括 `epoch`、`batch_size`、`lr`、`weight_decay`）、训练 loss 结果、train 期间最佳 `val fp-bps`、test `fp-bps`、test 使用的 checkpoint 标识/时间、各条件指标结果（至少 `fp-bps` / `per-bin fp-bps`）、与 baseline 的对比
 - **脚本**: `scripts/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
 - **实验日志**: `results/logs/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
 - **可视化**: `results/figures/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
-- **training curves**: 每轮正式实验结束后，必须补充 `training_curves.{png,pdf}`，至少覆盖 `250/500/1000ms` 的 epoch-level `train_loss`、`val_loss` 与 `val/fp_bps` 轨迹
+  - 除 training curves 外，还必须补充：
+    - 随预测窗口长度变化的 `fp-bps` 趋势图
+    - 每个预测窗口的 `per-bin fp-bps` 衰减曲线
+    - 一个表格型 PNG，用于汇总每次模型改进在不同预测窗口下的最佳 `val fp-bps`、test `fp-bps`、test checkpoint 标识/时间等核心结果
 - **汇总更新**: `cc_core_files/scripts.md` 和 `cc_core_files/results.md` 按 CLAUDE.md 规范更新
-- **TSV 更新**: 将预测窗口实验结果追加到 `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+- **TSV 更新**: 将预测窗口实验结果追加到 `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`，至少记录每个窗口的最佳 `val fp-bps`、test `fp-bps`、test checkpoint 标识/时间以及必要备注
 - **趋势图更新**: 运行 `plot_optimization_progress.py` 更新优化进度折线图
 - **Step 4 完成后再执行一次 `git commit` + `git push`**：提交正式实验结果、汇总图表、结论更新与状态变更，保证每轮优化至少留下“实现 checkpoint”和“结果 checkpoint”两次提交
 

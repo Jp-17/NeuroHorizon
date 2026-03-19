@@ -1958,3 +1958,22 @@
 1. 在 dev/benchmark 上补充本次分支同步记录
 2. 确认 main 可通过 fast-forward 同步到当前 dev/benchmark
 3. 推送更新后的 dev/benchmark 与 main 到 GitHub 远程
+
+2026-03-19 17:20 CST
+
+根据最新主线分支同步状态，补充并收紧了 `cc_core_files/plan.md` 中 `1.9.0 执行规范` 的文档要求，重点把增量模型优化流程中的记录规范、默认分支策略、实验协议确认和结果沉淀要求写得更明确。
+
+1. 更新 `cc_core_files/plan.md`：
+   - 在 Step 1 中新增“实现方案”和“涉及改动模块”的记录要求
+   - 在 Step 2 中明确：若用户未指定分支，默认创建 `dev/{date}_{module_name}`
+   - 在 Step 3 中新增：实验前必须确认是否遵循 1.3.7；若不一致必须书面记录；默认至少记录 `fp-bps` 和 `per-bin fp-bps`
+   - 在 Step 4 中新增：任务记录必须包含关键超参数、最佳 `val fp-bps`、test `fp-bps`、test checkpoint 标识/时间；可视化除 training curves 外，还要补充窗口级 `fp-bps` 趋势图、各窗口 `per-bin fp-bps` 衰减曲线，以及表格型 PNG 汇总图
+   - 在 Step 4 中进一步明确：`cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv` 至少要记录各窗口的最佳 `val fp-bps`、test `fp-bps`、test checkpoint 标识/时间和必要备注
+
+**执行结果**：
+- `1.9.0` 现在已经把想法记录、默认建分支、协议确认、关键指标、超参数、结果表和图表沉淀要求统一写清
+- 后续 1.9.x 模型优化任务在立项、实施、实验和总结阶段的最小记录标准更加明确，减少遗漏关键信息的风险
+
+**遇到的问题与解决**：
+- 当前 `main`、`dev/benchmark`、`dev/latent`、`dev/diffusion` 的远端同步关系刚发生变化，容易导致“是 cherry-pick 还是直接快进”判断混乱
+  先重新 fetch 并核对四个分支的 commit 关系，再按最新状态执行“先在 main 修改，再把三个开发分支直接 forward 到 main”的策略
