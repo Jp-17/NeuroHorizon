@@ -7,6 +7,7 @@
 > - 执行计划：`cc_core_files/plan.md` §1.9
 > - 实验效果追踪：`cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
 > - 优化趋势图：`results/figures/phase1-autoregressive-1.9-module-optimization/optimization_progress.png`
+> - 超参数审查与优化空间：`cc_todo/phase1-autoregressive/1.9-module-optimization/20260319_hyperparameter_audit.md`
 
 ---
 
@@ -126,6 +127,13 @@ PerNeuronMLPHead
 - vs IBL-MtM: +20.9% / +13.9% / +31.6%
 - 以最小参数量（~2.1M）在所有预测窗口上取得最佳表现
 
+**训练/评估超参基线复核（2026-03-19）**：
+- 正式三窗口训练统一走 `examples/neurohorizon/train.py`：损失函数为 `PoissonNLLLoss`，优化器为 `SparseLamb`，学习率调度器为 `OneCycleLR(cos)`。
+- 共享优化超参来自 `examples/neurohorizon/configs/defaults.yaml`：`base_lr=3.125e-5`、`weight_decay=1e-4`、`lr_decay_start=0.5`、`div_factor=1`；训练脚本实际使用 `max_lr = base_lr × batch_size`。
+- baseline_v2 的正式窗口级 batch / max_lr 为：`250ms=64/0.002`、`500ms=64/0.002`、`1000ms=32/0.001`；共同设置为 `epochs=300`、`eval_epochs=10`、`seed=42`、`precision=bf16-mixed`、`UnitDropout(max=200,min=30,mode=80,peak=4)`。
+- 当前 1.9 汇总脚本仍使用 `results.tsv` 中的 legacy baseline_v2 行（`0.2115 / 0.1744 / 0.1317`）作为默认参考；baseline_v2 的当前正式主口径已更新为 evalfix valid `0.2164 / 0.1823 / 0.1374` 与 test `0.2223 / 0.1740 / 0.1348`。
+- 因此下文 1.9 小节里的 `vs baseline_v2` 默认应理解为“vs legacy continuous-valid reference”，不能直接等同于“vs current evalfix test”。
+
 ---
 
 ## 模型改进记录
@@ -210,6 +218,13 @@ PerNeuronMLPHead
 | 250ms | 0.2715 | 0.2004 | -0.0111 | +0.0060 |
 | 500ms | 0.2722 | 0.1526 | -0.0218 | +0.0013 |
 | 1000ms | 0.2875 | 0.1218 | -0.0099 | +0.0115 |
+
+**训练与对比口径复核（2026-03-19）**：
+- `250ms / 500ms` 正式训练超参与 baseline_v2 保持一致：`epochs=300`、`batch_size=64`、`max_lr=0.002`、`weight_decay=1e-4`、`SparseLamb + OneCycleLR(cos)`、`PoissonNLLLoss`、`seed=42`、`bf16-mixed`、`perich_miller_10sessions`、连续滑动窗口训练。
+- `1000ms` 当前 tuning 配置改成了 `batch_size=64`，而 baseline_v2 与前两轮 1.9（`20260312_prediction_memory_decoder` / `20260313_local_prediction_memory`）的 `1000ms` 都是 `batch_size=32`；这会把 `max_lr` 从 `0.001` 抬到 `0.002`，因此 `1000ms` 结果不是严格的“只调三项 memory 超参”对比。
+- 批量脚本额外统一覆盖了 `num_workers=2`；baseline_v2 的主训练脚本未覆盖该项，沿用配置默认 `num_workers=4`。这更像运行时差异，不是核心优化差异。
+- 当前汇总仍调用 `eval_phase1_v2.py --skip-trial` 的默认 `split=valid`，因此表中 rollout 指标是 continuous-valid，而不是 held-out test，也没有补 `per_neuron_psth_r2`。
+- 如果改按 current evalfix baseline 计算，rollout 相对 baseline 的差值应为：vs valid `-0.0160 / -0.0297 / -0.0156`；vs test `-0.0219 / -0.0214 / -0.0130`。
 
 **结果解读**：
 - 小范围 tuning 是有效的，但收益集中在 `250ms` 和 `1000ms`，`500ms` 基本持平。
@@ -314,6 +329,13 @@ PerNeuronMLPHead
 | 500ms | 0.2831 | 0.1513 | -0.0231 | +0.1618 |
 | 1000ms | 0.2821 | 0.1103 | -0.0214 | +0.3225 |
 
+**训练与对比口径复核（2026-03-19）**：
+- `250ms / 500ms` 正式训练超参与 baseline_v2 一致：`epochs=300`、`batch_size=64`、`max_lr=0.002`、`weight_decay=1e-4`、`SparseLamb + OneCycleLR(cos)`、`PoissonNLLLoss`、`seed=42`、`bf16-mixed`。
+- `1000ms` alignment 配置同样改成了 `batch_size=64`，而 baseline_v2 与更早的两轮 1.9 在 `1000ms` 都是 `batch_size=32`；对应 `max_lr` 从 `0.001` 提高到 `0.002`，因此长窗口改善里混入了 batch / lr 变化。
+- 批量脚本统一覆盖 `num_workers=2`，与 baseline_v2 脚本的默认 `num_workers=4` 不同，但这主要影响吞吐，不改变 loss / optimizer 语义。
+- 当前结果来自 `eval_phase1_v2.py --skip-trial` 的默认 `split=valid` continuous rollout；它们没有对齐到后续 evalfix 的 held-out test 主口径。
+- 如果改按 current evalfix baseline 计算，rollout 相对 baseline 的差值应为：vs valid `-0.0221 / -0.0310 / -0.0271`；vs test `-0.0280 / -0.0227 / -0.0245`。
+
 **结果解读**：
 - 这是当前第一版“显式 prediction feedback”方案中，第一次在三个窗口上都逼近 `baseline_v2`，且差距已经收缩到约 `0.02 fp-bps` 量级。
 - 相比 `20260313_local_prediction_memory`，提升非常显著，尤其长窗口改善最大：
@@ -390,6 +412,12 @@ PerNeuronMLPHead
 | 250ms | 0.2869 | 0.1621 | -0.0494 | +0.0135 |
 | 500ms | 0.2846 | -0.0105 | -0.1849 | +0.0048 |
 | 1000ms | 0.2732 | -0.2122 | -0.3439 | +0.0468 |
+
+**训练与对比口径复核（2026-03-19）**：
+- 这一轮 formal 训练在三个窗口上都与 baseline_v2 保持同一组训练主超参：`epochs=300`、`batch_size={250:64,500:64,1000:32}`、`max_lr={250:0.002,500:0.002,1000:0.001}`、`weight_decay=1e-4`、`SparseLamb + OneCycleLR(cos)`、`PoissonNLLLoss`、`seed=42`、`bf16-mixed`。
+- 与 baseline_v2 的实际差异主要只有结构本身和批量脚本里的 `num_workers=2` 覆盖；后者相对 baseline_v2 默认 `num_workers=4` 更像运行时设置差异。
+- 当前表格中的 rollout 指标来自 continuous-valid `eval_rollout.json`，默认比较对象也是 `results.tsv` 中的 legacy baseline_v2，而不是后续 evalfix test。
+- 如果改按 current evalfix baseline 计算，rollout 相对 baseline 的差值应为：vs valid `-0.0543 / -0.1928 / -0.3496`；vs test `-0.0602 / -0.1845 / -0.3470`。
 
 **关键观察**：
 - local-only memory 相比 `20260312_prediction_memory_decoder` 确实带来了小幅 rollout 改善，尤其 `1000ms` 从 `-0.2590` 提升到 `-0.2122`。
@@ -572,6 +600,12 @@ Future bin queries
 | 250ms | 0.2979 | 0.1486 | -0.0629 |
 | 500ms | 0.2832 | -0.0153 | -0.1897 |
 | 1000ms | 0.2776 | -0.2590 | -0.3907 |
+
+**训练与对比口径复核（2026-03-19）**：
+- 这一轮 formal 训练在三个窗口上都与 baseline_v2 保持同一组训练主超参：`epochs=300`、`batch_size={250:64,500:64,1000:32}`、`max_lr={250:0.002,500:0.002,1000:0.001}`、`weight_decay=1e-4`、`SparseLamb + OneCycleLR(cos)`、`PoissonNLLLoss`、`seed=42`、`bf16-mixed`。
+- 与 baseline_v2 的运行层差异主要只有批量脚本覆盖 `num_workers=2`；baseline_v2 主训练脚本未覆盖该项，沿用默认 `num_workers=4`。
+- 当前表格中的 rollout 指标来自 continuous-valid `eval_rollout.json`，而 `vs baseline_v2` 读取的是 `results.tsv` 里的 legacy 行，不是当前 evalfix valid/test 主结果。
+- 如果改按 current evalfix baseline 计算，rollout 相对 baseline 的差值应为：vs valid `-0.0678 / -0.1976 / -0.3964`；vs test `-0.0737 / -0.1893 / -0.3938`。
 
 **关键观察**：
 - teacher forcing 下，prediction memory 版本显著高于 `baseline_v2`，说明模型容量和训练拟合能力都不是瓶颈。

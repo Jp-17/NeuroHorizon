@@ -1927,3 +1927,25 @@
   - 解决：统一从各模块 `*_summary.json` 的 checkpoint 字段反查正式 run 对应的 `metrics.csv`
 - 原有 1.9 结果已经有 summary JSON 和总趋势图，但缺少 epoch-level training curves
   - 解决：新增统一绘图脚本，按 Step 4 要求把脚本、figure、结果记录和汇总文档一次性补齐
+
+
+2026-03-19 15:35 CST
+
+完成 Phase 1.9 模型优化超参数审查，并把结论写回 `model.md` 和新的 1.9 超参分析文档。
+
+1. 审查 `baseline_v2` 与四轮 1.9 formal 实验的训练/评估超参
+   - 确认四轮 1.9 都复用 `examples/neurohorizon/train.py` 的主训练逻辑：`PoissonNLLLoss`、`SparseLamb`、`OneCycleLR(cos)`、`base_lr=3.125e-5`、`weight_decay=1e-4`
+   - 确认 `20260312_prediction_memory_decoder` 与 `20260313_local_prediction_memory` 在 `250/500/1000ms` 上都与 baseline_v2 保持 batch/lr 口径一致
+   - 发现 `20260313_prediction_memory_alignment` 与 `20260313_prediction_memory_alignment_tuning` 的 `1000ms` 配置改成 `batch_size=64`，相对 baseline_v2 `batch_size=32` 把 `max_lr` 从 `0.001` 提高到 `0.002`
+
+2. 审查 1.9 与 baseline_v2 的对比口径
+   - 确认 1.9 汇总脚本仍读取 `results.tsv` 中的 legacy baseline_v2 行（`0.2115 / 0.1744 / 0.1317`）
+   - 确认 1.9 批量评估脚本调用 `eval_phase1_v2.py --skip-trial`，未显式传 `--split test`，因此当前 1.9 主表本质上是 continuous-valid rollout 对比，不是 current evalfix test 主结论
+
+3. 文档更新
+   - `cc_core_files/model.md`：在 v2 baseline 和四轮 1.9 模块下补充训练超参、batch/lr 口径与 baseline_v2 对比说明
+   - `cc_todo/phase1-autoregressive/1.9-module-optimization/20260319_hyperparameter_audit.md`：新增系统审查文档，整理一致性结论、current valid/test 差值和后续优化建议
+
+**当前建议**：
+- 若要继续推进 1.9，先处理 `alignment / tuning` 的 `1000ms` batch/lr 公平性，再补 current evalfix valid/test 的 rollout 评估
+- 超参优化优先级建议放在 `500ms` 的 `mix_prob / dropout / noise`，而不是立即做大范围 optimizer sweep
