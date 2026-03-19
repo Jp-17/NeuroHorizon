@@ -219,3 +219,26 @@ python examples/neurohorizon/train.py --config-name=train_1p9_prediction_memory_
 
 - 本次只实现主线 `prediction_memory`，不同时引入 scheduled sampling。
 - rollout 反馈使用 predicted expected counts，即 `exp(log_rate)`，不做 Poisson sampling。
+
+## 2026-03-19 补充：training curves 可视化
+
+- 脚本：`scripts/phase1-autoregressive-1.9-module-optimization/plot_optimization_training_curves.py`
+- 图表：`results/figures/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/training_curves.png`
+- 数据来源：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/250ms/lightning_logs/version_3/metrics.csv`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/500ms/lightning_logs/version_1/metrics.csv`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/1000ms/lightning_logs/version_0/metrics.csv`
+- 图表内容：
+  - 上排为 `250/500/1000ms` 三个窗口的 epoch-level `train_loss` 与 `val_loss`
+  - 下排为训练期 `val/fp_bps` 曲线，并叠加 post-train teacher-forced、rollout 与 `baseline_v2` 参考线
+- 观察结论：
+  1. 三个窗口的 loss 曲线都能稳定下降，说明训练链路本身不存在发散或数值不稳定。
+  2. `500ms/1000ms` 的 `val/fp_bps` 在中后期已经明显进入平台，但 post-train rollout 参考线仍远低于训练末期 teacher-forced 水平，进一步确认核心问题是 exposure bias / rollout drift，而不是训练没收敛。
+
+执行命令：
+
+```bash
+conda activate poyo
+cd /root/autodl-tmp/NeuroHorizon
+python scripts/phase1-autoregressive-1.9-module-optimization/plot_optimization_training_curves.py --module 20260312_prediction_memory_decoder
+```

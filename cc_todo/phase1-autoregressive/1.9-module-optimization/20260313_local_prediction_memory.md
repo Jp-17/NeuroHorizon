@@ -226,3 +226,26 @@ bash scripts/phase1-autoregressive-1.9-module-optimization/20260313_local_predic
 2. 主动削弱 memory encoder 这条 side channel 的可靠性，让 decoder 不能把它当作过于确定的局部教师信号。
 
 这也是下一轮 1.9 迭代优先尝试 `mixed GT/predicted memory` 与 `memory-input noise/dropout` 的直接原因。
+
+## 2026-03-19 补充：training curves 可视化
+
+- 脚本：`scripts/phase1-autoregressive-1.9-module-optimization/plot_optimization_training_curves.py`
+- 图表：`results/figures/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/training_curves.png`
+- 数据来源：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/250ms/lightning_logs/version_1/metrics.csv`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/500ms/lightning_logs/version_0/metrics.csv`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/1000ms/lightning_logs/version_0/metrics.csv`
+- 图表内容：
+  - 上排为 `250/500/1000ms` 三个窗口的 epoch-level `train_loss` 与 `val_loss`
+  - 下排为训练期 `val/fp_bps` 曲线，并叠加 post-train teacher-forced、rollout 与 `baseline_v2` 参考线
+- 观察结论：
+  1. 相比 `20260312_prediction_memory_decoder`，三窗口训练仍然稳定，但曲线形态没有发生结构性变化，说明“只收缩 memory 可见范围”主要带来的是有限增益而不是机制性修复。
+  2. `500ms/1000ms` 的 `val/fp_bps` 虽略有抬升，但平台仍偏低，且 rollout 参考线依旧明显落后于 teacher-forced 水平，这与正式结果中的“仅小幅改善”一致。
+
+执行命令：
+
+```bash
+conda activate poyo
+cd /root/autodl-tmp/NeuroHorizon
+python scripts/phase1-autoregressive-1.9-module-optimization/plot_optimization_training_curves.py --module 20260313_local_prediction_memory
+```

@@ -135,3 +135,26 @@ python scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction
    - rollout gap 大幅缩小
    - per-bin fp-bps 在三个窗口上都保持正值，不再出现上一轮那种中后段转负崩塌
 4. 当前仍略低于 `baseline_v2`，说明显式 feedback 通路还没有完全把额外复杂度转化成稳定收益；但这已经不再是“失败迭代”，而是一个值得继续细调的强候选方案。
+
+## 2026-03-19 补充：training curves 可视化
+
+- 脚本：`scripts/phase1-autoregressive-1.9-module-optimization/plot_optimization_training_curves.py`
+- 图表：`results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/training_curves.png`
+- 数据来源：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/250ms/lightning_logs/version_1/metrics.csv`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/500ms/lightning_logs/version_0/metrics.csv`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/1000ms/lightning_logs/version_0/metrics.csv`
+- 图表内容：
+  - 上排为 `250/500/1000ms` 三个窗口的 epoch-level `train_loss` 与 `val_loss`
+  - 下排为训练期 `val/fp_bps` 曲线，并叠加 post-train teacher-forced、rollout 与 `baseline_v2` 参考线
+- 观察结论：
+  1. 三个窗口的 `val/fp_bps` 都持续抬升到训练后期，不再像上一轮那样较早停滞，说明 training-time memory alignment 的收益是贯穿训练过程的，而不是偶然来自某一小段 epoch。
+  2. `1000ms` 曲线改善最明显，且 rollout 参考线和训练末期曲线的距离明显缩小，和“长窗口提升最大、rollout gap 显著收缩”的正式结论一致。
+
+执行命令：
+
+```bash
+conda activate poyo
+cd /root/autodl-tmp/NeuroHorizon
+python scripts/phase1-autoregressive-1.9-module-optimization/plot_optimization_training_curves.py --module 20260313_prediction_memory_alignment
+```

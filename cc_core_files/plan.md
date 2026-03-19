@@ -873,6 +873,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - **脚本**: `scripts/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
 - **实验日志**: `results/logs/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
 - **可视化**: `results/figures/phase1-autoregressive-1.9-module-optimization/{date}_{module_name}/`
+- **training curves**: 每轮正式实验结束后，必须补充 `training_curves.{png,pdf}`，至少覆盖 `250/500/1000ms` 的 epoch-level `train_loss`、`val_loss` 与 `val/fp_bps` 轨迹
 - **汇总更新**: `cc_core_files/scripts.md` 和 `cc_core_files/results.md` 按 CLAUDE.md 规范更新
 - **TSV 更新**: 将预测窗口实验结果追加到 `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
 - **趋势图更新**: 运行 `plot_optimization_progress.py` 更新优化进度折线图
@@ -925,6 +926,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 本次实现固定 `prediction_memory_k=4`，输出仍为 `future T bins x N units` 的 spike counts
 - 训练使用 `shift-right` GT counts 构造 prediction memory；推理使用 `exp(log_rate)` 得到 expected counts 再编码
 - 必做实验保持 1.9 统一规范：10 sessions、连续滑动窗口、obs=500ms、pred=250/500/1000ms
+- training curves：`results/figures/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/training_curves.png`
 - 结论：teacher-forced 指标很高，但 rollout 显著差于 `baseline_v2`，尤其长窗口出现严重误差积累；该方案不作为主线继续推进
 
 ##### 20260313_local_prediction_memory -- Local Prediction Memory Decoder
@@ -940,6 +942,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 - 核心设计：保留 structured memory，但 query 只访问紧邻上一步的 local memory block
 - 设计动机：针对 20260312 版本全历史 memory 检索带来的 rollout 崩塌，优先收缩 feedback 通路容量
+- training curves：`results/figures/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/training_curves.png`
 - 结果结论：相对上一轮有小幅改善，但 rollout 仍显著差于 `baseline_v2`；`500ms/1000ms` 仍在中后段转负，因此本轮也不作为主线继续推进
 
 ##### 20260313_prediction_memory_alignment -- Prediction Memory Alignment Training
@@ -957,6 +960,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 训练策略：将 `shift-right GT counts` 与 `shift-right predicted expected counts` 做时间步级混合，并对 memory encoder 输入施加 noise / dropout
 - 设计动机：针对 `20260313_local_prediction_memory` 暴露出的核心 train / inference mismatch，而不是继续只改 memory mask
 - 必做实验保持 1.9 统一规范：10 sessions、连续滑动窗口、obs=500ms、pred=250/500/1000ms
+- training curves：`results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/training_curves.png`
 - 当前结果：相对 `20260313_local_prediction_memory` 大幅改善，并在三个窗口上都逼近 `baseline_v2`；是否继续迭代或转主线由用户决定
 
 ##### 20260313_prediction_memory_alignment_tuning -- Prediction Memory Alignment Tuning
@@ -974,6 +978,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 调参内容：`mix_prob 0.25 -> 0.35`，`dropout 0.10 -> 0.05`，`noise_std 0.05 -> 0.03`
 - 设计动机：上一轮已逼近 `baseline_v2`，当前更值得测试的是 alignment 强度与 regularization 强度的平衡，而不是继续改结构
 - 必做实验保持 1.9 统一规范：10 sessions、连续滑动窗口、obs=500ms、pred=250/500/1000ms
+- training curves：`results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/training_curves.png`
 - 当前结果：较 `20260313_prediction_memory_alignment` 再次小幅提升，`1000ms` 距 `baseline_v2` 仅差 `0.0099 fp-bps`；是否继续细调由用户决定
 
 

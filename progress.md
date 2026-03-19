@@ -1887,3 +1887,43 @@
 - `NDT2` 继续暂停
 - `IBL-MtM` 若继续，只保留 `combined` 路线，考虑 `e20/e30` 或更接近上游预训练/metadata 的方案
 - `Neuroformer` 当前不建议进入 500ms / 1000ms 扩展
+
+
+2026-03-19 15:56 CST
+
+按 `cc_core_files/plan.md` 1.9.0 Step 4 补齐了 Phase 1.9 四轮模块优化迭代的 training curves 可视化，并把脚本、figure、任务记录和汇总文档同步到对应位置。
+
+1. 新增脚本：
+   - `scripts/phase1-autoregressive-1.9-module-optimization/plot_optimization_training_curves.py`
+   - 功能：从各模块 summary JSON 反查正式 checkpoint 对应的 `metrics.csv`，按 epoch 聚合 `train_loss / val_loss / val/fp_bps`，为每轮 1.9 迭代生成 `training_curves.{png,pdf}`
+
+2. 新增 figure：
+   - `results/figures/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/training_curves.{png,pdf}`
+   - `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/training_curves.{png,pdf}`
+   - `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/training_curves.{png,pdf}`
+   - `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/training_curves.{png,pdf}`
+
+3. 文档同步：
+   - `cc_core_files/plan.md`
+     - 在 1.9.0 Step 4 中补充 training curves 必做要求
+     - 在 1.9.2 四轮迭代条目中补充实际 `training_curves.png` 路径
+   - `cc_core_files/scripts.md`
+     - 登记新脚本 `plot_optimization_training_curves.py`
+   - `cc_core_files/results.md`
+     - 为四轮正式结果补充 `training_curves.{png,pdf}` 存储路径和曲线解读
+   - `cc_todo/phase1-autoregressive/1.9-module-optimization/*.md`
+     - 分别追加 2026-03-19 的 training curves 可视化记录、数据来源、执行命令和观察结论
+
+4. 可视化结论摘要：
+   - `20260312_prediction_memory_decoder` 与 `20260313_local_prediction_memory`
+     - loss 曲线稳定收敛，但 `val/fp_bps` 中后期较早平台化，且 post-train rollout 参考线仍显著落后于 teacher-forced 水平
+   - `20260313_prediction_memory_alignment`
+     - 三窗口 `val/fp_bps` 持续抬升到训练后期，长窗口改善最明显
+   - `20260313_prediction_memory_alignment_tuning`
+     - `250ms / 1000ms` 末段曲线相对上一轮略有上移，`500ms` 基本持平，和正式结果中的“小幅继续推进”一致
+
+**遇到的问题与解决**：
+- 1.9 各模块目录里存在多个 `lightning_logs/version_*`，直接凭目录序号引用容易写错正式 run 的来源
+  - 解决：统一从各模块 `*_summary.json` 的 checkpoint 字段反查正式 run 对应的 `metrics.csv`
+- 原有 1.9 结果已经有 summary JSON 和总趋势图，但缺少 epoch-level training curves
+  - 解决：新增统一绘图脚本，按 Step 4 要求把脚本、figure、结果记录和汇总文档一次性补齐

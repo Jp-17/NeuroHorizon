@@ -253,6 +253,30 @@
 - **依赖**：poyo conda 环境
 - **备注**：对应 plan.md 任务 1.1.5；从 `/tmp/neurohorizon_test_model.py` 迁移
 
+### plot_optimization_training_curves.py（1.9 训练曲线可视化）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/plot_optimization_training_curves.py`
+- **功能用途**：为 Phase 1.9 各轮模块优化补充 epoch-level training curves
+  - 从各模块 summary JSON 反查正式 checkpoint 对应的 `metrics.csv`
+  - 聚合 `train_loss` / `val_loss` / `val/fp_bps`
+  - 生成每轮迭代各自的 `training_curves.{png,pdf}`
+- **创建时间**：2026-03-19
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/phase1-autoregressive-1.9-module-optimization/plot_optimization_training_curves.py
+  python scripts/phase1-autoregressive-1.9-module-optimization/plot_optimization_training_curves.py --module 20260313_prediction_memory_alignment_tuning
+  ```
+- **输入**：
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/*/*_summary.json`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/*/*/lightning_logs/version_*/metrics.csv`
+- **输出**：
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/*/training_curves.png`
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/*/training_curves.pdf`
+- **依赖**：poyo conda 环境（pandas, matplotlib）
+- **备注**：用于补齐 plan.md 1.9 中各轮正式实验缺失的 training curves 可视化
+
 ### verify_prediction_memory.py（1.9 Structured Prediction Memory 功能验证）
 
 - **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/verify_prediction_memory.py`

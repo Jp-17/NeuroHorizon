@@ -125,3 +125,26 @@ python scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction
 2. `250ms` 和 `1000ms` 继续改善，`500ms` 基本持平，说明“更强对齐 + 更轻正则”总体方向正确，但窗口间最佳平衡可能并不完全一致。
 3. 当前最好的结果来自 `1000ms`，已经把与 `baseline_v2` 的差距压到 `0.0099 fp-bps`。
 4. 相比上一轮 alignment，三个窗口都没有退化，因此这组超参可以视为当前显式 prediction-memory 路线上的新 best-known setting。
+
+## 2026-03-19 补充：training curves 可视化
+
+- 脚本：`scripts/phase1-autoregressive-1.9-module-optimization/plot_optimization_training_curves.py`
+- 图表：`results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/training_curves.png`
+- 数据来源：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/250ms/lightning_logs/version_1/metrics.csv`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/500ms/lightning_logs/version_0/metrics.csv`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/1000ms/lightning_logs/version_0/metrics.csv`
+- 图表内容：
+  - 上排为 `250/500/1000ms` 三个窗口的 epoch-level `train_loss` 与 `val_loss`
+  - 下排为训练期 `val/fp_bps` 曲线，并叠加 post-train teacher-forced、rollout 与 `baseline_v2` 参考线
+- 观察结论：
+  1. 与上一轮 alignment 对比，`250ms` 和 `1000ms` 的 `val/fp_bps` 末段整体略高，而 `500ms` 基本重合，说明这轮 tuning 的收益确实集中在短窗口和长窗口两端。
+  2. 三个窗口的 loss 曲线都维持平稳，没有因更高 `mix_prob` 或更轻 regularization 出现训练不稳定，因此这组超参可以作为当前路线的稳态 best-known setting。
+
+执行命令：
+
+```bash
+conda activate poyo
+cd /root/autodl-tmp/NeuroHorizon
+python scripts/phase1-autoregressive-1.9-module-optimization/plot_optimization_training_curves.py --module 20260313_prediction_memory_alignment_tuning
+```
