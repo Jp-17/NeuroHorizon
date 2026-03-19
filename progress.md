@@ -1949,3 +1949,12 @@
 **当前建议**：
 - 若要继续推进 1.9，先处理 `alignment / tuning` 的 `1000ms` batch/lr 公平性，再补 current evalfix valid/test 的 rollout 评估
 - 超参优化优先级建议放在 `500ms` 的 `mix_prob / dropout / noise`，而不是立即做大范围 optimizer sweep
+
+
+2026-03-19 16:05 CST
+
+完成分支同步收口：将 dev/benchmark 的当前状态整理后同步到本地 main 并推送远程。
+
+1. 在 dev/benchmark 上补充本次分支同步记录
+2. 确认 main 可通过 fast-forward 同步到当前 dev/benchmark
+3. 推送更新后的 dev/benchmark 与 main 到 GitHub 远程
