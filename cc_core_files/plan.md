@@ -740,6 +740,10 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 > - 2026-03-18 已完成 **Neuroformer dual-mode smoke 复核**：`rollout(true_past=False)` 与 `true_past=True` 都已对齐统一 held-out eval；smoke valid `fp-bps = -13.8295 / -10.9855`
 > - 2026-03-18 已确认 **Neuroformer 250ms full-data dual-mode formal eval runtime blocker**：训练后进入 held-out generation，`30 min+` 仍未产出最终 `results.json`；引入数据支持的 `max_generate_steps=192` 后，`13 min+` 仍未到 checkpoint
 > - **faithful reproduction of original NDT2 / IBL-MtM / Neuroformer 仍未完成为正式 benchmark 结果**；当前主线已从“把 pipeline 接通”转为“以 250ms gate 先做原因归因、blocker 解除和短正式训练收口”，因此 500ms / 1000ms 暂不继续
+> - 2026-03-19 已完成 **IBL-MtM 250ms short formal run**：`combined_e10` best valid / test `fp-bps = -0.0026 / -0.0017`，trial `fp-bps = 0.0396`；新增 exact-geometry control `forwardpred_e10` 反而显著更差（test `fp-bps = -1.9843`），说明 train/eval mask geometry mismatch 不是当前主因
+> - 2026-03-19 已完成 **Neuroformer 250ms formal dual-mode eval**：test rollout / true_past `fp-bps = -8.8025 / -9.3982`，formal eval 已可执行；同时 token stats 显示 `prev/curr truncation_rate = 0 / 0`，当前极差结果不能归因于 block size truncation
+> - 2026-03-19 已完成 **Neuroformer 150ms observation + 50ms prediction reference run**：test rollout / true_past `fp-bps = -8.0744 / -8.9540`，较 canonical `500/250` 略有改善但仍显著为负，说明问题不只是 horizon 太长
+> - 因此当前 250ms gate 的最新结论是：`NDT2` 继续暂停；`IBL-MtM` 保留 `combined` 路线并可考虑继续 `e20/e30`；`Neuroformer` 当前不建议进入 500ms / 1000ms 扩展
 
 - [x] 旧 1.8.3 pipeline 审计与 legacy 降级
 - [x] legacy checkpoint 的 protocol-fix valid/test/PSTH 重评估

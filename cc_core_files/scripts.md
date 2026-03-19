@@ -1079,16 +1079,19 @@
   - 关闭视觉 / 行为分支，保留 neural token generation 主体
   - decode 后 re-bin 到 `20ms` counts，再接统一 held-out continuous / trial-aligned eval
   - 同时支持 `rollout(true_past=False)` 与 `true_past=True`
-- **最新修正**：2026-03-18
-  - 新增 dual-mode inference 输出
-  - `true_past` 改为直接复用 teacher-forced 前向输出解码
-  - 保留 rollout 模式作为正式 test selection / 对照模式
+- **最新修正**：2026-03-19
+  - 新增 `eval-only` 模式，可从 checkpoint 单独跑 held-out eval
+  - 新增 `token_stats`（prev/curr token 统计与 truncation rate）
+  - `rollout` 评估不再额外执行冗余 teacher-forced forward
+  - `true_past` 继续复用单次 teacher-forced 前向输出解码
 - **使用方式**：
   ```bash
   cd /root/autodl-tmp/NeuroHorizon
   /root/miniconda3/bin/conda run -n benchmark-env     python neural-benchmark/faithful_neuroformer.py --mode smoke
 
   /root/miniconda3/bin/conda run -n benchmark-env     python neural-benchmark/faithful_neuroformer.py     --mode train --pred-window 0.25 --epochs 1 --batch-size 16 --max-generate-steps 192     --output-dir results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_dualmode_e1_g192
+
+  /root/miniconda3/bin/conda run -n benchmark-env     python neural-benchmark/faithful_neuroformer.py     --mode eval --checkpoint-path results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_dualmode_e1/best_model.pt     --eval-split both --inference-mode both --batch-size 4 --max-generate-steps 192     --output-dir results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_formal_eval_v1
   ```
 - **输出**：`results/logs/phase1_benchmark_repro_faithful_neuroformer_*`（`results.json`, `best_model.pt`, `last_model.pt`）
 - **关键适配设计**：
@@ -1102,3 +1105,26 @@
 - **当前 blocker / 风险**：
   - dual-mode smoke 已稳定，但 250ms formal full-data dual-mode eval 仍被运行成本卡住
   - 当前最大问题是 formal eval 可执行性，而不是继续盲目扩 500ms / 1000ms
+
+
+### compare_faithful_ibl_mtm.py（1.8.3 IBL-MtM 250ms 对比汇总）
+
+- **路径**：`neural-benchmark/compare_faithful_ibl_mtm.py`
+- **功能用途**：对比 faithful IBL-MtM `combined` 与 `forward_pred` 两条 250ms 训练路线，统一输出 markdown/json 摘要
+- **使用方式**：
+  ```bash
+  cd /root/autodl-tmp/NeuroHorizon
+  python3 neural-benchmark/compare_faithful_ibl_mtm.py     --baseline-json results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_combined_e10/results.json     --control-json results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_forwardpred_e10/results.json     --output-dir results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_compare
+  ```
+- **输出**：`comparison.json`, `comparison.md`
+
+### compare_faithful_neuroformer.py（1.8.3 Neuroformer 对比汇总）
+
+- **路径**：`neural-benchmark/compare_faithful_neuroformer.py`
+- **功能用途**：对比 canonical `500/250` formal eval 与 `150/50` 参考实验的 rollout / true_past 结果
+- **使用方式**：
+  ```bash
+  cd /root/autodl-tmp/NeuroHorizon
+  python3 neural-benchmark/compare_faithful_neuroformer.py     --canonical-json results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_formal_eval_v1/eval_results.json     --reference-json results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e3/results.json     --output-dir results/logs/phase1_benchmark_repro_faithful_neuroformer_compare     --split test
+  ```
+- **输出**：`comparison.json`, `comparison.md`

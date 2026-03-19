@@ -1854,3 +1854,36 @@
 - IBL-MtM 的 `smoke` 入口最初未透传 `--train-mask-mode`，导致首次 smoke 仍走默认 `combined`
   - 已修正 `run_smoke()`，当前 smoke 与小训练都已真实进入 `forward_pred` 路径
 - Neuroformer 的正式 runtime blocker 当前先通过 `eval-only` 模式拆解，而不是继续把 train 和 dual-mode full-data eval 强耦合在一起
+
+
+2026-03-19 06:45 CST
+
+完成 1.8 faithful benchmark 7.4 正式批次，并把结果回填到 review / task log / plan / results / scripts 文档。
+
+1. IBL-MtM `250ms short formal run`
+   - `combined_e10`: best valid / test `fp-bps = -0.0026 / -0.0017`, trial `fp-bps = 0.0396`, `per_neuron_psth_r2 = 0.4559`
+   - `forwardpred_e10`: best valid / test `fp-bps = -2.0014 / -1.9843`, trial `fp-bps = -2.2245`
+   - 结论：exact future-window `forward_pred` control 明显差于 upstream `combined`；train/eval mask geometry mismatch 不是当前 IBL-MtM 的主因
+
+2. Neuroformer `250ms` formal dual-mode eval
+   - rollout test `fp-bps = -8.8025`, `elapsed_s = 1063.0504`
+   - true_past test `fp-bps = -9.3982`, `elapsed_s = 77.2959`
+   - token stats 显示 `prev/curr truncation_rate = 0 / 0`
+   - 结论：formal eval blocker 已解除，但性能本身仍显著为负，且不能归因于 truncation
+
+3. Neuroformer `150ms observation + 50ms prediction` reference run
+   - rollout / true_past test `fp-bps = -8.0744 / -8.9540`
+   - 相比 canonical `500/250` 仅小幅改善，仍显著为负
+   - 结论：问题不只是 horizon 太长，当前更像 `from-scratch + token/count mismatch + session conditioning不足`
+
+4. 文档同步：
+   - `cc_todo/20260318-review/20260318-benchmark-faithful-audit-detail_codex.md`
+   - `cc_todo/phase1-autoregressive/20260312-phase1-1.8-benchmark.md`
+   - `cc_core_files/plan.md`
+   - `cc_core_files/results.md`
+   - `cc_core_files/scripts.md`
+
+**当前建议**：
+- `NDT2` 继续暂停
+- `IBL-MtM` 若继续，只保留 `combined` 路线，考虑 `e20/e30` 或更接近上游预训练/metadata 的方案
+- `Neuroformer` 当前不建议进入 500ms / 1000ms 扩展

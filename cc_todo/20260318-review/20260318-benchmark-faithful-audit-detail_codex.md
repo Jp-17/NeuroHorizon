@@ -450,6 +450,115 @@ benchmark 线应继续尽量向 1.3.7 靠拢，但只统一到下面这层：
 3. 用新的 `eval-only` 流程复跑 Neuroformer `250ms` formal dual-mode held-out eval。
 4. 再补 Neuroformer `150ms observation + 50ms prediction` 的参考实验。
 
+## 10. 7.4 最终结果与结论（2026-03-19）
+
+### 10.1 IBL-MtM `250ms` short formal run 已完成
+
+正式结果目录：
+- `results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_combined_e10/`
+- `results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_forwardpred_e10/`
+- `results/logs/phase1_benchmark_repro_faithful_ibl_mtm_250ms_compare/`
+
+关键结果：
+
+| 运行 | train_mask_mode | best valid fp-bps | test fp-bps | trial fp-bps | per_neuron_psth_r2 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| combined_e10 | `combined` | `-0.0026` | `-0.0017` | `0.0396` | `0.4559` |
+| forwardpred_e10 | `forward_pred` | `-2.0014` | `-1.9843` | `-2.2245` | `-2.9705` |
+
+这批结果直接改变了 7.4 之前的一个重要怀疑。原先最强的假设之一是：IBL-MtM 当前差结果可能主要来自 train-time `causal` mask geometry 与 held-out eval future-window geometry 不一致，因此显式引入 `forward_pred` 训练对照后应该改善。如果这个假设成立，`forwardpred_e10` 至少应该优于或接近 `combined_e10`。实际结果却相反：`forward_pred` exact-geometry control 明显更差，`test fp-bps` 比 `combined` 低约 `1.98`，trial 指标也全面恶化。
+
+因此，这一轮结果比较清楚地说明：**train/eval mask geometry mismatch 不是 IBL-MtM 当前失败的主因，至少不是“把 `combined` 改成 exact forward-pred 就能解决”的那种主因。** 当前更可信的结论是：
+
+1. upstream `combined` multi-mask 语义在当前数据上仍然比强行改成 canonical exact forward-pred control 更有效；
+2. IBL-MtM 的真正瓶颈更可能是 `from-scratch training + metadata/session 生态缺口 + 当前数据域和原始 IBL 训练生态差异`；
+3. `combined_e10` 从 `multimask_e1` 的 `test fp-bps = -2.9547` 提升到 `-0.0017`，说明这条线并没有被否定，反而说明“训练轮数太少”此前确实是重要因素之一；
+4. 但它目前仍然没有转正，因此还不能说 faithful IBL-MtM 已在当前 benchmark 上成立。
+
+### 10.2 Neuroformer `250ms` formal dual-mode eval 已完成
+
+正式结果目录：
+- `results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_formal_eval_v1/`
+
+关键 test 结果：
+
+| 模式 | fp-bps | r2 | elapsed_s |
+| --- | ---: | ---: | ---: |
+| rollout | `-8.8025` | `-1.6303` | `1063.0504` |
+| true_past | `-9.3982` | `-3.7981` | `77.2959` |
+
+关键 valid 结果：
+
+| 模式 | fp-bps | r2 | elapsed_s |
+| --- | ---: | ---: | ---: |
+| rollout | `-8.7542` | `-1.5725` | `504.6315` |
+| true_past | `-9.3714` | `-3.7818` | `38.8026` |
+
+关键 token 统计（test split）：
+- `prev_tokens_mean = 130.07`
+- `curr_tokens_mean = 64.01`
+- `prev_truncation_rate = 0.0`
+- `curr_truncation_rate = 0.0`
+
+这一轮的主要意义不只是“又得到一个负结果”，而是把之前的 runtime blocker 真正拆开了。现在已经可以明确地说：
+
+1. **Neuroformer 的 `250ms` full-data dual-mode formal eval 已经技术上可执行，不再是“跑不完所以无法判断”。**
+2. **它当前的主要问题已经从 runtime blocker 转成性能本身显著为负。**
+3. `true_past` 不但没有显著优于 rollout，反而略差，这意味着当前瓶颈并不能简单归因为 rollout exposure accumulation；
+4. token 统计显示当前 `512 / 256` block size 在 canonical `500ms obs + 250ms pred` 设置下并没有发生 truncation，因此当前极差结果也不能简单归因为 token 截断。
+
+换句话说，Neuroformer 当前真正暴露出来的更像是：`from-scratch + token-level objective 与 count-based fp-bps mismatch + 缺少显式 session conditioning` 的综合问题，而不是单一的 runtime 或 truncation 工程问题。
+
+### 10.3 Neuroformer `150ms observation + 50ms prediction` 参考实验已完成
+
+正式结果目录：
+- `results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e3/`
+- `results/logs/phase1_benchmark_repro_faithful_neuroformer_compare/`
+
+关键 test 结果：
+
+| 设置 | 模式 | fp-bps | r2 | elapsed_s |
+| --- | --- | ---: | ---: | ---: |
+| canonical `500/250` | rollout | `-8.8025` | `-1.6303` | `1063.0504` |
+| canonical `500/250` | true_past | `-9.3982` | `-3.7981` | `77.2959` |
+| reference `150/50` | rollout | `-8.0744` | `-8.7020` | `1506.5111` |
+| reference `150/50` | true_past | `-8.9540` | `-3.8409` | `96.3057` |
+
+关键 token 统计（test split）：
+- canonical `500/250`：`prev_tokens_mean = 130.07`, `curr_tokens_mean = 64.01`
+- reference `150/50`：`prev_tokens_mean = 39.10`, `curr_tokens_mean = 13.05`
+- 两者 `prev/curr truncation_rate` 都是 `0.0`
+
+这组参考实验给出的结论也很重要：
+
+1. 更短窗口确实让 Neuroformer 的 `rollout fp-bps` 略有改善（`-8.80 -> -8.07`），说明 horizon / token density 不是完全无关；
+2. 但这种改善非常有限，远不足以把结果从显著负值拉回到接近零；
+3. 因此“当前 canonical 250ms 只是因为窗口太长才不行”的解释力度明显下降；
+4. 更可信的判断仍然是：**Neuroformer 在当前 Perich-Miller forward prediction benchmark 上的主要困难是训练目标和表示学习本身，而不是单纯 horizon 太长。**
+
+### 10.4 当前 7.4 的总结与下一步建议
+
+截至 2026-03-19，7.4 这轮执行把三件关键事做实了：
+
+1. IBL-MtM：`combined_e10` 已经把 faithful 250ms 从 `-2.95` 拉到 `≈ 0`，说明这条线还有继续推进价值；但 `forward_pred` exact control 明显更差，说明后续不应继续沿“强行把训练做成 eval geometry”这条路加码。
+2. Neuroformer：250ms formal dual-mode eval 已经可执行，但结果依旧显著为负；短窗口参考实验也只带来有限改善，说明它当前不是一个“先解 runtime 就会自然变强”的状态。
+3. NDT2：本轮没有新实验，但对比下来，它继续保持“先暂停扩展，只保留现状记录”的判断是合理的。
+
+我当前更建议的后续优先级是：
+
+1. **IBL-MtM 继续保留为 1.8 里唯一仍值得往前推的 benchmark 线**，优先考虑：
+   - 再做一轮 `combined_e20 / e30` 看是否能稳定转正；
+   - 如果要继续深入，下一层应优先查是否能接上更接近上游的预训练权重或更完整的 metadata/session 组织，而不是继续折腾 `forward_pred` exact control。
+2. **Neuroformer 暂不扩 500ms / 1000ms，也不建议继续围绕当前 from-scratch setting 做大规模重复训练。**
+   - 若后续还要救这条线，应该先问“是否存在更合理的预训练/conditioning 路线”，而不是先加 epochs。
+3. **NDT2 继续暂停。**
+
+## 11. 当前对 `7.4` 的执行性结论
+
+- `NDT2`：继续暂停，不新增实验。
+- `IBL-MtM`：`250ms short formal run` 已完成，当前最值得继续的是 `combined` 路线，而不是 `forward_pred` exact control。
+- `Neuroformer`：`250ms formal dual-mode eval` blocker 已解除，但性能本身仍显著负值；短窗口参考实验未改变这一结论，因此当前不建议进入长窗口扩展。
+
 ## 最终判断
 
 当前 1.8 最值得坚持的路线，不是再证明 legacy 结果多漂亮，而是把下面这句话真正做实：
