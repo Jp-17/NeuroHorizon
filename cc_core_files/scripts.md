@@ -218,6 +218,30 @@
   python scripts/tests/test_causal_mask.py
   ```
 - **依赖**：poyo conda 环境
+
+### run_diffusion_flow_windows.sh（1.11 diffusion decoder 正式窗口实验）
+
+- **路径**：`scripts/1.11-diffusion-decoder/20260320_direct_count_flow_dit/run_diffusion_flow_windows.sh`
+- **功能用途**：串行执行 1.11 diffusion decoder 首轮三窗口正式实验
+  - 依次运行 `250ms / 500ms / 1000ms` 三个训练配置
+  - 每个窗口训练结束后，自动调用 `eval_phase1_v2.py` 对 best checkpoint 做 `valid/test` 离线评估
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/1.11-diffusion-decoder/20260320_direct_count_flow_dit/run_diffusion_flow_windows.sh
+  ```
+- **输入**：
+  - `examples/neurohorizon/configs/train_1p11_diffusion_flow_{250,500,1000}ms.yaml`
+  - `examples/neurohorizon/train.py`
+  - `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+- **输出**：
+  - `results/logs/1.11-diffusion-decoder/20260320_direct_count_flow_dit/{250ms,500ms,1000ms}/`
+  - 每个窗口的 `eval_v2_valid_results.json`
+  - 每个窗口的 `eval_v2_test_results.json`
+- **依赖**：`poyo` conda 环境；更新后的 `train.py` 和 `eval_phase1_v2.py` 需支持 `diffusion_flow`
+- **备注**：对应 plan.md 任务 1.11 首轮正式实验执行
 - **备注**：对应 plan.md 任务 1.1.3；从 `/tmp/neurohorizon_test_causal.py` 迁移
 
 ### test_decoder.py（1.1.4 单元测试）

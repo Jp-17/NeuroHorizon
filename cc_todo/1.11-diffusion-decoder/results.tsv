@@ -1,0 +1,2 @@
+date	module_name	pred_window_ms	best_val_fp_bps	test_fp_bps	test_checkpoint	notes
+2026-03-20	direct_count_flow_dit_smoke	250	-12.9750		lightning_logs/version_2/checkpoints/best.ckpt	2 train steps + 1 valid batch smoke only

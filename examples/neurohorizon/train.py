@@ -159,6 +159,7 @@ class TrainWrapper(L.LightningModule):
         self.register_buffer('null_rate_lookup', torch.zeros(1))
         self._val_metrics = None
         self._test_metrics = None
+        self._is_diffusion = model.decoder_variant == "diffusion_flow"
 
     def set_null_rates(self, null_rate_lookup: torch.Tensor):
         """Set null rate lookup tensor for fp-bps computation."""
@@ -186,21 +187,37 @@ class TrainWrapper(L.LightningModule):
     def on_test_epoch_start(self):
         self._test_metrics = self._new_metric_state(self.device)
 
-    def _shared_eval_step(self, batch, stage: str):
-        forward_kwargs = dict(batch["model_inputs"])
-        if getattr(self.model, "requires_target_counts", False):
-            forward_kwargs["target_counts"] = batch["target_spike_counts"]
-        log_rate = self.model(**forward_kwargs)
+    def _compute_model_loss(self, batch):
+        if self._is_diffusion:
+            return self.model.compute_training_loss(
+                **batch["model_inputs"],
+                target_counts=batch["target_spike_counts"],
+            )
+        return None, {}
 
+    def _shared_eval_step(self, batch, stage: str):
         target = batch["target_spike_counts"]
         unit_mask = batch["model_inputs"]["target_unit_mask"]
+        aux_metrics = {}
+
+        if self._is_diffusion:
+            loss, aux_metrics = self._compute_model_loss(batch)
+            log_rate = self.model.generate(**batch["model_inputs"])
+        else:
+            forward_kwargs = dict(batch["model_inputs"])
+            if getattr(self.model, "requires_target_counts", False):
+                forward_kwargs["target_counts"] = target
+            log_rate = self.model(**forward_kwargs)
+            T = log_rate.shape[1]
+            mask = unit_mask.unsqueeze(1).expand(-1, T, -1)
+            loss = self.loss_fn(log_rate[mask], target[mask])
 
         T = log_rate.shape[1]
         mask = unit_mask.unsqueeze(1).expand(-1, T, -1)
-
-        loss = self.loss_fn(log_rate[mask], target[mask])
         loss_name = "val_loss" if stage == "val" else "test_loss"
         self.log(loss_name, loss, prog_bar=(stage == "val"), sync_dist=True)
+        for key, value in aux_metrics.items():
+            self.log(f"{stage}/{key}", value, prog_bar=False, sync_dist=True)
 
         with torch.no_grad():
             pred_rate = torch.exp(log_rate.clamp(-10, 10))
@@ -309,10 +326,14 @@ class TrainWrapper(L.LightningModule):
             weight_decay=self.cfg.optim.weight_decay,
         )
 
+        total_steps = int(self.trainer.estimated_stepping_batches)
+        if total_steps < 4:
+            return {"optimizer": optimizer}
+
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
             optimizer,
             max_lr=max_lr,
-            total_steps=self.trainer.estimated_stepping_batches,
+            total_steps=total_steps,
             pct_start=self.cfg.optim.lr_decay_start,
             anneal_strategy="cos",
             div_factor=1,
@@ -324,26 +345,30 @@ class TrainWrapper(L.LightningModule):
         }
 
     def training_step(self, batch, batch_idx):
-        # Forward pass (pass target_counts for decoder variants that require shift-right feedback)
+        target = batch["target_spike_counts"]
+        unit_mask = batch["model_inputs"]["target_unit_mask"]
+
+        if self._is_diffusion:
+            loss, aux_metrics = self._compute_model_loss(batch)
+            self.log("train_loss", loss, prog_bar=True)
+            for key, value in aux_metrics.items():
+                self.log(f"train/{key}", value, prog_bar=False)
+            with torch.no_grad():
+                mask = unit_mask.unsqueeze(1).expand_as(target)
+                self.log("train/mean_target_count", target[mask].mean())
+            return loss
+
         forward_kwargs = dict(batch["model_inputs"])
         if getattr(self.model, "requires_target_counts", False):
-            forward_kwargs["target_counts"] = batch["target_spike_counts"]
+            forward_kwargs["target_counts"] = target
         log_rate = self.model(**forward_kwargs)
 
-        # Get targets and mask
-        target = batch["target_spike_counts"]  # [B, T, N_padded]
-        unit_mask = batch["model_inputs"]["target_unit_mask"]  # [B, N_padded]
-
-        # Expand mask to [B, T, N_padded]
         T = log_rate.shape[1]
         mask = unit_mask.unsqueeze(1).expand(-1, T, -1)
-
-        # Compute masked loss
         loss = self.loss_fn(log_rate[mask], target[mask])
 
         self.log("train_loss", loss, prog_bar=True)
 
-        # Log statistics
         with torch.no_grad():
             pred_rate = torch.exp(log_rate[mask].clamp(-10, 10))
             self.log("train/mean_pred_rate", pred_rate.mean())
@@ -570,6 +595,7 @@ def main(cfg: DictConfig):
         default_root_dir=cfg.log_dir,
         check_val_every_n_epoch=cfg.eval_epochs,
         max_epochs=cfg.epochs,
+        max_steps=getattr(cfg, "max_steps", -1),
         log_every_n_steps=1,
         strategy=(
             "ddp_find_unused_parameters_true"
@@ -582,6 +608,9 @@ def main(cfg: DictConfig):
         devices=cfg.gpus,
         num_nodes=cfg.nodes,
         num_sanity_val_steps=0,
+        limit_train_batches=getattr(cfg, "limit_train_batches", 1.0),
+        limit_val_batches=getattr(cfg, "limit_val_batches", 1.0),
+        limit_test_batches=getattr(cfg, "limit_test_batches", 1.0),
     )
 
     log.info(

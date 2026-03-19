@@ -7,6 +7,7 @@ from .position_embeddings import RotaryTimeEmbedding, SinusoidalTimeEmbedding
 from .rotary_attention import RotaryCrossAttention, RotarySelfAttention, create_causal_mask
 from .feedforward import FeedForward
 from .autoregressive_decoder import AutoregressiveDecoder, PerNeuronMLPHead
+from .diffusion_decoder import DiffusionFlowDecoder
 
 # readout layers
 from . import loss

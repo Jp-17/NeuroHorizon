@@ -2143,3 +2143,48 @@
 **说明与判断**：
 - 当前本地克隆的 Neuroformer 上游 README / trainer 代码显示其原生训练器按 holdout loss 保存 best checkpoint，未见按 `fp-bps` 或 `true_past` 选 ckpt 的固定说明
 - 在当前 held-out forward prediction benchmark 目标下，继续采用 `valid rollout fp-bps` 作为 Neuroformer 的 checkpoint selection 更合理；`true_past` 保持为 oracle-history 诊断指标
+
+## 2026-03-20 05:30 CST - 1.11 diffusion decoder 主线建档与 smoke 验证
+
+**完成事项**：
+1. 新建 `plan.md` 中的 `1.11 Diffusion Decoder 增量模型管理`
+   - 以 `1.9` 为模板新增 `1.11.0` 执行规范、`1.11.1` 路线基线、`1.11.2` 迭代记录
+   - 明确 `Step 1` 改用 `cc_todo/1.11-diffusion-decoder/model.md`
+   - 明确默认实施分支为 `dev/diffusion`
+   - 明确 `Step 4` 的记录路径切换到 `1.11-diffusion-decoder`
+2. 建立 diffusion 主线文档
+   - 新建 `cc_todo/1.11-diffusion-decoder/model.md`
+   - 新建 `cc_todo/1.11-diffusion-decoder/20260320_direct_count_flow_dit.md`
+   - 新建 `cc_todo/1.11-diffusion-decoder/results.tsv`
+3. 完成第一版 diffusion-flow 代码接入
+   - 新增 `torch_brain/nn/diffusion_decoder.py`
+   - 将 `torch_brain/models/neurohorizon.py` 当前主实现收敛为 baseline `query_aug` / `diffusion_flow` 两条主线
+   - 更新 `examples/neurohorizon/train.py`，支持 diffusion training loss 和 smoke 限制 batch 数
+   - 更新 `scripts/analysis/neurohorizon/eval_phase1_v2.py`，支持 diffusion checkpoint 与 `--max-batches`
+   - 新增三窗口配置：
+     - `examples/neurohorizon/configs/model/neurohorizon_diffusion_flow_{250,500,1000}ms.yaml`
+     - `examples/neurohorizon/configs/train_1p11_diffusion_flow_{250,500,1000}ms.yaml`
+4. 完成 250ms smoke 验证
+   - 训练 smoke：`epochs=1 eval_epochs=1 batch_size=2 eval_batch_size=2 num_workers=0 +max_steps=2 +limit_train_batches=2 +limit_val_batches=1`
+   - 训练链路通过，`best.ckpt / last.ckpt / checkpoint_summary.json` 正常生成
+   - 离线 valid smoke（1 batch）结果：
+     - `fp-bps = -12.9774`
+     - `R2 = -31.2224`
+     - `val_loss = 1.5183`
+5. 补充记录与脚本
+   - 更新 `cc_core_files/scripts.md`
+   - 更新 `cc_core_files/results.md`
+   - 新增 `scripts/1.11-diffusion-decoder/20260320_direct_count_flow_dit/run_diffusion_flow_windows.sh`
+
+**当前状态**：
+- diffusion 主线的训练、validation、checkpoint 保存、best ckpt 选择、离线评估入口都已打通
+- 当前 smoke 指标显著为负，说明第一版实现目前只有链路验证价值，还没有性能上的积极信号
+- 三窗口正式训练与评估配置已准备好，但完整 formal run 尚未执行完成
+
+**遇到的问题与解决**：
+- 初始 smoke 直接跑完整 1 epoch，在小 batch 下步数过大，不适合作为链路验证
+  - 解决：在 `train.py` 中增加 `max_steps / limit_train_batches / limit_val_batches / limit_test_batches` 支持
+- 极小步数 smoke 下 `OneCycleLR` 会因总 step 过小触发除零
+  - 解决：当 `estimated_stepping_batches < 4` 时，smoke 直接跳过 scheduler，仅保留 optimizer
+- `conda run` 的 heredoc 输出默认不稳定
+  - 解决：关键检查改用 `--no-capture-output` 或 `python -c` 方式执行

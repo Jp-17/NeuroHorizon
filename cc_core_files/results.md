@@ -39,6 +39,40 @@ results/
 
 ---
 
+## Phase 1.11 Diffusion Decoder 首轮结果
+
+### 250ms diffusion-flow smoke（最小链路验证）
+
+- **存储路径**：
+  - `results/logs/1.11-diffusion-decoder/20260320_direct_count_flow_dit/250ms_smoke/`
+  - `results/logs/1.11-diffusion-decoder/20260320_direct_count_flow_dit/250ms_smoke/lightning_logs/version_2/eval_v2_valid_results.json`
+- **产生时间**：2026-03-20
+- **产生方式**：
+  - 训练：`examples/neurohorizon/train.py --config-name train_1p11_diffusion_flow_250ms.yaml`
+  - smoke override：`epochs=1 eval_epochs=1 batch_size=2 eval_batch_size=2 num_workers=0 +max_steps=2 +limit_train_batches=2 +limit_val_batches=1`
+  - 评估：`scripts/analysis/neurohorizon/eval_phase1_v2.py --log-dir .../250ms_smoke --checkpoint-kind best --split valid --batch-size 2 --skip-trial --max-batches 1`
+- **实验目的**：验证 diffusion_flow 主线是否已经打通真实数据上的训练、checkpoint 保存、best ckpt 选择和离线评估链路
+- **实验配置**：
+  - 模型：`decoder_variant=diffusion_flow`
+  - 数据：Perich-Miller 10 sessions，continuous，obs=500ms，pred=250ms
+  - smoke 限制：2 个训练 step，1 个 validation batch，1 个离线评估 batch
+- **主要结果**：
+  - 训练结束时最优 `val/fp_bps = -12.9750`
+  - `best.ckpt` 与 `last.ckpt` 正常生成
+  - 离线 valid smoke（1 batch）：
+    - `fp-bps = -12.9774`
+    - `R2 = -31.2224`
+    - `val_loss = 1.5183`
+- **结果分析**：
+  - 这轮 smoke 的目标不是看性能，而是验证 diffusion 主线在真实数据上是否能完整跑通
+  - 目前链路已经通过：训练、validation、checkpoint summary、best ckpt 解析、离线评估入口全部可用
+  - 指标显著为负，说明第一版 diffusion decoder 还远未进入可用性能区间，后续正式实验前仍需依赖长周期训练与进一步调参验证
+- **备注**：
+  - 当前结果仅代表 smoke 级最小验证，不可与 baseline_v2 正式指标直接比较
+  - 正式 `250ms / 500ms / 1000ms` 实验仍需按 1.11 规范完整执行
+
+---
+
 ## 说明
 
 > ⚠️ cc_todo/20260221-cc-1st/results/ 和 cc_todo/20260221-cc-1st/figures/ 中存储了来自已废弃早期任务的实验结果，**不作为当前项目的参考结果**，仅作为历史存档。

@@ -961,7 +961,111 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - training curves：`results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/training_curves.png`
 - 2026-03-20 best-ckpt teacher-forced valid/test：`250ms 0.2636 / 0.2667`，`500ms 0.2718 / 0.2655`，`1000ms 0.2815 / 0.2820`
 - 当前结果：较 `20260313_prediction_memory_alignment` 再次小幅提升，`1000ms` 距 `baseline_v2` 仅差 `0.0099 fp-bps`；是否继续细调由用户决定
+### 1.11 Diffusion Decoder 增量模型管理
+> 定位：支持 diffusion decoder 主线的持续模型构建、实验记录与结果对比
+> 产出：`cc_todo/1.11-diffusion-decoder/model.md`（diffusion 路线演进文档）、各次扩散解码实验的代码/结果/记录
+> 记录：`cc_todo/1.11-diffusion-decoder/{date}_{module_name}.md`
+> 效果追踪：`cc_todo/1.11-diffusion-decoder/results.tsv`
 
+**目标**：
+建立独立于 1.9 AR 优化线的 diffusion decoder 主线管理机制，围绕 `Option 2B + flow matching + DiT` 持续推进模型实现、验证与结果汇总，同时保留 `Option 2A` 作为后续备选。
+
+#### 1.11.0 执行规范
+
+**Step 1 -- 想法记录与讨论**（在提出 diffusion 改进想法时）：
+- 在 `cc_todo/1.11-diffusion-decoder/model.md` 中新增一节，标注日期和改进名称
+- 记录：前因后果、想法描述、动机与目的、相比现有方案的改动点、涉及改动模块、与当前仓库实现的结合方式
+- 必须显式说明与 `1.9` / `cc_core_files/model.md` 中 AR 路线的关系，包括：哪些失败结论促使转向 diffusion、哪些经验仍可复用
+- 进行充分的批判性分析：优缺点、风险、替代方案；若保留 `Option 2A latent diffusion` 作为备选，也需说明与当前主线的取舍
+- 基于当前仓库代码实现，给出可落地的修改方案和基本功能验证方案
+- 标记状态为“提出”
+
+**Step 2 -- 分支与代码实施**（在用户确认可实施时）：
+- 如果用户未明确指定实施分支，则默认直接在 `dev/diffusion` 分支实施
+- 按 `cc_todo/1.11-diffusion-decoder/model.md` 中对应小节的修改方案进行代码改动
+- 优先清理不再服务于 baseline 或 diffusion 主线的 1.9 运行时代码，保持当前实现简洁
+- 完成基本功能验证（代码可跑、核心接口无错误）
+- 在 `cc_todo/1.11-diffusion-decoder/model.md` 中更新状态为“实施中”
+- **Step 2 完成后立即执行一次 `git commit` + `git push`**：提交当前轮的代码、配置、文档和最小验证结果，作为实现阶段 checkpoint
+
+**Step 3 -- 实验验证**（按优先级依次进行）：
+1. **必做 -- 协议确认 + 预测窗口实验**（实验骨架参照 1.3.4，默认协议参照 1.3.7）：
+   - 开始实验前必须明确确认本轮实验是否遵循 `1.3.7 NeuroHorizon 实验默认数据与指标标准`
+   - 如果与 `1.3.7` 不一致，必须在任务记录中书面记录差异项、原因和影响范围
+   - 数据：`examples/neurohorizon/configs/dataset/perich_miller_10sessions.yaml`
+   - 采样方式：连续滑动窗口（非 trial-aligned）
+   - 默认实现位置（本轮默认保持不变，若改动必须在记录中注明）：
+     - 训练入口：`examples/neurohorizon/train.py`
+     - 离线正式评估入口：`scripts/analysis/neurohorizon/eval_phase1_v2.py`
+     - continuous train sampler：`RandomFixedWindowSampler`
+     - continuous valid/test sampler：`SequentialFixedWindowSampler`
+   - 观察窗口：500ms
+   - 预测窗口：250ms / 500ms / 1000ms（3 个条件）
+   - 默认至少记录的指标：`fp-bps` / `per-bin fp-bps`
+   - `R-squared` / `PSTH-R-squared` / diffusion validation loss 作为补充指标按需要记录
+   - 当前正式实现要求：每个 eval epoch 保存 checkpoint，train end 按 `max(val/fp_bps)` + `min(val_loss)` 选 best ckpt，显式保存真正 final `last.ckpt`，并对 best ckpt 输出 `valid/test` 指标
+2. **可选 -- 观察窗口实验**（参照 1.4，用户确认后执行）
+3. **可选 -- Session 数目实验**（参照 1.5，用户确认后执行）
+
+**Step 4 -- 实验记录**（遵循 AGENTS/CLAUDE 记录规范）：
+- **任务记录**：`cc_todo/1.11-diffusion-decoder/{date}_{module_name}.md`
+  - 必须包含：改进想法摘要、实现方案、涉及改动模块、详细实验配置（数据集、sessions 数、采样方式、obs/pred 窗口）、每次实验的关键超参数（至少包括 `epoch`、`batch_size`、`lr`、`weight_decay`、`flow_steps_eval`）、训练 loss 结果、最佳 `val fp-bps`、test `fp-bps`、test 使用的 checkpoint 标识/时间、各条件指标结果（至少 `fp-bps` / `per-bin fp-bps`）、与 baseline 的对比、记录每次训练和评估的脚本命令
+- **脚本**：`scripts/1.11-diffusion-decoder/{date}_{module_name}/`
+- **实验日志**：`results/logs/1.11-diffusion-decoder/{date}_{module_name}/`
+- **可视化**：`results/figures/1.11-diffusion-decoder/{date}_{module_name}/`
+  - 除 training curves 外，还必须补充：
+    - 随预测窗口长度变化的 `fp-bps` 趋势图
+    - 每个预测窗口的 `per-bin fp-bps` 曲线
+    - 一个表格型 PNG，用于汇总各窗口的最佳 `val fp-bps`、test `fp-bps`、test checkpoint 标识/时间等核心结果
+- **汇总更新**：`cc_core_files/scripts.md` 和 `cc_core_files/results.md` 按规范更新
+- **TSV 更新**：将预测窗口实验结果追加到 `cc_todo/1.11-diffusion-decoder/results.tsv`
+- **Step 4 完成后再执行一次 `git commit` + `git push`**：提交正式实验结果、图表、结论更新与状态变更，保证每轮 diffusion 迭代至少留下“实现 checkpoint”和“结果 checkpoint”两次提交
+
+**Step 5 -- 分支后续策略**（由用户决定）：
+- 效果好 -> merge 到 main，在 `cc_todo/1.11-diffusion-decoder/model.md` 中标记状态为“已合并”
+- 效果不佳 -> 保留在 `dev/diffusion` 主线下继续修正，或在文档中标记“已放弃”并记录原因
+
+#### 1.11.1 [ ] Diffusion Decoder 路线基线
+
+> 产出：`cc_todo/1.11-diffusion-decoder/model.md`、`cc_todo/1.11-diffusion-decoder/results.tsv`
+
+- [ ] 整理 1.9 AR 路线的失败结论与迁移动机
+- [ ] 明确 `Option 2B + flow matching + DiT` 为当前主线
+- [ ] 将 `Option 2A latent diffusion` 记录为后续备选
+- [ ] 创建 diffusion 路线的首轮配置、脚本和结果目录
+
+#### 1.11.2 [ ] Diffusion Decoder 迭代记录
+
+> 以下按时间顺序记录每次 diffusion decoder 想法及其路径信息
+
+<!-- 模板（每次新优化时复制并填写）:
+##### {date}_{module_name} -- {改进名称}
+> 状态: 提出 / 实施中 / 验证中 / 已合并 / 已放弃
+> 分支: `dev/diffusion`
+> 文档: `cc_todo/1.11-diffusion-decoder/model.md` 对应小节
+> 任务记录: `cc_todo/1.11-diffusion-decoder/{date}_{module_name}.md`
+> 脚本: `scripts/1.11-diffusion-decoder/{date}_{module_name}/`
+> 日志: `results/logs/1.11-diffusion-decoder/{date}_{module_name}/`
+> 可视化: `results/figures/1.11-diffusion-decoder/{date}_{module_name}/`
+> commit: （实施后填写）
+> 结果: 250ms fp-bps= / 500ms fp-bps= / 1000ms fp-bps=
+-->
+
+##### 20260320_direct_count_flow_dit -- Direct Count-Space Flow Matching with DiT
+> 状态: 实施中
+> 分支: `dev/diffusion`
+> 文档: `cc_todo/1.11-diffusion-decoder/model.md` 中“2026-03-20 — Direct Count-Space Flow Matching with DiT”
+> 任务记录: `cc_todo/1.11-diffusion-decoder/20260320_direct_count_flow_dit.md`
+> 脚本: `scripts/1.11-diffusion-decoder/20260320_direct_count_flow_dit/`
+> 日志: `results/logs/1.11-diffusion-decoder/20260320_direct_count_flow_dit/`
+> 可视化: `results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/`
+> commit:
+> 结果: 250ms fp-bps= / 500ms fp-bps= / 1000ms fp-bps=
+
+- 核心设计：保持 POYO+ encoder 不变，使用 direct count-space flow matching + DiT 风格时间主干生成未来 spike count 场
+- 当前主线不再继续 1.9 的 prediction-memory / alignment decoder 分支，相关历史结果仅保留作参考
+- 本轮必做实验遵循 1.11 统一规范：10 sessions、连续滑动窗口、obs=500ms、pred=250/500/1000ms
+- `Option 2A latent diffusion` 暂不实施，仅作为后续备选保留在文档中
 
 
 ---

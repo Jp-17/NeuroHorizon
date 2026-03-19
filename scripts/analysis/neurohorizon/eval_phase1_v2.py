@@ -169,7 +169,7 @@ def run_model(model, batch, device, rollout: bool = False):
         k: v.to(device) if isinstance(v, torch.Tensor) else v
         for k, v in batch["model_inputs"].items()
     }
-    if rollout:
+    if rollout or getattr(model, "decoder_variant", None) == "diffusion_flow":
         return model.generate(**inputs)
     if getattr(model, "requires_target_counts", False):
         inputs["target_counts"] = batch["target_spike_counts"].to(device)
@@ -185,6 +185,7 @@ def evaluate_continuous(
     batch_size=64,
     rollout=False,
     split="valid",
+    max_batches=None,
 ):
     """Continuous mode evaluation: fp-bps (overall + per-bin), R-squared."""
     logger.info("=== Continuous Mode Evaluation ===")
@@ -232,7 +233,9 @@ def evaluate_continuous(
     n_batches = 0
 
     with torch.no_grad():
-        for batch in loader:
+        for batch_idx, batch in enumerate(loader):
+            if max_batches is not None and batch_idx >= max_batches:
+                break
             log_rate = run_model(model, batch, device, rollout=rollout)
             target = batch["target_spike_counts"].to(device)
             unit_mask = batch["model_inputs"]["target_unit_mask"].to(device)
@@ -335,7 +338,7 @@ def evaluate_continuous(
 
 
 def evaluate_trial_aligned(model, cfg, train_dataset, null_lookup, device,
-                           batch_size=16, sigma_bins=1, rollout=False, split="valid"):
+                           batch_size=16, sigma_bins=1, rollout=False, split="valid", max_batches=None):
     """Trial-aligned evaluation: per-neuron PSTH-R-squared by target direction."""
     logger.info("=== Trial-Aligned Evaluation (per-neuron PSTH-R2) ===")
 
@@ -376,7 +379,9 @@ def evaluate_trial_aligned(model, cfg, train_dataset, null_lookup, device,
     total_spikes = torch.zeros((), device=device, dtype=torch.float64)
 
     with torch.no_grad():
-        for batch in loader:
+        for batch_idx, batch in enumerate(loader):
+            if max_batches is not None and batch_idx >= max_batches:
+                break
             log_rate = run_model(model, batch, device, rollout=rollout)
             pred_rate = torch.exp(log_rate.clamp(-10, 10)).cpu()
             target = batch["target_spike_counts"].cpu()
@@ -487,6 +492,7 @@ def main():
     parser.add_argument("--skip-continuous", action="store_true")
     parser.add_argument("--skip-trial", action="store_true")
     parser.add_argument("--rollout", action="store_true", help="Use free-running generate() instead of teacher forcing")
+    parser.add_argument("--max-batches", type=int, default=None, help="Limit the number of batches per eval mode for smoke checks.")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -541,6 +547,7 @@ def main():
             batch_size=args.batch_size,
             rollout=args.rollout,
             split=args.split,
+            max_batches=args.max_batches,
         )
         results["continuous"] = cont_results
 
@@ -552,6 +559,7 @@ def main():
             sigma_bins=args.sigma_bins,
             rollout=args.rollout,
             split=args.split,
+            max_batches=args.max_batches,
         )
         results["trial_aligned"] = trial_results
 
