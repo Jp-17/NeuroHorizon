@@ -566,3 +566,58 @@ benchmark 线应继续尽量向 1.3.7 靠拢，但只统一到下面这层：
 我们已经把原始 NDT2 / IBL-MtM / Neuroformer 接入统一 benchmark 协议，并正在用 250ms gate 判断它们在当前 Perich-Miller forward prediction setting 下，究竟是 objective mismatch、metadata mismatch、runtime mismatch，还是方法本身真的不适合。
 
 如果这句话做实，1.8 就仍然非常有价值；如果继续混写 legacy 与 faithful，整个 benchmark 叙事会继续失真。
+
+
+## 12. 上游原始参数与当前 faithful 参数对照（2026-03-19）
+
+### 12.1 IBL-MtM：上游 repo vs 当前 faithful
+
+原始来源：
+- `benchmark_models/ibl-mtm/src/configs/ndt1_stitching_prompting.yaml`
+- `benchmark_models/ibl-mtm/src/configs/ssl_sessions_trainer.yaml`
+- `benchmark_models/ibl-mtm/src/train_sessions.py`
+
+| 参数项 | 上游 repo | 当前 faithful（7.4 前） | 本轮 aligned 目标 | 对齐原因 | 可调整空间 |
+| --- | --- | --- | --- | --- | --- |
+| model core | `NDT1 + stitching + prompting` | 保持一致 | 保持一致 | 这是 faithful 复现的核心，不应改写 | 无 |
+| mask mode | `all`（在 prompting/stitching 配置下走 upstream multi-mask） | `combined`，在当前数据上实际主要退化为 `neuron + causal` | 保持 `combined` | 7.4 已证明强行改 `forward_pred` 更差，不能再偏离 upstream | 后续只考虑更接近 upstream metadata，不再换成 exact control |
+| epochs | `1000` | `10` | `50` | 当前最大缺口就是训练长度太短；`e10` 已从 `-2.95` 拉到 `≈0` | 若 `e50` 仍继续改善，可再扩 `e100` |
+| train batch size | `16` | `8` | `16` | 这是上游训练协议的一部分，且 smoke 已证明当前显存可承受 | 若正式长跑 OOM，回退到 `8 x accum 2` |
+| optimizer | `AdamW` | 一致 | 一致 | 已经贴近上游 | 无 |
+| lr | `1e-4` | `1e-4` | `1e-4` | 已一致 | 不建议动，先隔离 epoch 影响 |
+| weight decay | `0.01` | `0.01` | `0.01` | 已一致 | 暂不动 |
+| warmup pct | `0.15` | `0.15` | `0.15` | 已一致 | 暂不动 |
+| scheduler | `OneCycleLR` | 一致 | 一致 | 已一致 | 暂不动 |
+| dropout | `embed 0.2 / transformer 0.4` | 通过 faithful bridge 对齐到 `0.4` 主训练值 | 保持一致 | 已基本对齐上游主要训练超参 | 暂不动 |
+| hidden size | `512` | `512` | `512` | 已一致 | 暂不动 |
+| n_heads | `8` | `8` | `8` | 已一致 | 暂不动 |
+| gradient accumulation | `1` | `1` | `1` | 当前 batch16 已能直接跑 | 仅在 OOM 时启用 |
+| sessions / prompting | 多 session + session token + stitching + prompt | faithful 已保留 | 保持一致 | 这是 IBL-MtM 的关键 metadata 语义 | 后续只可能补更完整 metadata，不会移除 |
+| split / eval protocol | 上游数据生态 | 当前统一到 canonical `train/valid/test + held-out fp-bps` | 保持 canonical | 1.8 benchmark 的统一约束 | 不调整 |
+
+当前判断：IBL-MtM 这条线与上游的主要差距已经不在优化器，而在 `训练轮数不足 + metadata 生态缺口`。因此本轮优先补长跑，而不是再发明新的训练控制。
+
+### 12.2 Neuroformer：上游 repo vs 当前 faithful
+
+原始来源：
+- `benchmark_models/neuroformer/configs/V1AL/mconf.yaml`
+- `benchmark_models/neuroformer/neuroformer_train.py`
+
+| 参数项 | 上游 repo | 当前 faithful（7.4 前） | 本轮 aligned 目标 | 对齐原因 | 可调整空间 |
+| --- | --- | --- | --- | --- | --- |
+| window.prev / window.curr | `0.15 / 0.05`（V1AL 常见配置） | canonical `0.5 / 0.25`；另有 `0.15 / 0.05` 参考实验 | 两套都跑：canonical + `150/50` reference | canonical 是 benchmark 主口径；`150/50` 用来判断是否只是 horizon 太长 | 不再新增第三套窗口 |
+| epochs | `250` | `3` | `50` | 当前最大缺口之一就是训练太短；但直接上 `250` 成本过高，先用 `50` 做 first serious checkpoint | 若 `e50` 仍持续改善，再考虑 `e100` |
+| batch size | `160`（`32*5`） | `8` | `microbatch 8 + accum 20` | 尽量对齐上游有效 batch，而不冒显存风险 | 若训练不稳，再下调 accum，但要文档说明 |
+| optimizer | upstream trainer optimizer path | faithful 已复用 | 保持一致 | 不额外改写优化器结构 | 无 |
+| lr | `1e-4` | `1e-4` | `1e-4` | 已一致 | 不动 |
+| weight decay | `1.0` | `0.1` | `1.0` | 这是当前最显著的不一致之一，必须对齐后再判断 | 若明显不收敛，再单独审计 |
+| warmup tokens | `8e7` | `5e4` | `8e7`（通过当前 faithful 的 `min(requested, final_tokens)` 机制落地） | 当前 warmup 与上游偏差很大，必须对齐 | 若发现全程都在 warmup，要在结果里明确写出 |
+| lr decay | `True` | `True` | `True` | 已一致 | 不动 |
+| dropout | `0.2` | `0.2` | `0.2` | 已一致 | 不动 |
+| hidden size | `256` | `256` | `256` | 已一致 | 不动 |
+| n_head | `8` | `8` | `8` | 已一致 | 不动 |
+| block sizes | 上游 V1AL 配置 `100 / 100` | faithful 适配为 `512 / 256` | 保持 `512 / 256` | 这是 bridge 必需例外；当前 canonical token density 下已证明无 truncation 或更接近可用范围 | 后续只在明确统计支持下再缩小 |
+| eval cadence | 原 repo 训练脚本偏 `eval_every=5`, `min_eval_epoch=50` | faithful 每 epoch 验证一次 | 保持每 epoch 验证 | 本轮目标是看完整学习曲线，这是审计用途的刻意例外 | 结果稳定后可回到更稀疏 eval |
+| session conditioning | 上游主要依赖全局 vocab + 原任务场景 | faithful 仅 decode 时 session-constrained | 保持不变 | 当前主要先看对齐优化协议后的走势 | 若仍很差，再讨论更显式 conditioning |
+
+当前判断：Neuroformer 与上游最关键的不一致不只是 epoch，更是 `weight_decay / warmup / effective batch` 这组训练协议。因此这轮必须先把这些对齐，再讨论“模型本身是否不适合当前 benchmark”。

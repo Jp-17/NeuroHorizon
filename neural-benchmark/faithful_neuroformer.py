@@ -85,6 +85,7 @@ class FaithfulNeuroformerConfig:
     max_generate_steps: int = 256
     lr_decay: bool = True
     warmup_tokens: int = 50000
+    grad_accum_steps: int = 1
 
 
 class FaithfulNeuroformerDataset(TorchDataset):
@@ -452,6 +453,10 @@ def update_neuroformer_lr(
     for param_group in optimizer.param_groups:
         param_group["lr"] = lr
     return lr
+
+
+def compute_warmup_progress(*, tokens_seen: int, warmup_tokens: int) -> float:
+    return float(min(tokens_seen / float(max(1, warmup_tokens)), 1.0))
 
 
 def decode_token(tokenizer: Tokenizer, token_type: str, token_id: int):
@@ -954,6 +959,9 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
     ).to(device)
     train_cfg = build_train_config(bridge_cfg=bridge_cfg, train_dataset_len=len(train_loader.dataset), epochs=1)
     optimizer = model.configure_optimizers(train_cfg)
+    grad_accum_steps = max(int(bridge_cfg.grad_accum_steps), 1)
+    effective_batch_size = int(args.batch_size * grad_accum_steps)
+    optimizer_steps = 0
     null_lookup = build_null_rate_lookup(
         compute_raw_null_rates(datasets["train"], global_unit_index, spec.bin_size_s),
         device=device,
@@ -1062,6 +1070,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         max_generate_steps=args.max_generate_steps,
         lr_decay=not args.no_lr_decay,
         warmup_tokens=args.warmup_tokens,
+        grad_accum_steps=args.grad_accum_steps,
     )
     output_dir = (
         Path(args.output_dir)
@@ -1169,6 +1178,9 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         epochs=args.epochs,
     )
     optimizer = model.configure_optimizers(train_cfg)
+    grad_accum_steps = max(int(bridge_cfg.grad_accum_steps), 1)
+    effective_batch_size = int(args.batch_size * grad_accum_steps)
+    optimizer_steps = 0
     null_lookup = build_null_rate_lookup(
         compute_raw_null_rates(datasets["train"], global_unit_index, spec.bin_size_s),
         device=device,
@@ -1192,16 +1204,20 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         model.train()
         loss_total = 0.0
         loss_steps = 0
-        for batch in train_loader:
+        optimizer.zero_grad(set_to_none=True)
+        for batch_idx, batch in enumerate(train_loader, start=1):
             batch = move_batch_to_device(batch, device)
             preds, _, loss_dict = model(batch["x"], batch["y"])
             total_loss = compute_total_loss(loss_dict)
-            optimizer.zero_grad(set_to_none=True)
-            total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), bridge_cfg.grad_norm_clip)
-            optimizer.step()
+            (total_loss / grad_accum_steps).backward()
             tokens_seen += int((batch["y"]["id"] >= 0).sum().item())
-            current_lr = update_neuroformer_lr(optimizer, train_cfg=train_cfg, tokens_seen=tokens_seen)
+            should_step = (batch_idx % grad_accum_steps == 0) or (batch_idx == len(train_loader))
+            if should_step:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), bridge_cfg.grad_norm_clip)
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
+                optimizer_steps += 1
+                current_lr = update_neuroformer_lr(optimizer, train_cfg=train_cfg, tokens_seen=tokens_seen)
             loss_total += float(total_loss.detach().cpu().item())
             loss_steps += 1
 
@@ -1226,6 +1242,15 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
                 "valid_fp_bps": float(valid_metrics["fp_bps"]),
                 "valid_r2": float(valid_metrics["r2"]),
                 "lr": current_lr,
+                "weight_decay": float(bridge_cfg.weight_decay),
+                "grad_accum_steps": int(grad_accum_steps),
+                "effective_batch_size": int(effective_batch_size),
+                "tokens_seen": int(tokens_seen),
+                "optimizer_steps": int(optimizer_steps),
+                "warmup_progress": compute_warmup_progress(
+                    tokens_seen=tokens_seen,
+                    warmup_tokens=int(train_cfg.warmup_tokens),
+                ),
             }
         )
         save_checkpoint(
@@ -1344,6 +1369,15 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
     }
     payload["history"] = history
     payload["bridge_config"] = asdict(bridge_cfg)
+    payload["optimizer_protocol"] = {
+        "microbatch_size": int(args.batch_size),
+        "grad_accum_steps": int(grad_accum_steps),
+        "effective_batch_size": int(effective_batch_size),
+        "weight_decay": float(bridge_cfg.weight_decay),
+        "warmup_tokens_requested": int(bridge_cfg.warmup_tokens),
+        "warmup_tokens_effective": int(train_cfg.warmup_tokens),
+        "final_tokens": int(train_cfg.final_tokens),
+    }
     payload["token_stats"] = token_stats
     payload["model_fidelity_notes"] = [
         "Upstream Tokenizer and Neuroformer core retained.",
@@ -1432,6 +1466,7 @@ def run_eval(args: argparse.Namespace) -> Dict[str, object]:
         max_generate_steps=args.max_generate_steps,
         lr_decay=not args.no_lr_decay,
         warmup_tokens=args.warmup_tokens,
+        grad_accum_steps=args.grad_accum_steps,
     )
     checkpoint_path = Path(args.checkpoint_path) if args.checkpoint_path else None
     if checkpoint_path is None:
@@ -1468,6 +1503,13 @@ def run_eval(args: argparse.Namespace) -> Dict[str, object]:
         "spec": asdict(spec),
         "bridge_config": asdict(bridge_cfg),
         "checkpoint_path": str(checkpoint_path),
+        "optimizer_protocol": {
+            "microbatch_size": int(args.batch_size),
+            "grad_accum_steps": int(args.grad_accum_steps),
+            "effective_batch_size": int(args.batch_size * max(args.grad_accum_steps, 1)),
+            "weight_decay": float(bridge_cfg.weight_decay),
+            "warmup_tokens_requested": int(bridge_cfg.warmup_tokens),
+        },
         "eval_split": args.eval_split,
         "inference_mode": args.inference_mode,
         "skip_trial_eval": bool(args.skip_trial_eval),
@@ -1561,6 +1603,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=25)
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--grad-accum-steps", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--max-train-windows", type=int, default=None)
     parser.add_argument("--max-valid-windows", type=int, default=None)

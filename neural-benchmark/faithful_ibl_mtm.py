@@ -83,6 +83,7 @@ class FaithfulIBLMtMConfig:
     stitch_channels: Optional[int] = None
     mask_ratio: float = 0.3
     train_mask_mode: str = "combined"
+    grad_accum_steps: int = 1
 
 
 class FaithfulIBLMtMWindowDataset(TorchDataset):
@@ -569,6 +570,11 @@ def get_current_lr(optimizer: torch.optim.Optimizer) -> float:
     return float(optimizer.param_groups[0]["lr"])
 
 
+def compute_warmup_progress(*, optimizer_steps: int, total_optimizer_steps: int, warmup_pct: float) -> float:
+    warmup_steps = max(int(math.ceil(total_optimizer_steps * max(warmup_pct, 0.0))), 1)
+    return float(min(optimizer_steps / warmup_steps, 1.0))
+
+
 def build_trial_model_fn(model, spec: BenchmarkProtocolSpec):
     def predict(batch: Mapping[str, object]) -> torch.Tensor:
         return predict_ibl_logrates(model, batch, spec=spec)
@@ -754,6 +760,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         stitch_channels=args.stitch_channels,
         mask_ratio=args.mask_ratio,
         train_mask_mode=args.train_mask_mode,
+        grad_accum_steps=args.grad_accum_steps,
     )
     output_dir = (
         Path(args.output_dir)
@@ -849,9 +856,13 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         weight_decay=bridge_cfg.weight_decay,
         eps=bridge_cfg.eps,
     )
+    grad_accum_steps = max(int(bridge_cfg.grad_accum_steps), 1)
+    effective_batch_size = int(args.batch_size * grad_accum_steps)
+    steps_per_epoch = max(math.ceil(max(len(train_loader), 1) / grad_accum_steps), 1)
+    total_optimizer_steps = max(args.epochs * steps_per_epoch, 1)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer,
-        total_steps=max(args.epochs * max(len(train_loader), 1), 1),
+        total_steps=total_optimizer_steps,
         max_lr=bridge_cfg.lr,
         pct_start=bridge_cfg.warmup_pct,
         div_factor=bridge_cfg.div_factor,
@@ -868,15 +879,16 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
     history: List[Dict[str, object]] = []
     best_checkpoint_path = output_dir / "best_model.pt"
     last_checkpoint_path = output_dir / "last_model.pt"
+    optimizer_steps = 0
 
     for epoch in range(1, args.epochs + 1):
         model.train()
         train_loss_sum = 0.0
         train_examples = 0.0
         train_mask_counts: Dict[str, int] = {}
-        for batch in train_loader:
+        optimizer.zero_grad(set_to_none=True)
+        for batch_idx, batch in enumerate(train_loader, start=1):
             batch = move_batch_to_device(batch, device)
-            optimizer.zero_grad(set_to_none=True)
             outputs, masking_mode = run_ibl_train_forward(
                 model,
                 batch,
@@ -884,11 +896,15 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
                 train_mask_mode=bridge_cfg.train_mask_mode,
                 base_mask_ratio=bridge_cfg.mask_ratio,
             )
-            outputs.loss.backward()
-            if bridge_cfg.grad_clip > 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), bridge_cfg.grad_clip)
-            optimizer.step()
-            scheduler.step()
+            (outputs.loss / grad_accum_steps).backward()
+            should_step = (batch_idx % grad_accum_steps == 0) or (batch_idx == len(train_loader))
+            if should_step:
+                if bridge_cfg.grad_clip > 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), bridge_cfg.grad_clip)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad(set_to_none=True)
+                optimizer_steps += 1
             train_loss_sum += float(outputs.loss.detach().cpu().item())
             train_examples += float(outputs.n_examples.detach().cpu().item())
             train_mask_counts[masking_mode] = train_mask_counts.get(masking_mode, 0) + 1
@@ -910,6 +926,15 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
                 "valid_fp_bps": float(valid_metrics["fp_bps"]),
                 "valid_r2": float(valid_metrics["r2"]),
                 "lr": get_current_lr(optimizer),
+                "weight_decay": float(bridge_cfg.weight_decay),
+                "grad_accum_steps": int(grad_accum_steps),
+                "effective_batch_size": int(effective_batch_size),
+                "optimizer_steps": int(optimizer_steps),
+                "warmup_progress": compute_warmup_progress(
+                    optimizer_steps=optimizer_steps,
+                    total_optimizer_steps=total_optimizer_steps,
+                    warmup_pct=bridge_cfg.warmup_pct,
+                ),
                 "train_mask_counts": dict(train_mask_counts),
             }
         )
@@ -986,6 +1011,14 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
     payload["history"] = history
     payload["bridge_config"] = asdict(bridge_cfg)
     payload["train_protocol"] = build_train_protocol_summary(bridge_cfg.train_mask_mode)
+    payload["optimizer_protocol"] = {
+        "microbatch_size": int(args.batch_size),
+        "grad_accum_steps": int(grad_accum_steps),
+        "effective_batch_size": int(effective_batch_size),
+        "weight_decay": float(bridge_cfg.weight_decay),
+        "warmup_pct": float(bridge_cfg.warmup_pct),
+        "total_optimizer_steps": int(total_optimizer_steps),
+    }
     payload["model_fidelity_notes"] = [
         "Upstream NDT1 core retained.",
         "Perich-Miller adaptation replaces IBL EID list with canonical recording IDs at runtime.",
@@ -1038,6 +1071,7 @@ def parse_args() -> argparse.Namespace:
         default="combined",
         choices=["combined", "all", "neuron", "causal", "intra-region", "inter-region", "forward_pred"],
     )
+    parser.add_argument("--grad-accum-steps", type=int, default=1)
     return parser.parse_args()
 
 
