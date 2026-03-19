@@ -148,3 +148,33 @@ conda activate poyo
 cd /root/autodl-tmp/NeuroHorizon
 python scripts/phase1-autoregressive-1.9-module-optimization/plot_optimization_training_curves.py --module 20260313_prediction_memory_alignment_tuning
 ```
+
+## 2026-03-20 补充：best-ckpt valid/test 回填与 checkpoint 审计
+
+- 协议确认：
+  - 训练入口：`examples/neurohorizon/train.py`
+  - 离线正式评估入口：`scripts/analysis/neurohorizon/eval_phase1_v2.py`
+  - 数据：`examples/neurohorizon/configs/dataset/perich_miller_10sessions.yaml`
+  - continuous train sampler：`RandomFixedWindowSampler`
+  - continuous valid/test sampler：`SequentialFixedWindowSampler`
+- checkpoint 审计结论：
+  - 历史 `last.ckpt` 与 monitored checkpoint 同 epoch，但本次仍按 best checkpoint 统一回填 valid/test
+  - best checkpoint 分别位于 `epoch 229 / 249 / 239`
+
+| 窗口 | best ckpt | TF valid | TF test | rollout valid | rollout test |
+|------|-----------|----------|---------|---------------|--------------|
+| 250ms | `epoch=229-step=30590.ckpt` | 0.2636 | 0.2667 | 0.1949 | 0.1991 |
+| 500ms | `epoch=249-step=24750.ckpt` | 0.2718 | 0.2655 | 0.1635 | 0.1637 |
+| 1000ms | `epoch=239-step=15600.ckpt` | 0.2815 | 0.2820 | 0.1264 | 0.1273 |
+
+补查命令：
+
+```bash
+conda activate poyo
+cd /root/autodl-tmp/NeuroHorizon
+python scripts/phase1-autoregressive-1.9-module-optimization/backfill_best_checkpoint_evals.py
+```
+
+补充结论：
+1. best-ckpt 回填后，`500ms` 和 `1000ms` 的 rollout-valid 均较旧记录略有上升，当前三个窗口的 best-ckpt rollout-valid 为 `0.1949 / 0.1635 / 0.1264`。
+2. 该轮仍是显式 prediction-memory 路线里最接近 `baseline_v2` 的设置，其中 `1000ms` 的 rollout-test 已到 `0.1273`，与 `baseline_v2` `0.1317` 只差约 `0.0044`。

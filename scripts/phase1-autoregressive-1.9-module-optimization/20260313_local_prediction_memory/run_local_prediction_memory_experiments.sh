@@ -25,18 +25,39 @@ run_window() {
       --config-name="$config_name" \
       num_workers=2
 
-    echo "[$(date '+%F %T')] start teacher-forced eval $window"
+    echo "[$(date '+%F %T')] start teacher-forced valid eval $window"
     "$PYTHON" "$EVAL_SCRIPT" \
       --log-dir "$window_log_dir" \
+      --checkpoint-kind best \
+      --split valid \
       --skip-trial \
-      --output "$window_log_dir/eval_teacher_forced.json"
+      --output "$window_log_dir/eval_teacher_forced_best_valid.json"
 
-    echo "[$(date '+%F %T')] start rollout eval $window"
+    echo "[$(date '+%F %T')] start teacher-forced test eval $window"
     "$PYTHON" "$EVAL_SCRIPT" \
       --log-dir "$window_log_dir" \
+      --checkpoint-kind best \
+      --split test \
+      --skip-trial \
+      --output "$window_log_dir/eval_teacher_forced_best_test.json"
+
+    echo "[$(date '+%F %T')] start rollout valid eval $window"
+    "$PYTHON" "$EVAL_SCRIPT" \
+      --log-dir "$window_log_dir" \
+      --checkpoint-kind best \
+      --split valid \
       --rollout \
       --skip-trial \
-      --output "$window_log_dir/eval_rollout.json"
+      --output "$window_log_dir/eval_rollout_best_valid.json"
+
+    echo "[$(date '+%F %T')] start rollout test eval $window"
+    "$PYTHON" "$EVAL_SCRIPT" \
+      --log-dir "$window_log_dir" \
+      --checkpoint-kind best \
+      --split test \
+      --rollout \
+      --skip-trial \
+      --output "$window_log_dir/eval_rollout_best_test.json"
 
     echo "[$(date '+%F %T')] finished $window"
   ) > "$window_log_dir/stdout.log" 2>&1

@@ -102,7 +102,10 @@ def load_epoch_curves(metrics_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 def metrics_path_from_summary(window_summary: dict) -> Path:
     checkpoint_path = (
-        window_summary.get("teacher_forced", {}).get("checkpoint")
+        window_summary.get("checkpoint_selection", {}).get("best_checkpoint")
+        or window_summary.get("teacher_forced", {}).get("valid", {}).get("checkpoint")
+        or window_summary.get("teacher_forced", {}).get("checkpoint")
+        or window_summary.get("rollout", {}).get("valid", {}).get("checkpoint")
         or window_summary.get("rollout", {}).get("checkpoint")
     )
     if not checkpoint_path:
@@ -155,10 +158,22 @@ def plot_module(summary_path: Path) -> tuple[Path, Path]:
             "version": metrics_path.parent.name,
             "train": train_epoch,
             "val": val_epoch,
-            "teacher_forced_fp": window_summary.get("teacher_forced", {})
+            "tf_valid_fp": window_summary.get("teacher_forced", {})
+            .get("valid", {})
             .get("continuous", {})
             .get("fp_bps"),
-            "rollout_fp": window_summary.get("rollout", {}).get("continuous", {}).get("fp_bps"),
+            "tf_test_fp": window_summary.get("teacher_forced", {})
+            .get("test", {})
+            .get("continuous", {})
+            .get("fp_bps"),
+            "rollout_valid_fp": window_summary.get("rollout", {})
+            .get("valid", {})
+            .get("continuous", {})
+            .get("fp_bps"),
+            "rollout_test_fp": window_summary.get("rollout", {})
+            .get("test", {})
+            .get("continuous", {})
+            .get("fp_bps"),
             "baseline_fp": window_summary.get("baseline_fp_bps"),
         }
         if not train_epoch.empty:
@@ -168,7 +183,7 @@ def plot_module(summary_path: Path) -> tuple[Path, Path]:
                 loss_values.append(val_epoch["val_loss"].to_numpy(dtype=float))
             if "val/fp_bps" in val_epoch:
                 fp_values.append(val_epoch["val/fp_bps"].to_numpy(dtype=float))
-        for key in ["teacher_forced_fp", "rollout_fp", "baseline_fp"]:
+        for key in ["tf_valid_fp", "tf_test_fp", "rollout_valid_fp", "rollout_test_fp", "baseline_fp"]:
             value = curve_payload[window][key]
             if value is not None:
                 fp_values.append(np.array([float(value)], dtype=float))
@@ -229,22 +244,40 @@ def plot_module(summary_path: Path) -> tuple[Path, Path]:
                 label="val/fp_bps",
             )[0]
             legend_handles[handle.get_label()] = handle
-        if payload["teacher_forced_fp"] is not None:
+        if payload["tf_valid_fp"] is not None:
             handle = ax_fp.axhline(
-                float(payload["teacher_forced_fp"]),
+                float(payload["tf_valid_fp"]),
                 color="#6a3d9a",
                 linestyle="--",
                 linewidth=1.4,
-                label="post-train teacher-forced fp-bps",
+                label="best-ckpt TF valid fp-bps",
             )
             legend_handles[handle.get_label()] = handle
-        if payload["rollout_fp"] is not None:
+        if payload["tf_test_fp"] is not None:
             handle = ax_fp.axhline(
-                float(payload["rollout_fp"]),
+                float(payload["tf_test_fp"]),
+                color="#cab2d6",
+                linestyle=":",
+                linewidth=1.4,
+                label="best-ckpt TF test fp-bps",
+            )
+            legend_handles[handle.get_label()] = handle
+        if payload["rollout_valid_fp"] is not None:
+            handle = ax_fp.axhline(
+                float(payload["rollout_valid_fp"]),
                 color="#e31a1c",
                 linestyle="-.",
                 linewidth=1.4,
-                label="post-train rollout fp-bps",
+                label="best-ckpt rollout valid fp-bps",
+            )
+            legend_handles[handle.get_label()] = handle
+        if payload["rollout_test_fp"] is not None:
+            handle = ax_fp.axhline(
+                float(payload["rollout_test_fp"]),
+                color="#fb9a99",
+                linestyle="-",
+                linewidth=1.4,
+                label="best-ckpt rollout test fp-bps",
             )
             legend_handles[handle.get_label()] = handle
         if payload["baseline_fp"] is not None:
@@ -283,14 +316,20 @@ def plot_module(summary_path: Path) -> tuple[Path, Path]:
             ax_loss.set_xlim(0, max_epoch)
             ax_fp.set_xlim(0, max_epoch)
 
-        tf_fp = payload["teacher_forced_fp"]
-        rollout_fp = payload["rollout_fp"]
+        tf_valid_fp = payload["tf_valid_fp"]
+        tf_test_fp = payload["tf_test_fp"]
+        rollout_valid_fp = payload["rollout_valid_fp"]
+        rollout_test_fp = payload["rollout_test_fp"]
         baseline_fp = payload["baseline_fp"]
         summary_text = []
-        if tf_fp is not None:
-            summary_text.append(f"TF {float(tf_fp):.3f}")
-        if rollout_fp is not None:
-            summary_text.append(f"RO {float(rollout_fp):.3f}")
+        if tf_valid_fp is not None:
+            summary_text.append(f"TFv {float(tf_valid_fp):.3f}")
+        if tf_test_fp is not None:
+            summary_text.append(f"TFt {float(tf_test_fp):.3f}")
+        if rollout_valid_fp is not None:
+            summary_text.append(f"ROv {float(rollout_valid_fp):.3f}")
+        if rollout_test_fp is not None:
+            summary_text.append(f"ROt {float(rollout_test_fp):.3f}")
         if baseline_fp is not None:
             summary_text.append(f"Base {float(baseline_fp):.3f}")
         ax_fp.text(
@@ -309,7 +348,7 @@ def plot_module(summary_path: Path) -> tuple[Path, Path]:
         0.5,
         0.01,
         "Top row: epoch-level train_loss / val_loss from Lightning metrics.csv. "
-        "Bottom row: training-time val/fp_bps with post-train teacher-forced, rollout, and baseline references.",
+        "Bottom row: training-time val/fp_bps with best-ckpt teacher-forced / rollout valid-test references.",
         ha="center",
         fontsize=10,
     )

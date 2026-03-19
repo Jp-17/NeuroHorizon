@@ -10,15 +10,16 @@ Usage:
         --checkpoint results/logs/phase1_v2_250ms_cont/.../last.ckpt \
         --config-name train_v2_250ms
 
-    # Or auto-find best checkpoint:
+    # Or auto-find a checkpoint inside a Lightning log dir:
     python scripts/analysis/neurohorizon/eval_phase1_v2.py \
         --log-dir results/logs/phase1_v2_250ms_cont \
-        --config-name train_v2_250ms
+        --checkpoint-kind best
 """
 
 import argparse
 import json
 import logging
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -64,18 +65,65 @@ def _ensure_unit_buffer_size(
     return grown
 
 
-def find_best_checkpoint(log_dir: str) -> str:
-    """Find the best (last.ckpt) checkpoint in a log directory."""
+def _version_key(path: Path) -> int:
+    match = re.search(r"version_(\d+)", str(path))
+    return int(match.group(1)) if match else -1
+
+
+def _iter_checkpoint_dirs(log_path: Path) -> list[Path]:
+    version_dirs = sorted(log_path.glob("lightning_logs/version_*"), key=_version_key)
+    checkpoint_dirs = [version_dir / "checkpoints" for version_dir in version_dirs]
+    if checkpoint_dirs:
+        return [path for path in checkpoint_dirs if path.exists()]
+
+    direct_dir = log_path / "checkpoints"
+    if direct_dir.exists():
+        return [direct_dir]
+
+    return sorted(log_path.glob("**/checkpoints"))
+
+
+def _load_checkpoint_summary(checkpoint_dir: Path) -> dict | None:
+    summary_path = checkpoint_dir / "checkpoint_summary.json"
+    if not summary_path.exists():
+        return None
+    return json.loads(summary_path.read_text())
+
+
+def find_checkpoint(log_dir: str, checkpoint_kind: str = "best") -> str:
+    """Find the requested checkpoint inside a Lightning log directory."""
     log_path = Path(log_dir)
-    # Look for last.ckpt in lightning_logs/version_*/checkpoints/
-    candidates = list(log_path.glob("lightning_logs/version_*/checkpoints/last.ckpt"))
-    if not candidates:
-        # Try direct checkpoints dir
-        candidates = list(log_path.glob("**/last.ckpt"))
-    if not candidates:
-        raise FileNotFoundError(f"No last.ckpt found in {log_dir}")
-    # Return the most recent
-    return str(sorted(candidates, key=lambda p: p.stat().st_mtime)[-1])
+    checkpoint_dirs = _iter_checkpoint_dirs(log_path)
+    if not checkpoint_dirs:
+        raise FileNotFoundError(f"No checkpoints/ directory found in {log_dir}")
+
+    for checkpoint_dir in reversed(checkpoint_dirs):
+        summary = _load_checkpoint_summary(checkpoint_dir)
+        if checkpoint_kind == "best":
+            summary_path = summary.get("best_alias_path") if summary else None
+            if summary_path and Path(summary_path).exists():
+                return summary_path
+
+            best_alias = checkpoint_dir / "best.ckpt"
+            if best_alias.exists():
+                return str(best_alias)
+
+            monitored = sorted(
+                [path for path in checkpoint_dir.glob("*.ckpt") if path.name != "last.ckpt"],
+                key=lambda path: path.stat().st_mtime,
+            )
+            if monitored:
+                return str(monitored[-1])
+        else:
+            summary_path = summary.get("last_alias_path") if summary else None
+            if summary_path and Path(summary_path).exists():
+                return summary_path
+
+            last_ckpt = checkpoint_dir / "last.ckpt"
+            if last_ckpt.exists():
+                return str(last_ckpt)
+
+    raise FileNotFoundError(f"No {checkpoint_kind} checkpoint found in {log_dir}")
 
 
 def load_model_from_checkpoint(ckpt_path: str, device: torch.device):
@@ -107,7 +155,12 @@ def load_model_from_checkpoint(ckpt_path: str, device: torch.device):
     model.eval()
     model = model.to(device)
 
-    return model, cfg, train_dataset
+    checkpoint_meta = {
+        "checkpoint_epoch": int(ckpt.get("epoch", -1)),
+        "checkpoint_global_step": int(ckpt.get("global_step", -1)),
+    }
+
+    return model, cfg, train_dataset, checkpoint_meta
 
 
 def run_model(model, batch, device, rollout: bool = False):
@@ -418,7 +471,14 @@ def main():
     parser = argparse.ArgumentParser(description="Phase 1 v2 comprehensive evaluation")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--checkpoint", type=str, help="Direct checkpoint path")
-    group.add_argument("--log-dir", type=str, help="Log directory (auto-finds last.ckpt)")
+    group.add_argument("--log-dir", type=str, help="Log directory (auto-finds checkpoint)")
+    parser.add_argument(
+        "--checkpoint-kind",
+        type=str,
+        default="best",
+        choices=["best", "last"],
+        help="Checkpoint alias to resolve when using --log-dir.",
+    )
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--trial-batch-size", type=int, default=16)
     parser.add_argument("--sigma-bins", type=int, default=1)
@@ -440,12 +500,14 @@ def main():
     # Find checkpoint
     if args.checkpoint:
         ckpt_path = args.checkpoint
+        checkpoint_kind = "direct"
     else:
-        ckpt_path = find_best_checkpoint(args.log_dir)
+        ckpt_path = find_checkpoint(args.log_dir, checkpoint_kind=args.checkpoint_kind)
+        checkpoint_kind = args.checkpoint_kind
     logger.info(f"Checkpoint: {ckpt_path}")
 
     # Load model
-    model, cfg, train_dataset = load_model_from_checkpoint(ckpt_path, device)
+    model, cfg, train_dataset, checkpoint_meta = load_model_from_checkpoint(ckpt_path, device)
     logger.info(
         f"Model: pred_window={model.pred_window}s, "
         f"hist_window={model.hist_window}s, "
@@ -468,6 +530,8 @@ def main():
         "trial_aligned_training": bool(getattr(cfg, "trial_aligned", False)),
         "rollout": bool(args.rollout),
         "split": args.split,
+        "checkpoint_kind": checkpoint_kind,
+        **checkpoint_meta,
     }
 
     # Continuous evaluation

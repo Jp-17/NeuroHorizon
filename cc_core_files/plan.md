@@ -803,10 +803,40 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
    - 如果与 `1.3.7` 不一致，必须在任务记录中书面记录差异项、原因和影响范围
    - 数据: `examples/neurohorizon/configs/dataset/perich_miller_10sessions.yaml`
    - 采样方式: 连续滑动窗口（非 trial-aligned）
+   - `1.3.7` continuous 默认实现位置:
+     - 训练入口：`examples/neurohorizon/train.py`
+     - 离线正式评估入口：`scripts/analysis/neurohorizon/eval_phase1_v2.py`
+     - continuous train sampler：`RandomFixedWindowSampler`
+     - continuous valid/test sampler：`SequentialFixedWindowSampler`
    - 观察窗口: 500ms
    - 预测窗口: 250ms / 500ms / 1000ms（3 个条件）
    - 默认至少记录的指标: `fp-bps` / `per-bin fp-bps`
    - `R-squared` / `PSTH-R-squared` / `Poisson NLL` 作为补充指标按需要记录
+   - 2026-03-20 协议审计补充：
+     - 历史 1.9 run 已确认使用上述 continuous 配置；未显式启用 `trial_aligned`
+     - 历史目录中的 `last.ckpt` 实际等同于某个更早 epoch 的 monitored checkpoint，因为原始 `ModelCheckpoint` 只有在同一步发生 top-k 保存时才会刷新 `save_last`
+     - 当前正式实现已改为：每个 eval epoch 保存 checkpoint，train end 按 `max(val/fp_bps)` + `min(val_loss)` 选 best ckpt，显式保存真正 final `last.ckpt`，并对 best ckpt 输出 `valid/test` 指标
+   - 2026-03-20 历史 1.9 best-ckpt 回填结果（teacher-forced valid/test；rollout valid/test）：
+     - `20260312_prediction_memory_decoder`
+       - `250ms`: `0.2974 / 0.2943`; `0.1510 / 0.1487`
+       - `500ms`: `0.2840 / 0.2791`; `0.0200 / 0.0190`
+       - `1000ms`: `0.2752 / 0.2753`; `-0.2192 / -0.2362`
+     - `20260313_local_prediction_memory`
+       - `250ms`: `0.2833 / 0.2857`; `0.1679 / 0.1701`
+       - `500ms`: `0.2838 / 0.2750`; `0.0316 / 0.0234`
+       - `1000ms`: `0.2736 / 0.2729`; `-0.1749 / -0.1832`
+     - `20260313_prediction_memory_alignment`
+       - `250ms`: `0.2690 / 0.2747`; `0.1904 / 0.2057`
+       - `500ms`: `0.2799 / 0.2729`; `0.1623 / 0.1614`
+       - `1000ms`: `0.2762 / 0.2773`; `0.1120 / 0.1249`
+     - `20260313_prediction_memory_alignment_tuning`
+       - `250ms`: `0.2636 / 0.2667`; `0.1949 / 0.1991`
+       - `500ms`: `0.2718 / 0.2655`; `0.1635 / 0.1637`
+       - `1000ms`: `0.2815 / 0.2820`; `0.1264 / 0.1273`
+   - 详细落点：
+     - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+     - `results/figures/phase1-autoregressive-1.9-module-optimization/*/*_summary.json`
+     - `results/logs/phase1-autoregressive-1.9-module-optimization/*/*/eval_*_best_{valid,test}.json`
 2. **可选 -- 观察窗口实验**（参照 1.4，用户确认后执行）
 3. **可选 -- Session 数目实验**（参照 1.5，用户确认后执行）
 
@@ -865,7 +895,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 > 日志: `results/logs/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/`
 > 可视化: `results/figures/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/`
 > commit: `ebb59fa`
-> 结果: 250ms fp-bps=0.1486 / 500ms fp-bps=-0.0153 / 1000ms fp-bps=-0.2590
+> 结果: 250ms fp-bps=0.1510 / 500ms fp-bps=0.0200 / 1000ms fp-bps=-0.2192
 
 - 核心设计：`event-based POYO encoder + time-bin autoregressive decoder + structured prediction memory`
 - 旧 `feedback_method` / Query Augmentation 保留为 baseline / ablation，不再作为主线最终架构
@@ -873,6 +903,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 训练使用 `shift-right` GT counts 构造 prediction memory；推理使用 `exp(log_rate)` 得到 expected counts 再编码
 - 必做实验保持 1.9 统一规范：10 sessions、连续滑动窗口、obs=500ms、pred=250/500/1000ms
 - training curves：`results/figures/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/training_curves.png`
+- 2026-03-20 best-ckpt teacher-forced valid/test：`250ms 0.2974 / 0.2943`，`500ms 0.2840 / 0.2791`，`1000ms 0.2752 / 0.2753`
 - 结论：teacher-forced 指标很高，但 rollout 显著差于 `baseline_v2`，尤其长窗口出现严重误差积累；该方案不作为主线继续推进
 
 ##### 20260313_local_prediction_memory -- Local Prediction Memory Decoder
@@ -884,11 +915,12 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 > 日志: `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/`
 > 可视化: `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/`
 > commit: `22faac6`
-> 结果: 250ms fp-bps=0.1621 / 500ms fp-bps=-0.0105 / 1000ms fp-bps=-0.2122
+> 结果: 250ms fp-bps=0.1679 / 500ms fp-bps=0.0316 / 1000ms fp-bps=-0.1749
 
 - 核心设计：保留 structured memory，但 query 只访问紧邻上一步的 local memory block
 - 设计动机：针对 20260312 版本全历史 memory 检索带来的 rollout 崩塌，优先收缩 feedback 通路容量
 - training curves：`results/figures/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/training_curves.png`
+- 2026-03-20 best-ckpt teacher-forced valid/test：`250ms 0.2833 / 0.2857`，`500ms 0.2838 / 0.2750`，`1000ms 0.2736 / 0.2729`
 - 结果结论：相对上一轮有小幅改善，但 rollout 仍显著差于 `baseline_v2`；`500ms/1000ms` 仍在中后段转负，因此本轮也不作为主线继续推进
 
 ##### 20260313_prediction_memory_alignment -- Prediction Memory Alignment Training
@@ -900,13 +932,14 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 > 日志: `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/`
 > 可视化: `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/`
 > commit: `64415f4`
-> 结果: 250ms fp-bps=0.1943 / 500ms fp-bps=0.1513 / 1000ms fp-bps=0.1103
+> 结果: 250ms fp-bps=0.1904 / 500ms fp-bps=0.1623 / 1000ms fp-bps=0.1120
 
 - 核心设计：在 `local_prediction_memory` 上增加训练期 memory 输入对齐，不再继续改 decoder 结构
 - 训练策略：将 `shift-right GT counts` 与 `shift-right predicted expected counts` 做时间步级混合，并对 memory encoder 输入施加 noise / dropout
 - 设计动机：针对 `20260313_local_prediction_memory` 暴露出的核心 train / inference mismatch，而不是继续只改 memory mask
 - 必做实验保持 1.9 统一规范：10 sessions、连续滑动窗口、obs=500ms、pred=250/500/1000ms
 - training curves：`results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/training_curves.png`
+- 2026-03-20 best-ckpt teacher-forced valid/test：`250ms 0.2690 / 0.2747`，`500ms 0.2799 / 0.2729`，`1000ms 0.2762 / 0.2773`
 - 当前结果：相对 `20260313_local_prediction_memory` 大幅改善，并在三个窗口上都逼近 `baseline_v2`；是否继续迭代或转主线由用户决定
 
 ##### 20260313_prediction_memory_alignment_tuning -- Prediction Memory Alignment Tuning
@@ -918,13 +951,14 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 > 日志: `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/`
 > 可视化: `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/`
 > commit: `dd424ce`
-> 结果: 250ms fp-bps=0.2004 / 500ms fp-bps=0.1526 / 1000ms fp-bps=0.1218
+> 结果: 250ms fp-bps=0.1949 / 500ms fp-bps=0.1635 / 1000ms fp-bps=0.1264
 
 - 核心设计：保持上一轮 alignment 训练逻辑不变，只做小范围超参调优
 - 调参内容：`mix_prob 0.25 -> 0.35`，`dropout 0.10 -> 0.05`，`noise_std 0.05 -> 0.03`
 - 设计动机：上一轮已逼近 `baseline_v2`，当前更值得测试的是 alignment 强度与 regularization 强度的平衡，而不是继续改结构
 - 必做实验保持 1.9 统一规范：10 sessions、连续滑动窗口、obs=500ms、pred=250/500/1000ms
 - training curves：`results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/training_curves.png`
+- 2026-03-20 best-ckpt teacher-forced valid/test：`250ms 0.2636 / 0.2667`，`500ms 0.2718 / 0.2655`，`1000ms 0.2815 / 0.2820`
 - 当前结果：较 `20260313_prediction_memory_alignment` 再次小幅提升，`1000ms` 距 `baseline_v2` 仅差 `0.0099 fp-bps`；是否继续细调由用户决定
 
 

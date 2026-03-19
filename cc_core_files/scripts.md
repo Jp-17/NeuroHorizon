@@ -260,6 +260,7 @@
   - 从各模块 summary JSON 反查正式 checkpoint 对应的 `metrics.csv`
   - 聚合 `train_loss` / `val_loss` / `val/fp_bps`
   - 生成每轮迭代各自的 `training_curves.{png,pdf}`
+  - 在图中叠加 best-ckpt 的 teacher-forced / rollout valid-test 参考线
 - **创建时间**：2026-03-19
 - **使用方式**：
   ```bash
@@ -275,7 +276,49 @@
   - `results/figures/phase1-autoregressive-1.9-module-optimization/*/training_curves.png`
   - `results/figures/phase1-autoregressive-1.9-module-optimization/*/training_curves.pdf`
 - **依赖**：poyo conda 环境（pandas, matplotlib）
-- **备注**：用于补齐 plan.md 1.9 中各轮正式实验缺失的 training curves 可视化
+- **备注**：2026-03-20 后改为从 best-ckpt summary JSON 读取 valid/test 参考线，用于补齐并统一 1.9 的训练曲线记录
+
+### module_result_utils.py（1.9 结果汇总公用工具）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/module_result_utils.py`
+- **功能用途**：为四轮 1.9 模块实验提供统一的结果汇总逻辑
+  - 读取 best-ckpt `eval_teacher_forced_best_{valid,test}.json` 与 `eval_rollout_best_{valid,test}.json`
+  - 从 `metrics.csv` 提取曲线最佳 epoch / 最后一轮指标
+  - 统一生成各模块 `*_summary.json`
+  - 统一更新 `results.tsv`、趋势图和 training curves
+- **创建时间**：2026-03-20
+- **使用方式**：由各模块 `collect_*_results.py` 间接调用
+- **输入**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/*/*/eval_*_best_{valid,test}.json`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/*/*/lightning_logs/version_*/metrics.csv`
+  - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+- **输出**：
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/*/*_summary.json`
+  - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/optimization_progress.{png,pdf}`
+- **依赖**：poyo conda 环境（pandas, torch）
+- **备注**：用于避免四个 1.9 汇总脚本各自维护不同的结果口径
+
+### backfill_best_checkpoint_evals.py（1.9 历史 best-ckpt 回填）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/backfill_best_checkpoint_evals.py`
+- **功能用途**：为历史 1.9 四轮实验补跑 best-ckpt 的 valid/test 正式评估
+  - 按模块和窗口调用 `eval_phase1_v2.py --checkpoint-kind best`
+  - 输出 teacher-forced / rollout 的 valid/test JSON
+  - 调用各模块汇总脚本刷新 summary JSON、`results.tsv` 和图表
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/phase1-autoregressive-1.9-module-optimization/backfill_best_checkpoint_evals.py
+  ```
+- **输出**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/*/*/eval_*_best_{valid,test}.json`
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/*/*_summary.json`
+  - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+- **依赖**：poyo conda 环境
+- **备注**：用于 2026-03-20 协议审计后的历史结果补查，不替代未来正式 run 脚本
 
 ### verify_prediction_memory.py（1.9 Structured Prediction Memory 功能验证）
 
@@ -302,7 +345,7 @@
 - **功能用途**：并行执行 prediction-memory decoder 的 1.9 实验流程
   - 先运行功能验证
   - 并行训练 250ms / 500ms / 1000ms 三个配置
-  - 对每个窗口分别输出 teacher-forced 与 rollout 两套评估结果
+  - 对每个窗口输出 best-ckpt teacher-forced / rollout 的 valid/test 四套评估结果
   - 最后调用汇总脚本生成 summary
 - **创建时间**：2026-03-12
 - **使用方式**：
@@ -343,12 +386,12 @@
 ### collect_prediction_memory_results.py（1.9 Structured Prediction Memory 结果汇总）
 
 - **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/collect_prediction_memory_results.py`
-- **功能用途**：汇总 prediction-memory decoder 的评估 JSON，并与 `baseline_v2` 做初步对比
 - **功能用途**：汇总 prediction-memory decoder 的评估 JSON，并自动完成 1.9 收尾
-  - 读取 teacher-forced / rollout 评估结果
+  - 读取 best-ckpt teacher-forced / rollout 的 valid/test 评估结果
   - 与 `baseline_v2` 做对比并生成 summary JSON
   - 追加或更新 `results.tsv`
   - 调用 `plot_optimization_progress.py` 刷新趋势图
+  - 调用 `plot_optimization_training_curves.py` 刷新训练曲线
 - **创建时间**：2026-03-12
 - **使用方式**：
   ```bash
@@ -357,14 +400,14 @@
   python scripts/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/collect_prediction_memory_results.py
   ```
 - **输入**：
-  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/*/eval_{teacher_forced,rollout}.json`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/*/eval_*_best_{valid,test}.json`
   - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
 - **输出**：
   - `results/figures/phase1-autoregressive-1.9-module-optimization/20260312_prediction_memory_decoder/prediction_memory_summary.json`
   - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
   - `results/figures/phase1-autoregressive-1.9-module-optimization/optimization_progress.{png,pdf}`
 - **依赖**：Python 标准库
-- **备注**：默认将 `rollout` 的 fp-bps 作为 1.9 新架构的正式记录值
+- **备注**：`results.tsv` 中 `fp_bps_*` 记录 best-ckpt rollout-valid，`best_val_fp_bps_* / best_test_fp_bps_*` 记录 best-ckpt teacher-forced valid/test
 
 ### verify_local_prediction_memory.py（1.9 Local Prediction Memory 功能验证）
 
@@ -413,7 +456,7 @@
 - **功能用途**：并行执行 local prediction memory 版本的 1.9 正式实验流程
   - 先运行功能验证
   - 并行训练 250ms / 500ms / 1000ms 三个配置
-  - 对每个窗口分别输出 teacher-forced 与 rollout 两套评估结果
+  - 对每个窗口输出 best-ckpt teacher-forced / rollout 的 valid/test 四套评估结果
   - 最后调用汇总脚本生成 summary
 - **创建时间**：2026-03-13
 - **使用方式**：
@@ -455,10 +498,11 @@
 
 - **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/collect_local_prediction_memory_results.py`
 - **功能用途**：汇总 local prediction memory 的评估 JSON，并自动完成 1.9 收尾
-  - 读取 teacher-forced / rollout 评估结果
+  - 读取 best-ckpt teacher-forced / rollout 的 valid/test 评估结果
   - 与 `baseline_v2` 做对比并生成 summary JSON
   - 追加或更新 `results.tsv`
   - 调用 `plot_optimization_progress.py` 刷新趋势图
+  - 调用 `plot_optimization_training_curves.py` 刷新训练曲线
 - **创建时间**：2026-03-13
 - **使用方式**：
   ```bash
@@ -467,14 +511,14 @@
   python scripts/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/collect_local_prediction_memory_results.py
   ```
 - **输入**：
-  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/*/eval_{teacher_forced,rollout}.json`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/*/eval_*_best_{valid,test}.json`
   - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
 - **输出**：
   - `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_local_prediction_memory/local_prediction_memory_summary.json`
   - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
   - `results/figures/phase1-autoregressive-1.9-module-optimization/optimization_progress.{png,pdf}`
 - **依赖**：Python 标准库
-- **备注**：默认将 `rollout` 的 fp-bps 作为 1.9 新架构的正式记录值
+- **备注**：`results.tsv` 中 `fp_bps_*` 记录 best-ckpt rollout-valid，`best_val_fp_bps_* / best_test_fp_bps_*` 记录 best-ckpt teacher-forced valid/test
 
 ### verify_prediction_memory_alignment.py（1.9 Alignment 功能验证）
 
@@ -530,7 +574,7 @@
 ### run_prediction_memory_alignment_tuning_experiments.sh（1.9 Alignment Tuning 正式实验）
 
 - **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/run_prediction_memory_alignment_tuning_experiments.sh`
-- **功能用途**：并行启动 `250ms / 500ms / 1000ms` 三个 tuning 正式实验，并在训练完成后自动执行 teacher-forced / rollout eval 与结果收集
+- **功能用途**：并行启动 `250ms / 500ms / 1000ms` 三个 tuning 正式实验，并在训练完成后自动执行 best-ckpt teacher-forced / rollout valid-test eval 与结果收集
 - **创建时间**：2026-03-13
 - **使用方式**：
   ```bash
@@ -568,10 +612,11 @@
 
 - **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/collect_prediction_memory_alignment_tuning_results.py`
 - **功能用途**：汇总 tuning 版评估 JSON，并自动完成 1.9 收尾
-  - 读取 teacher-forced / rollout 评估结果
+  - 读取 best-ckpt teacher-forced / rollout 的 valid/test 评估结果
   - 与 `baseline_v2` 做对比并生成 summary JSON
   - 追加或更新 `results.tsv`
   - 调用 `plot_optimization_progress.py` 刷新趋势图
+  - 调用 `plot_optimization_training_curves.py` 刷新训练曲线
 - **创建时间**：2026-03-13
 - **使用方式**：
   ```bash
@@ -580,14 +625,14 @@
   python scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/collect_prediction_memory_alignment_tuning_results.py
   ```
 - **输入**：
-  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/*/eval_{teacher_forced,rollout}.json`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/*/eval_*_best_{valid,test}.json`
   - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
 - **输出**：
   - `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment_tuning/prediction_memory_alignment_tuning_summary.json`
   - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
   - `results/figures/phase1-autoregressive-1.9-module-optimization/optimization_progress.{png,pdf}`
 - **依赖**：Python 标准库
-- **备注**：默认将 `rollout` 的 fp-bps 作为 1.9 tuning 方案的正式记录值
+- **备注**：`results.tsv` 中 `fp_bps_*` 记录 best-ckpt rollout-valid，`best_val_fp_bps_* / best_test_fp_bps_*` 记录 best-ckpt teacher-forced valid/test
 
 ### run_prediction_memory_alignment_smoke.sh（1.9 Alignment Smoke Run）
 
@@ -611,7 +656,7 @@
 ### run_prediction_memory_alignment_experiments.sh（1.9 Alignment 正式实验）
 
 - **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/run_prediction_memory_alignment_experiments.sh`
-- **功能用途**：并行启动 `250ms / 500ms / 1000ms` 三个正式 alignment 实验，并在训练完成后自动执行 teacher-forced / rollout eval 与结果收集
+- **功能用途**：并行启动 `250ms / 500ms / 1000ms` 三个正式 alignment 实验，并在训练完成后自动执行 best-ckpt teacher-forced / rollout valid-test eval 与结果收集
 - **创建时间**：2026-03-13
 - **使用方式**：
   ```bash
@@ -649,10 +694,11 @@
 
 - **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/collect_prediction_memory_alignment_results.py`
 - **功能用途**：汇总 prediction memory alignment 的评估 JSON，并自动完成 1.9 收尾
-  - 读取 teacher-forced / rollout 评估结果
+  - 读取 best-ckpt teacher-forced / rollout 的 valid/test 评估结果
   - 与 `baseline_v2` 做对比并生成 summary JSON
   - 追加或更新 `results.tsv`
   - 调用 `plot_optimization_progress.py` 刷新趋势图
+  - 调用 `plot_optimization_training_curves.py` 刷新训练曲线
 - **创建时间**：2026-03-13
 - **使用方式**：
   ```bash
@@ -661,14 +707,14 @@
   python scripts/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/collect_prediction_memory_alignment_results.py
   ```
 - **输入**：
-  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/*/eval_{teacher_forced,rollout}.json`
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/*/eval_*_best_{valid,test}.json`
   - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
 - **输出**：
   - `results/figures/phase1-autoregressive-1.9-module-optimization/20260313_prediction_memory_alignment/prediction_memory_alignment_summary.json`
   - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
   - `results/figures/phase1-autoregressive-1.9-module-optimization/optimization_progress.{png,pdf}`
 - **依赖**：Python 标准库
-- **备注**：默认将 `rollout` 的 fp-bps 作为 1.9 新架构的正式记录值
+- **备注**：`results.tsv` 中 `fp_bps_*` 记录 best-ckpt rollout-valid，`best_val_fp_bps_* / best_test_fp_bps_*` 记录 best-ckpt teacher-forced valid/test
 
 ### ar_verify.py（1.2.2 AR 推理验证）
 

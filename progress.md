@@ -734,6 +734,16 @@
 - 已创建 500ms、1000ms 配置文件
 - 待 250ms 完成后依次启动
 
+6. 代码级 smoke 验证
+   - 使用  跑  的短程训练验证新 checkpoint 逻辑
+   - 已确认目录会同时生成 、、真正的 final  和 
+   - 已确认  可分别解析新目录，并在输出 JSON 中记录 、、
+
+6. 代码级 smoke 验证
+   - 使用 train_1p9_prediction_memory_250ms 跑 epochs=1 的短程训练验证新 checkpoint 逻辑
+   - 已确认目录会同时生成 epoch checkpoint、best.ckpt、真正的 final last.ckpt 和 checkpoint_summary.json
+   - 已确认 eval_phase1_v2.py 的 --checkpoint-kind best/last 可分别解析新目录，并在输出 JSON 中记录 checkpoint_kind、checkpoint_epoch、split
+
 **遇到的问题与解决**：
 1. pad8 vs pad2d 维度不匹配 → 改用 pad/track_mask
 2. PyTorch 2.6 weights_only=True 默认 → 添加 weights_only=False
@@ -1991,3 +2001,68 @@
 - `plan.md` 的 `1.8.3` 已重写为 benchmark 持续维护规范，实验执行/记录默认复用 `1.9.0 Step 3 / Step 4`，但路径统一改为 `1.8-benchmark_model`
 - 新增当前 aligned 长跑记录：`cc_todo/1.8-benchmark_model/20260319_benchmark_aligned_runs.md`
 - 说明：`progress.md` 历史日志保留旧路径原文；自此以后 benchmark 文档统一迁移到 `cc_todo/1.8-benchmark_model/`
+
+## 2026-03-20 01:40 CST
+
+### 任务：修正 1.9 checkpoint 选择与正式评估链路，并回填历史 best-ckpt valid/test 结果
+
+**完成内容**：
+1. 查明历史 1.9 run 中 `last.ckpt` 不是 final epoch 的原因
+   - 核对 `examples/neurohorizon/train.py` 的原始 `ModelCheckpoint(save_last=True, monitor="val_loss", save_on_train_epoch_end=True)` 配置
+   - 确认 Lightning 只会在同一步实际保存 monitored checkpoint 时刷新 `last.ckpt`
+   - 因此历史目录里的 `last.ckpt` 实际等同于某个更早 epoch 的 monitored checkpoint，而不是训练结束时的 final weights
+
+2. 修改训练与评估实现
+   - `examples/neurohorizon/train.py`
+     - 验证期额外记录 `val_fp_bps`
+     - 每个 eval epoch 显式保存 checkpoint
+     - train end 按 `max(val/fp_bps)` + `min(val_loss)` 选出 `best.ckpt`
+     - train end 同时保存真正的 final `last.ckpt`，并写出 `checkpoint_summary.json`
+   - `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+     - 新增 `--checkpoint-kind {best,last}`
+     - 显式支持解析 `best.ckpt` / `last.ckpt`
+     - 输出 checkpoint epoch / global_step 等元信息
+
+3. 修改 1.9 批量实验与汇总逻辑
+   - 四个 `run_*_experiments.sh` 统一改为：
+     - 训练后对 best ckpt 跑 teacher-forced `valid/test`
+     - 对 best ckpt 跑 rollout `valid/test`
+   - 新增：
+     - `scripts/phase1-autoregressive-1.9-module-optimization/module_result_utils.py`
+     - `scripts/phase1-autoregressive-1.9-module-optimization/backfill_best_checkpoint_evals.py`
+   - 四个 `collect_*_results.py` 改为共用统一汇总逻辑，自动刷新：
+     - `results.tsv`
+     - `*_summary.json`
+     - `optimization_progress.{png,pdf}`
+     - `training_curves.{png,pdf}`
+
+4. 完成历史 1.9 四轮实验的 best-ckpt 回填
+   - `20260312_prediction_memory_decoder`
+     - rollout-valid：`0.1510 / 0.0200 / -0.2192`
+   - `20260313_local_prediction_memory`
+     - rollout-valid：`0.1679 / 0.0316 / -0.1749`
+   - `20260313_prediction_memory_alignment`
+     - rollout-valid：`0.1904 / 0.1623 / 0.1120`
+   - `20260313_prediction_memory_alignment_tuning`
+     - rollout-valid：`0.1949 / 0.1635 / 0.1264`
+   - `results.tsv` 已新增：
+     - `best_val_fp_bps_*`
+     - `best_test_fp_bps_*`
+     - `best_ckpt_*`
+
+5. 文档回写
+   - `cc_core_files/plan.md`
+     - 在 `1.9.0 Step 3 / 1.必做` 中补充数据配置、train/eval 入口、continuous sampler 约定、checkpoint 审计结论和四轮 best-ckpt valid/test 回填结果
+   - `cc_core_files/results.md`
+     - 新增 `2026-03-20 协议审计与 best-ckpt 回填` 总表
+   - `cc_core_files/scripts.md`
+     - 登记 `module_result_utils.py`、`backfill_best_checkpoint_evals.py`
+     - 更新 1.9 run/collect 脚本说明为 best-ckpt `valid/test` 口径
+   - `cc_todo/phase1-autoregressive/1.9-module-optimization/*.md`
+     - 四个模块任务记录均追加 checkpoint 审计结论和 best-ckpt valid/test 表格
+
+**遇到的问题与解决**：
+- 历史 1.9 目录里只保留了一个 monitored checkpoint 文件，无法回溯“每个 epoch 的真实 best-ckpt 文件集合”
+  - 解决：明确标记为“historical available best-ckpt eval”，统一使用目录中实际保留下来的 monitored checkpoint 回填 `valid/test`
+- 旧 `results.md` 和 `plan.md` 中的 1.9 数值是按历史 `post-train` 口径写的，与本次 best-ckpt 回填结果不一致
+  - 解决：在 `results.md` 增加权威总表，并在 `plan.md` Step 3 中写明以 2026-03-20 回填表和 `results.tsv` 为准

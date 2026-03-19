@@ -7,8 +7,12 @@ Adapted from examples/poyo_plus/train.py with key differences:
 - Dual-window tokenize (history + prediction, not single window)
 """
 
+import json
 import logging
+import shutil
+import csv
 from collections import defaultdict
+from pathlib import Path
 
 import hydra
 import lightning as L
@@ -43,6 +47,104 @@ from torch_brain.utils.neurohorizon_metrics import (
 
 torch.set_float32_matmul_precision("medium")
 logger = logging.getLogger(__name__)
+
+
+def _load_best_epoch_from_metrics(metrics_path: Path) -> dict[str, float | int]:
+    if not metrics_path.exists():
+        raise FileNotFoundError(f"Missing metrics.csv for checkpoint selection: {metrics_path}")
+
+    rows = []
+    with metrics_path.open() as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            epoch = row.get("epoch")
+            fp_bps = row.get("val/fp_bps")
+            val_loss = row.get("val_loss")
+            if epoch in (None, "", "nan"):
+                continue
+            if fp_bps in (None, "", "nan") or val_loss in (None, "", "nan"):
+                continue
+            rows.append(
+                {
+                    "epoch": int(float(epoch)),
+                    "val_fp_bps": float(fp_bps),
+                    "val_loss": float(val_loss),
+                }
+            )
+
+    if not rows:
+        raise RuntimeError(f"No validation rows with val/fp_bps and val_loss found in {metrics_path}")
+
+    rows.sort(key=lambda row: (-row["val_fp_bps"], row["val_loss"], row["epoch"]))
+    return rows[0]
+
+
+def _checkpoint_for_epoch(checkpoint_dir: Path, epoch: int) -> Path:
+    matches = sorted(checkpoint_dir.glob(f"epoch={epoch:03d}-step=*.ckpt"))
+    if not matches:
+        matches = sorted(checkpoint_dir.glob(f"epoch={epoch}-step=*.ckpt"))
+    if not matches:
+        raise FileNotFoundError(f"No checkpoint file found for epoch {epoch} in {checkpoint_dir}")
+    return matches[-1]
+
+
+def save_checkpoint_artifacts(trainer: L.Trainer, periodic_callback: ModelCheckpoint) -> None:
+    """Persist explicit best/final checkpoint aliases and metadata.
+
+    Lightning's ``save_last`` only updates ``last.ckpt`` when a monitored checkpoint was
+    actually saved in the same callback step. For long runs where the monitored metric stops
+    improving before the final epoch, that behavior leaves ``last.ckpt`` pointing to an
+    earlier "best-so-far" checkpoint instead of the final weights. Save the explicit
+    aliases at train end so downstream evaluation can rely on unambiguous filenames.
+    """
+
+    if not trainer.is_global_zero:
+        return
+    if periodic_callback.dirpath is None:
+        logger.warning("Checkpoint callback has no dirpath; skip explicit checkpoint aliases.")
+        return
+
+    checkpoint_dir = Path(periodic_callback.dirpath)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    metrics_path = checkpoint_dir.parent / "metrics.csv"
+    best_row = _load_best_epoch_from_metrics(metrics_path)
+    best_source = _checkpoint_for_epoch(checkpoint_dir, int(best_row["epoch"]))
+
+    metadata = {
+        "selection_rule": "best checkpoint = max(val/fp_bps), tie-break=min(val_loss)",
+        "best_score_name": "val/fp_bps",
+        "best_score_mode": "max",
+        "best_score": float(best_row["val_fp_bps"]),
+        "best_val_loss": float(best_row["val_loss"]),
+        "metrics_path": str(metrics_path),
+    }
+
+    best_alias = checkpoint_dir / "best.ckpt"
+    if best_source.resolve() != best_alias.resolve():
+        shutil.copy2(best_source, best_alias)
+    best_state = torch.load(best_alias, map_location="cpu", weights_only=False)
+    metadata.update(
+        {
+            "best_source_path": str(best_source),
+            "best_alias_path": str(best_alias),
+            "best_epoch": int(best_state.get("epoch", -1)),
+            "best_global_step": int(best_state.get("global_step", -1)),
+        }
+    )
+
+    final_ckpt = checkpoint_dir / "last.ckpt"
+    trainer.save_checkpoint(str(final_ckpt))
+    final_state = torch.load(final_ckpt, map_location="cpu", weights_only=False)
+    metadata.update(
+        {
+            "last_alias_path": str(final_ckpt),
+            "last_epoch": int(final_state.get("epoch", -1)),
+            "last_global_step": int(final_state.get("global_step", -1)),
+        }
+    )
+
+    summary_path = checkpoint_dir / "checkpoint_summary.json"
+    summary_path.write_text(json.dumps(metadata, indent=2))
 
 
 class TrainWrapper(L.LightningModule):
@@ -174,6 +276,13 @@ class TrainWrapper(L.LightningModule):
                 f"{stage}/fp_bps",
                 bps.to(torch.float32),
                 prog_bar=(stage == "val"),
+                sync_dist=False,
+            )
+            alias_name = "val_fp_bps" if stage == "val" else "test_fp_bps"
+            self.log(
+                alias_name,
+                bps.to(torch.float32),
+                prog_bar=False,
                 sync_dist=False,
             )
 
@@ -437,15 +546,20 @@ def main(cfg: DictConfig):
     # Set null model rates for fp-bps
     wrapper.set_null_rates(data_module.null_rate_lookup)
 
+    periodic_ckpt_callback = ModelCheckpoint(
+        monitor=None,
+        save_top_k=-1,
+        save_last=False,
+        filename="epoch={epoch:03d}-step={step}",
+        auto_insert_metric_name=False,
+        save_on_train_epoch_end=False,
+        every_n_epochs=cfg.eval_epochs,
+        enable_version_counter=False,
+    )
+
     callbacks = [
         ModelSummary(max_depth=2),
-        ModelCheckpoint(
-            save_last=True,
-            monitor="val_loss",
-            mode="min",
-            save_on_train_epoch_end=True,
-            every_n_epochs=cfg.eval_epochs,
-        ),
+        periodic_ckpt_callback,
         LearningRateMonitor(logging_interval="step"),
         tbrain_callbacks.MemInfo(),
         tbrain_callbacks.EpochTimeLogger(),
@@ -477,6 +591,7 @@ def main(cfg: DictConfig):
 
     # Train
     trainer.fit(wrapper, data_module, ckpt_path=cfg.ckpt_path)
+    save_checkpoint_artifacts(trainer, periodic_ckpt_callback)
 
 
 if __name__ == "__main__":

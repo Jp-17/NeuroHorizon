@@ -242,3 +242,34 @@ conda activate poyo
 cd /root/autodl-tmp/NeuroHorizon
 python scripts/phase1-autoregressive-1.9-module-optimization/plot_optimization_training_curves.py --module 20260312_prediction_memory_decoder
 ```
+
+## 2026-03-20 补充：best-ckpt valid/test 回填与 checkpoint 审计
+
+- 协议确认：
+  - 训练入口：`examples/neurohorizon/train.py`
+  - 离线正式评估入口：`scripts/analysis/neurohorizon/eval_phase1_v2.py`
+  - 数据：`examples/neurohorizon/configs/dataset/perich_miller_10sessions.yaml`
+  - continuous train sampler：`RandomFixedWindowSampler`
+  - continuous valid/test sampler：`SequentialFixedWindowSampler`
+- checkpoint 审计结论：
+  - 历史目录中的 `last.ckpt` 并不代表 final epoch；其内容等同于同目录下的 monitored checkpoint
+  - 根因是原始 `ModelCheckpoint(save_last=True, monitor="val_loss", save_on_train_epoch_end=True)` 只有在同一步发生 top-k 保存时才会刷新 `last.ckpt`
+  - 因此本次历史补查统一按可用的 monitored checkpoint 作为 best checkpoint 回填 `valid/test`
+
+| 窗口 | best ckpt | TF valid | TF test | rollout valid | rollout test |
+|------|-----------|----------|---------|---------------|--------------|
+| 250ms | `epoch=129-step=17290.ckpt` | 0.2974 | 0.2943 | 0.1510 | 0.1487 |
+| 500ms | `epoch=189-step=18810.ckpt` | 0.2840 | 0.2791 | 0.0200 | 0.0190 |
+| 1000ms | `epoch=169-step=22100.ckpt` | 0.2752 | 0.2753 | -0.2192 | -0.2362 |
+
+补查命令：
+
+```bash
+conda activate poyo
+cd /root/autodl-tmp/NeuroHorizon
+python scripts/phase1-autoregressive-1.9-module-optimization/backfill_best_checkpoint_evals.py
+```
+
+补充结论：
+1. 使用 best checkpoint 回填后，`500ms` 的 rollout-valid 从旧记录的负值回升到 `0.0200`，说明此前把 `last.ckpt` 当成 final 的解释会放大退化程度。
+2. 即便按 best checkpoint 重新核算，structured prediction memory 仍明显落后于 `baseline_v2`，所以“该方向不进入主线”的结论不变。
