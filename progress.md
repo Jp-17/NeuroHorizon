@@ -2066,3 +2066,17 @@
   - 解决：明确标记为“historical available best-ckpt eval”，统一使用目录中实际保留下来的 monitored checkpoint 回填 `valid/test`
 - 旧 `results.md` 和 `plan.md` 中的 1.9 数值是按历史 `post-train` 口径写的，与本次 best-ckpt 回填结果不一致
   - 解决：在 `results.md` 增加权威总表，并在 `plan.md` Step 3 中写明以 2026-03-20 回填表和 `results.tsv` 为准
+
+## 2026-03-20 02:09 CST
+
+### 任务：收紧 1.9.0 Step 3 文档口径
+
+**完成内容**：
+1. 调整 `cc_core_files/plan.md`
+   - 删除 `1.9.0 Step 3 / 1.必做` 下的 `2026-03-20 协议审计补充`
+   - 删除 `2026-03-20 历史 1.9 best-ckpt 回填结果`
+   - 删除 `详细落点`
+   - 保留实现规则：train end 按 `max(val/fp_bps)` + `min(val_loss)` 选 best ckpt，并对 best ckpt 输出 `valid/test` 指标
+
+**遇到的问题与解决**：
+- 无额外实现问题，本次仅调整文档层级和信息密度

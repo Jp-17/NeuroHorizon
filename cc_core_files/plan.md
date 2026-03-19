@@ -812,31 +812,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
    - 预测窗口: 250ms / 500ms / 1000ms（3 个条件）
    - 默认至少记录的指标: `fp-bps` / `per-bin fp-bps`
    - `R-squared` / `PSTH-R-squared` / `Poisson NLL` 作为补充指标按需要记录
-   - 2026-03-20 协议审计补充：
-     - 历史 1.9 run 已确认使用上述 continuous 配置；未显式启用 `trial_aligned`
-     - 历史目录中的 `last.ckpt` 实际等同于某个更早 epoch 的 monitored checkpoint，因为原始 `ModelCheckpoint` 只有在同一步发生 top-k 保存时才会刷新 `save_last`
-     - 当前正式实现已改为：每个 eval epoch 保存 checkpoint，train end 按 `max(val/fp_bps)` + `min(val_loss)` 选 best ckpt，显式保存真正 final `last.ckpt`，并对 best ckpt 输出 `valid/test` 指标
-   - 2026-03-20 历史 1.9 best-ckpt 回填结果（teacher-forced valid/test；rollout valid/test）：
-     - `20260312_prediction_memory_decoder`
-       - `250ms`: `0.2974 / 0.2943`; `0.1510 / 0.1487`
-       - `500ms`: `0.2840 / 0.2791`; `0.0200 / 0.0190`
-       - `1000ms`: `0.2752 / 0.2753`; `-0.2192 / -0.2362`
-     - `20260313_local_prediction_memory`
-       - `250ms`: `0.2833 / 0.2857`; `0.1679 / 0.1701`
-       - `500ms`: `0.2838 / 0.2750`; `0.0316 / 0.0234`
-       - `1000ms`: `0.2736 / 0.2729`; `-0.1749 / -0.1832`
-     - `20260313_prediction_memory_alignment`
-       - `250ms`: `0.2690 / 0.2747`; `0.1904 / 0.2057`
-       - `500ms`: `0.2799 / 0.2729`; `0.1623 / 0.1614`
-       - `1000ms`: `0.2762 / 0.2773`; `0.1120 / 0.1249`
-     - `20260313_prediction_memory_alignment_tuning`
-       - `250ms`: `0.2636 / 0.2667`; `0.1949 / 0.1991`
-       - `500ms`: `0.2718 / 0.2655`; `0.1635 / 0.1637`
-       - `1000ms`: `0.2815 / 0.2820`; `0.1264 / 0.1273`
-   - 详细落点：
-     - `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
-     - `results/figures/phase1-autoregressive-1.9-module-optimization/*/*_summary.json`
-     - `results/logs/phase1-autoregressive-1.9-module-optimization/*/*/eval_*_best_{valid,test}.json`
+   - 当前正式实现要求：每个 eval epoch 保存 checkpoint，train end 按 `max(val/fp_bps)` + `min(val_loss)` 选 best ckpt，显式保存真正 final `last.ckpt`，并对 best ckpt 输出 `valid/test` 指标
 2. **可选 -- 观察窗口实验**（参照 1.4，用户确认后执行）
 3. **可选 -- Session 数目实验**（参照 1.5，用户确认后执行）
 
