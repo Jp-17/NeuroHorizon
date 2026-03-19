@@ -1,8 +1,8 @@
-"""NeuroHorizon model: autoregressive spike prediction with Perceiver encoder.
+"""NeuroHorizon model: spike prediction with a POYO+ history encoder.
 
-Based on POYOPlus architecture. Reuses encoder + processor, adds an
-autoregressive decoder with either query augmentation (v2 baseline) or
-structured prediction memory (1.9 iteration).
+The mainline keeps the query-augmentation baseline used by v2 and adds a
+latent-dynamics decoder for 1.10. Historical 1.9 prediction-memory variants
+are intentionally removed from the active runtime path.
 """
 
 from typing import Dict, List, Optional
@@ -20,12 +20,11 @@ from torch_brain.nn import (
     Embedding,
     FeedForward,
     InfiniteVocabEmbedding,
+    LatentDynamicsDecoder,
     PerNeuronMLPHead,
-    PredictionMemoryEncoder,
     RotaryCrossAttention,
     RotarySelfAttention,
     RotaryTimeEmbedding,
-    create_causal_mask,
 )
 from torch_brain.nn.prediction_feedback import build_feedback_encoder
 from torch_brain.utils import create_linspace_latent_tokens, create_start_end_unit_tokens
@@ -65,6 +64,7 @@ class NeuroHorizon(nn.Module):
         prediction_memory_train_mix_prob: float = 0.0,
         prediction_memory_input_dropout: float = 0.0,
         prediction_memory_input_noise_std: float = 0.0,
+        latent_dynamics_num_queries: int = 4,
     ):
         super().__init__()
 
@@ -72,16 +72,19 @@ class NeuroHorizon(nn.Module):
             raise ValueError(
                 f"sequence_length ({sequence_length}) must be > pred_window ({pred_window})"
             )
-        if decoder_variant not in {
-            "query_aug",
-            "prediction_memory",
-            "local_prediction_memory",
-        }:
+        if decoder_variant in {"prediction_memory", "local_prediction_memory"}:
+            raise ValueError(
+                "decoder_variant="
+                f"{decoder_variant!r} was removed from the active mainline after the 1.10 pivot. "
+                "Use historical 1.9 commits/branches for prediction-memory reproductions."
+            )
+        if decoder_variant not in {"query_aug", "latent_dynamics"}:
             raise ValueError(
                 "Unknown decoder_variant="
-                f"{decoder_variant!r}; choose 'query_aug', 'prediction_memory', "
-                "or 'local_prediction_memory'"
+                f"{decoder_variant!r}; choose 'query_aug' or 'latent_dynamics'"
             )
+        if decoder_variant == "latent_dynamics" and feedback_method != "none":
+            raise ValueError("latent_dynamics decoder does not support feedback_method != 'none'")
 
         self.sequence_length = sequence_length
         self.pred_window = pred_window
@@ -94,19 +97,10 @@ class NeuroHorizon(nn.Module):
         self.decoder_variant = decoder_variant
         self.feedback_method = feedback_method
         self.prediction_memory_k = prediction_memory_k
-        if not 0.0 <= prediction_memory_train_mix_prob <= 1.0:
-            raise ValueError("prediction_memory_train_mix_prob must be in [0, 1]")
-        if not 0.0 <= prediction_memory_input_dropout < 1.0:
-            raise ValueError("prediction_memory_input_dropout must be in [0, 1)")
-        if prediction_memory_input_noise_std < 0.0:
-            raise ValueError("prediction_memory_input_noise_std must be >= 0")
         self.prediction_memory_train_mix_prob = prediction_memory_train_mix_prob
         self.prediction_memory_input_dropout = prediction_memory_input_dropout
         self.prediction_memory_input_noise_std = prediction_memory_input_noise_std
-        self.requires_target_counts = (
-            decoder_variant in {"prediction_memory", "local_prediction_memory"}
-            or feedback_method != "none"
-        )
+        self.requires_target_counts = decoder_variant == "query_aug" and feedback_method != "none"
 
         self.unit_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
         self.session_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
@@ -152,27 +146,33 @@ class NeuroHorizon(nn.Module):
             )
 
         self.bin_emb = nn.Parameter(torch.randn(1, max_pred_bins, dim) * emb_init_scale)
-        self.ar_decoder = AutoregressiveDecoder(
-            dim=dim,
-            depth=dec_depth,
-            dim_head=dim_head,
-            cross_heads=cross_heads,
-            self_heads=self_heads,
-            ffn_dropout=ffn_dropout,
-            atn_dropout=atn_dropout,
-            causal=causal_decoder,
-        )
         self.head = PerNeuronMLPHead(dim)
 
-        if decoder_variant in {"prediction_memory", "local_prediction_memory"}:
+        if decoder_variant == "latent_dynamics":
+            self.ar_decoder = None
             self.feedback_encoder = None
-            self.prediction_memory_encoder = PredictionMemoryEncoder(
+            self.latent_dynamics_decoder = LatentDynamicsDecoder(
                 dim=dim,
-                num_memory_tokens=prediction_memory_k,
-                num_heads=prediction_memory_heads,
+                num_pool_tokens=latent_dynamics_num_queries,
+                num_layers=dec_depth,
+                num_heads=cross_heads,
+                atn_dropout=atn_dropout,
+                ffn_dropout=ffn_dropout,
+                max_steps=max_pred_bins,
+                init_scale=emb_init_scale,
             )
         else:
-            self.prediction_memory_encoder = None
+            self.latent_dynamics_decoder = None
+            self.ar_decoder = AutoregressiveDecoder(
+                dim=dim,
+                depth=dec_depth,
+                dim_head=dim_head,
+                cross_heads=cross_heads,
+                self_heads=self_heads,
+                ffn_dropout=ffn_dropout,
+                atn_dropout=atn_dropout,
+                causal=causal_decoder,
+            )
             if feedback_method != "none":
                 self.feedback_encoder = build_feedback_encoder(feedback_method, dim)
             else:
@@ -232,217 +232,12 @@ class NeuroHorizon(nn.Module):
         feedback_flat = self.feedback_encoder(counts_flat, unit_flat, mask_flat)
         return feedback_flat.reshape(B, T_pred, self.dim)
 
-    def _encode_counts_to_memory_tokens(self, counts, unit_embs, unit_mask):
-        if self.prediction_memory_encoder is None:
-            raise RuntimeError("prediction_memory_encoder is not initialized")
-        counts = torch.log1p(counts.clamp_min(0.0))
-        if self.training and self.prediction_memory_input_noise_std > 0:
-            counts = counts + torch.randn_like(counts) * self.prediction_memory_input_noise_std
-        if self.training and self.prediction_memory_input_dropout > 0:
-            keep_mask = (
-                torch.rand_like(counts) >= self.prediction_memory_input_dropout
-            ).to(counts.dtype)
-            counts = counts * keep_mask
-        return self.prediction_memory_encoder(counts, unit_embs, unit_mask)
-
-    def _build_shifted_memory_counts(self, target_counts, bootstrap_predicted_counts=None):
-        B, T_pred, N = target_counts.shape
-        shifted_gt = torch.cat(
-            [
-                torch.zeros(B, 1, N, device=target_counts.device, dtype=target_counts.dtype),
-                target_counts[:, :-1, :],
-            ],
-            dim=1,
-        )
-        if (
-            not self.training
-            or self.prediction_memory_train_mix_prob <= 0.0
-            or bootstrap_predicted_counts is None
-        ):
-            return shifted_gt
-
-        if bootstrap_predicted_counts.shape != target_counts.shape:
-            raise ValueError(
-                "bootstrap_predicted_counts must match target_counts shape, got "
-                f"{tuple(bootstrap_predicted_counts.shape)} vs {tuple(target_counts.shape)}"
-            )
-
-        shifted_pred = torch.cat(
-            [
-                torch.zeros(
-                    B,
-                    1,
-                    N,
-                    device=bootstrap_predicted_counts.device,
-                    dtype=bootstrap_predicted_counts.dtype,
-                ),
-                bootstrap_predicted_counts[:, :-1, :],
-            ],
-            dim=1,
-        )
-
-        if self.prediction_memory_train_mix_prob >= 1.0:
-            return shifted_pred
-
-        mix_mask = torch.rand(
-            B,
-            T_pred - 1,
-            1,
-            device=target_counts.device,
-        ) < self.prediction_memory_train_mix_prob
-        mix_mask = torch.cat(
-            [
-                torch.zeros(B, 1, 1, device=target_counts.device, dtype=torch.bool),
-                mix_mask,
-            ],
-            dim=1,
-        )
-        return torch.where(mix_mask, shifted_pred, shifted_gt)
-
-    def _build_prediction_memory_mask(self, num_steps, device, local_only: bool):
-        if local_only:
-            mask = torch.zeros(
-                num_steps,
-                num_steps * self.prediction_memory_k,
-                dtype=torch.bool,
-                device=device,
-            )
-            for t in range(num_steps):
-                start = t * self.prediction_memory_k
-                end = start + self.prediction_memory_k
-                mask[t, start:end] = True
-            return mask
-
-        mask = create_causal_mask(num_steps, device=device)
-        return mask.repeat_interleave(self.prediction_memory_k, dim=-1)
-
-    def _build_prediction_memory_time_emb(self, bin_time_emb, local_only: bool):
-        if local_only:
-            shifted_time_emb = torch.cat(
-                [
-                    torch.zeros_like(bin_time_emb[:, :1, :]),
-                    bin_time_emb[:, :-1, :],
-                ],
-                dim=1,
-            )
-        else:
-            shifted_time_emb = bin_time_emb
-
-        B, T_pred, _ = shifted_time_emb.shape
-        return (
-            shifted_time_emb.unsqueeze(2)
-            .expand(B, T_pred, self.prediction_memory_k, -1)
-            .reshape(B, T_pred * self.prediction_memory_k, -1)
-        )
-
-    def _build_prediction_memory_train(
-        self,
-        target_counts,
-        unit_embs,
-        unit_mask,
-        bin_time_emb,
-        local_only: bool,
-        bootstrap_predicted_counts=None,
-    ):
-        B, T_pred, N = target_counts.shape
-        shifted_counts = self._build_shifted_memory_counts(
-            target_counts,
-            bootstrap_predicted_counts=bootstrap_predicted_counts,
-        )
-
-        BT = B * T_pred
-        unit_flat = unit_embs.unsqueeze(1).expand(B, T_pred, -1, -1).reshape(BT, N, self.dim)
-        mask_flat = None
-        if unit_mask is not None:
-            mask_flat = unit_mask.unsqueeze(1).expand(B, T_pred, -1).reshape(BT, N)
-
-        memory_flat = self._encode_counts_to_memory_tokens(
-            shifted_counts.reshape(BT, N),
-            unit_flat,
-            mask_flat,
-        )
-        memory = memory_flat.reshape(B, T_pred, self.prediction_memory_k, self.dim)
-        memory[:, 0] = 0.0
-
-        prediction_memory = memory.reshape(B, T_pred * self.prediction_memory_k, self.dim)
-        prediction_memory_time_emb = self._build_prediction_memory_time_emb(
-            bin_time_emb,
-            local_only=local_only,
-        )
-        prediction_memory_mask = self._build_prediction_memory_mask(
-            T_pred,
-            device=target_counts.device,
-            local_only=local_only,
-        )
-        prediction_memory_mask = prediction_memory_mask.unsqueeze(0).expand(B, -1, -1)
-        return prediction_memory, prediction_memory_time_emb, prediction_memory_mask
-
-    @torch.no_grad()
-    def _bootstrap_prediction_counts(
-        self,
-        *,
-        input_unit_index,
-        input_timestamps,
-        input_token_type,
-        input_mask,
-        latent_index,
-        latent_timestamps,
-        bin_timestamps,
-        target_unit_index,
-        target_unit_mask,
-    ):
-        was_training = self.training
-        self.eval()
-        try:
-            bootstrap_log_rate = self.generate(
-                input_unit_index=input_unit_index,
-                input_timestamps=input_timestamps,
-                input_token_type=input_token_type,
-                input_mask=input_mask,
-                latent_index=latent_index,
-                latent_timestamps=latent_timestamps,
-                bin_timestamps=bin_timestamps,
-                target_unit_index=target_unit_index,
-                target_unit_mask=target_unit_mask,
-            )
-        finally:
-            if was_training:
-                self.train()
-        return torch.exp(bootstrap_log_rate.clamp(-10, 10))
-
-    def _build_prediction_memory_rollout(
-        self,
-        prev_predicted_counts,
-        unit_embs,
-        unit_mask,
-        cur_time_emb,
-        local_only: bool,
-    ):
-        B, T_cur, _ = cur_time_emb.shape
-        zero_memory = torch.zeros(
-            B,
-            self.prediction_memory_k,
-            self.dim,
-            device=unit_embs.device,
-            dtype=unit_embs.dtype,
-        )
-        memory_slots = [zero_memory]
-        for counts in prev_predicted_counts:
-            memory_slots.append(self._encode_counts_to_memory_tokens(counts, unit_embs, unit_mask))
-
-        memory = torch.stack(memory_slots, dim=1)
-        prediction_memory = memory.reshape(B, T_cur * self.prediction_memory_k, self.dim)
-        prediction_memory_time_emb = self._build_prediction_memory_time_emb(
-            cur_time_emb,
-            local_only=local_only,
-        )
-        prediction_memory_mask = self._build_prediction_memory_mask(
-            T_cur,
-            device=unit_embs.device,
-            local_only=local_only,
-        )
-        prediction_memory_mask = prediction_memory_mask.unsqueeze(0).expand(B, -1, -1)
-        return prediction_memory, prediction_memory_time_emb, prediction_memory_mask
+    def _decode_latent_dynamics(self, latents, target_unit_index, num_steps):
+        if self.latent_dynamics_decoder is None:
+            raise RuntimeError("latent_dynamics_decoder is not initialized")
+        unit_embs = self.unit_emb(target_unit_index)
+        bin_repr = self.latent_dynamics_decoder(latents, num_steps)
+        return self.head(bin_repr, unit_embs)
 
     def forward(
         self,
@@ -476,6 +271,13 @@ class NeuroHorizon(nn.Module):
             latent_timestamps,
         )
 
+        if self.decoder_variant == "latent_dynamics":
+            return self._decode_latent_dynamics(
+                latents,
+                target_unit_index,
+                bin_timestamps.shape[1],
+            )
+
         B = input_unit_index.shape[0]
         T_pred = bin_timestamps.shape[1]
         bin_queries = self.bin_emb[:, :T_pred, :].expand(B, -1, -1).clone()
@@ -483,35 +285,7 @@ class NeuroHorizon(nn.Module):
         unit_embs = self.unit_emb(target_unit_index)
 
         feedback = None
-        prediction_memory = None
-        prediction_memory_time_emb = None
-        prediction_memory_mask = None
-
-        if self.decoder_variant in {"prediction_memory", "local_prediction_memory"}:
-            bootstrap_predicted_counts = None
-            if self.training and self.prediction_memory_train_mix_prob > 0.0:
-                bootstrap_predicted_counts = self._bootstrap_prediction_counts(
-                    input_unit_index=input_unit_index,
-                    input_timestamps=input_timestamps,
-                    input_token_type=input_token_type,
-                    input_mask=input_mask,
-                    latent_index=latent_index,
-                    latent_timestamps=latent_timestamps,
-                    bin_timestamps=bin_timestamps,
-                    target_unit_index=target_unit_index,
-                    target_unit_mask=target_unit_mask,
-                )
-            prediction_memory, prediction_memory_time_emb, prediction_memory_mask = (
-                self._build_prediction_memory_train(
-                    target_counts,
-                    unit_embs,
-                    target_unit_mask,
-                    bin_time_emb,
-                    local_only=self.decoder_variant == "local_prediction_memory",
-                    bootstrap_predicted_counts=bootstrap_predicted_counts,
-                )
-            )
-        elif self.feedback_encoder is not None:
+        if self.feedback_encoder is not None:
             feedback = self._build_query_aug_feedback(
                 target_counts,
                 target_unit_index,
@@ -524,9 +298,6 @@ class NeuroHorizon(nn.Module):
             latents,
             latent_time_emb,
             feedback=feedback,
-            prediction_memory=prediction_memory,
-            prediction_memory_time_emb=prediction_memory_time_emb,
-            prediction_memory_mask=prediction_memory_mask,
         )
         return self.head(bin_repr, unit_embs)
 
@@ -556,6 +327,13 @@ class NeuroHorizon(nn.Module):
             latent_timestamps,
         )
 
+        if self.decoder_variant == "latent_dynamics":
+            return self._decode_latent_dynamics(
+                latents,
+                target_unit_index,
+                bin_timestamps.shape[1],
+            )
+
         B = input_unit_index.shape[0]
         T_pred = bin_timestamps.shape[1]
         unit_embs = self.unit_emb(target_unit_index)
@@ -568,21 +346,7 @@ class NeuroHorizon(nn.Module):
             cur_time_emb = self.rotary_emb(bin_timestamps[:, : t + 1])
 
             feedback = None
-            prediction_memory = None
-            prediction_memory_time_emb = None
-            prediction_memory_mask = None
-
-            if self.decoder_variant in {"prediction_memory", "local_prediction_memory"}:
-                prediction_memory, prediction_memory_time_emb, prediction_memory_mask = (
-                    self._build_prediction_memory_rollout(
-                        prev_predicted_counts,
-                        unit_embs,
-                        target_unit_mask,
-                        cur_time_emb,
-                        local_only=self.decoder_variant == "local_prediction_memory",
-                    )
-                )
-            elif self.feedback_encoder is not None:
+            if self.feedback_encoder is not None:
                 fb_list = []
                 for s in range(t + 1):
                     if s == 0 or len(prev_predicted_counts) == 0:
@@ -605,9 +369,6 @@ class NeuroHorizon(nn.Module):
                 latents,
                 latent_time_emb,
                 feedback=feedback,
-                prediction_memory=prediction_memory,
-                prediction_memory_time_emb=prediction_memory_time_emb,
-                prediction_memory_mask=prediction_memory_mask,
             )
             latest_repr = cur_repr[:, -1:, :]
             log_rate_t = self.head(latest_repr, unit_embs)

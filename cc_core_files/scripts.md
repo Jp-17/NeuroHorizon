@@ -1198,3 +1198,129 @@
   python3 neural-benchmark/compare_faithful_neuroformer.py     --canonical-json results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_formal_eval_v1/eval_results.json     --reference-json results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e3/results.json     --output-dir results/logs/phase1_benchmark_repro_faithful_neuroformer_compare     --split test
   ```
 - **输出**：`comparison.json`, `comparison.md`
+
+---
+
+## Phase 1.10：Latent Dynamics Decoder
+
+### verify_latent_dynamics.py（1.10 功能验证）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/verify_latent_dynamics.py`
+- **功能用途**：验证 `decoder_variant=latent_dynamics` 的基础功能
+  - 检查实例化与输出 shape
+  - 检查 `requires_target_counts=False`
+  - 检查 `forward()` 与 `generate()` 数值一致
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/verify_latent_dynamics.py
+  ```
+- **输出**：stdout 验证信息
+- **依赖**：poyo conda 环境（PyTorch）
+- **备注**：作为 `1.10` 实现 checkpoint 的最小功能回归
+
+### run_latent_dynamics_smoke.sh（1.10 250ms smoke run）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/run_latent_dynamics_smoke.sh`
+- **功能用途**：执行 `1.10` 的最小 smoke 流程
+  - 先跑功能验证
+  - 再跑 250ms、1 epoch 的最小训练
+  - 最后执行 continuous valid 离线评估
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/run_latent_dynamics_smoke.sh
+  ```
+- **输出**：
+  - `results/logs/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/250ms_smoke/`
+  - `eval_v2_valid_results.json`
+- **依赖**：poyo conda 环境
+- **备注**：只验证链路，不用于正式性能结论
+
+### run_latent_dynamics_experiments.sh（1.10 三窗口正式实验）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/run_latent_dynamics_experiments.sh`
+- **功能用途**：执行 `1.10` 正式三窗口实验
+  - 250ms / 500ms / 1000ms 训练
+  - best checkpoint 的 continuous `valid/test` 离线评估
+  - 训练结束后调用结果汇总脚本
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/run_latent_dynamics_experiments.sh
+  ```
+- **输出**：`results/logs/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/{250ms,500ms,1000ms}/`
+- **依赖**：poyo conda 环境
+- **备注**：沿用 `1.3.7` 的 continuous 默认协议
+
+### monitor_latent_dynamics_progress.py（1.10 进度监控）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/monitor_latent_dynamics_progress.py`
+- **功能用途**：轮询三窗口训练日志，生成 `progress_status.md`
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/monitor_latent_dynamics_progress.py --interval-sec 600
+  ```
+- **输出**：`results/logs/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/progress_status.md`
+- **依赖**：poyo conda 环境（pandas）
+- **备注**：便于长跑实验期间追踪 epoch / loss / `val/fp_bps`
+
+### collect_latent_dynamics_results.py（1.10 结果汇总）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/collect_latent_dynamics_results.py`
+- **功能用途**：汇总 `1.10` 三窗口评估 JSON，并回写 summary JSON 与 `results.tsv`
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/collect_latent_dynamics_results.py
+  ```
+- **输出**：
+  - `results/figures/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/latent_dynamics_summary.json`
+  - `cc_todo/1.10-latent_dynamics_decoder/results.tsv`
+- **依赖**：poyo conda 环境（pandas）
+- **备注**：默认把 latent-dynamics 的 `teacher-forced` 与 `rollout` 视为同一路径
+
+### plot_optimization_training_curves.py（1.10 训练曲线可视化）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/plot_optimization_training_curves.py`
+- **功能用途**：根据 summary JSON 和 Lightning `metrics.csv` 生成 `1.10` 训练曲线面板
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/1.10-latent_dynamics_decoder/plot_optimization_training_curves.py --module 20260320_latent_dynamics_decoder
+  ```
+- **输出**：
+  - `results/figures/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/training_curves.png`
+  - `results/figures/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/training_curves.pdf`
+- **依赖**：poyo conda 环境（matplotlib, pandas, numpy）
+- **备注**：与 `1.9` 的曲线面板保持同样的信息密度
+
+### plot_optimization_progress.py（1.10 进度趋势图）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/plot_optimization_progress.py`
+- **功能用途**：读取 `cc_todo/1.10-latent_dynamics_decoder/results.tsv`，绘制窗口级优化趋势图
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/1.10-latent_dynamics_decoder/plot_optimization_progress.py
+  ```
+- **输出**：
+  - `results/figures/1.10-latent_dynamics_decoder/optimization_progress.png`
+  - `results/figures/1.10-latent_dynamics_decoder/optimization_progress.pdf`
+- **依赖**：poyo conda 环境（matplotlib, pandas）
+- **备注**：当前以 `baseline_v2` 为水平参考线

@@ -2143,3 +2143,51 @@
 **说明与判断**：
 - 当前本地克隆的 Neuroformer 上游 README / trainer 代码显示其原生训练器按 holdout loss 保存 best checkpoint，未见按 `fp-bps` 或 `true_past` 选 ckpt 的固定说明
 - 在当前 held-out forward prediction benchmark 目标下，继续采用 `valid rollout fp-bps` 作为 Neuroformer 的 checkpoint selection 更合理；`true_past` 保持为 oracle-history 诊断指标
+
+## 2026-03-20 05:20 CST
+
+### 任务：建立 1.10 latent dynamics decoder 主线并完成实现阶段 smoke 验证
+
+**完成内容**：
+1. 更新 `cc_core_files/plan.md`
+   - 新增 `1.10 Latent Dynamics Decoder` 小节
+   - 固定 `1.10.0` 的执行规范、路径体系、默认分支与入口说明
+   - 新增首轮任务索引 `20260320_latent_dynamics_decoder`
+
+2. 新建 `1.10` 专用文档与结果索引
+   - `cc_todo/1.10-latent_dynamics_decoder/model.md`
+   - `cc_todo/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder.md`
+   - `cc_todo/1.10-latent_dynamics_decoder/results.tsv`
+
+3. 实现 latent dynamics 主线
+   - 新增 `torch_brain/nn/latent_dynamics_decoder.py`
+   - 修改 `torch_brain/models/neurohorizon.py`
+   - 修改 `torch_brain/nn/__init__.py`
+   - 新增 `train_1p10_latent_dynamics_{250,500,1000}ms.yaml`
+   - 新增 `scripts/1.10-latent_dynamics_decoder/` 下的 verify / smoke / train / monitor / collect / plotting 脚本
+
+4. 完成最小功能验证
+   - `verify_latent_dynamics.py` 通过
+   - 输出：
+     - `output_shape=(2, 12, 6)`
+     - `tf_vs_rollout_max_delta=0.000000`
+
+5. 完成 250ms smoke run
+   - 训练日志：`results/logs/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/250ms_smoke/`
+   - 关键结果：
+     - train loss：`0.417`
+     - val loss：`0.406`
+     - `val/fp_bps=-0.834`
+     - 离线 continuous valid：`fp-bps=-0.8339`, `R2=-0.0021`, `val_loss=0.4079`
+
+6. 更新登记文档
+   - `cc_core_files/scripts.md`
+   - `cc_core_files/results.md`
+
+**遇到的问题与解决**：
+- 远程环境没有 `s4`、`mamba_ssm`、`torchdiffeq`
+  - 解决：首轮实现改为无新增依赖的 GRU latent dynamics 主线，同时在 `1.10` 文档中明确将 Mamba 保留为后续 `1.10.x` 扩展位
+- 远程机器没有 `apply_patch`
+  - 解决：先把目标文件镜像到本地临时工作区，用补丁改完后再同步回远程仓库
+- 由于 `1.10` 首轮不再依赖 future-count feedback，`forward()` 与 `generate()` 的语义重新回到同一路径
+  - 解决：在功能验证脚本里显式校验 `tf_vs_rollout_max_delta=0`

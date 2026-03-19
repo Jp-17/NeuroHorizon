@@ -7,6 +7,7 @@ from .position_embeddings import RotaryTimeEmbedding, SinusoidalTimeEmbedding
 from .rotary_attention import RotaryCrossAttention, RotarySelfAttention, create_causal_mask
 from .feedforward import FeedForward
 from .autoregressive_decoder import AutoregressiveDecoder, PerNeuronMLPHead
+from .latent_dynamics_decoder import LatentDynamicsDecoder
 
 # readout layers
 from . import loss
@@ -15,4 +16,3 @@ from .multitask_readout import (
     prepare_for_multitask_readout,
 )
 from .prediction_feedback import build_feedback_encoder
-from .prediction_memory import PredictionMemoryEncoder

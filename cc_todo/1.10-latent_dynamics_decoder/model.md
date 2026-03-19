@@ -1,0 +1,155 @@
+# Phase 1.10 Latent Dynamics Decoder 设计记录
+
+> 本文档独立记录 `1.10 latent dynamics decoder` 方向的架构演进与审查结论，不再继续写入旧的 `cc_core_files/model.md`。
+>
+> **方向切换依据**：
+> - `cc_todo/20260316-review/ar_effectiveness_claude.md`
+> - `cc_todo/20260316-review/long_horizon_prediction_claude.md`
+> - `cc_todo/20260316-review/option_d_implementation_claude.md`（方案一）
+>
+> **当前主判断**：
+> - observation-space AR feedback 在当前任务上的边际收益持续低于 `baseline_v2`
+> - 长时程预测更值得尝试的方向是：保留 POYO+ history encoder，把“未来序列建模”从 high-dimensional count space 转移到 latent space
+
+---
+
+## 方向总原则
+
+1. **尽量复用已有有效模块**：
+   - 保留 POYO+ history encoder
+   - 保留 tokenization / dataset / sampler / metrics / evaluation 协议
+   - 保留 `PerNeuronMLPHead` 作为最终的 spike-count readout
+2. **替换当前主线 decoder**：
+   - 不再继续把 `prediction_memory / local_prediction_memory` 作为主线方向
+   - `1.10` 默认探索 latent dynamics decoder
+3. **首轮实现优先低依赖与可跑通**：
+   - 当前 `poyo` 环境没有 `s4`、`mamba_ssm`、`torchdiffeq`
+   - 因此首轮不引入新 dynamics 依赖，优先落地可直接运行的 GRU latent dynamics 主线
+4. **Mamba 保留为后续扩展位**：
+   - 首轮代码接口要为后续 `1.10.x` 的 Mamba 变体预留扩展点
+   - 但本轮不安装依赖、不实现第二变体
+
+---
+
+## 当前仓库下的复用与替换边界
+
+### 继续复用
+
+- `NeuroHorizon` 的 history encoder 及其 latent token 构造方式
+- `examples/neurohorizon/train.py`
+- `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+- `RandomFixedWindowSampler` / `SequentialFixedWindowSampler`
+- `fp-bps` / `per-bin fp-bps` 指标口径
+- `PerNeuronMLPHead`
+
+### 本方向替换
+
+- 当前 observation-space decoder 主线
+- 当前 `1.9` 的 runtime 级 prediction-memory 代码路径
+- 当前 `1.9` 的模块优化汇总路径与结果表
+
+### 结果记录迁移
+
+- 设计记录：本文件
+- 每轮任务记录：`cc_todo/1.10-latent_dynamics_decoder/{date}_{module_name}.md`
+- 结果追踪：`cc_todo/1.10-latent_dynamics_decoder/results.tsv`
+- 运行脚本：`scripts/1.10-latent_dynamics_decoder/{date}_{module_name}/`
+- 日志与图表：`results/logs/1.10-latent_dynamics_decoder/...` 与 `results/figures/1.10-latent_dynamics_decoder/...`
+
+---
+
+## 2026-03-20 — GRU Latent Dynamics Decoder
+
+> 状态：实施中
+> 分支：`dev/latent`
+> 任务记录：`cc_todo/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder.md`
+
+### 前因后果
+
+在 `2026-03-12` 到 `2026-03-13` 的四轮 `1.9` AR feedback 实验后，可以确认：
+
+- prediction memory 方向在 teacher-forced 下虽能得到更高指标，但 rollout 一直落后于 `baseline_v2`
+- alignment 与 tuning 只能把差距缩小，未能从根本上改变“显式 feedback 信息增益不足”的结论
+- 当前任务更值得测试的是：history encoder 是否已经提取出足够的 dynamics-relevant representation，从而允许我们在 latent space 做未来外推
+
+### 本轮目标
+
+实现一个可运行的 latent dynamics baseline，回答三个核心问题：
+
+1. 在不引入 observation-space feedback 的情况下，latent rollout 能否跑通完整训练/评估链路？
+2. 在相同 `1.3.7` 协议下，latent dynamics 是否能在 `500ms / 1000ms` 窗口上优于 `baseline_v2`？
+3. 当前 POYO+ encoder 输出是否已经足够支持 latent-space forward prediction？
+
+### 首轮实现方案
+
+**总体思路**：
+
+```
+history spikes
+  -> POYO+ history encoder
+  -> encoder latents
+  -> attention pooling
+  -> latent initial state
+  -> GRU latent dynamics rollout
+  -> per-step bin representation
+  -> PerNeuronMLPHead
+  -> future spike counts
+```
+
+**关键实现点**：
+
+- 用 learned pooling queries 从 encoder latents 中抽取少量 pooled tokens
+- 把 pooled tokens 压缩为固定维度的 latent initial state
+- 用 autonomous GRU 在 prediction bins 上做 rollout
+- `forward()` 和 `generate()` 共用同一 latent rollout 逻辑，不再依赖 `target_counts`
+- 保留 `query_aug + feedback_method=none` 作为 baseline_v2 兼容路径
+
+### 为什么首轮不用 Mamba / S4D
+
+- 当前环境没有对应依赖
+- 首轮更需要先验证“latent dynamics 路线本身”是否成立，而不是先把变量数做大
+- 如果 GRU 主线能够在当前协议下取得正收益，再继续做 Mamba 才有清晰的增量解释空间
+
+### 首轮功能验证方案
+
+- `decoder_variant=latent_dynamics` 可正常实例化
+- 训练脚本与评估脚本无需新增入口即可跑通
+- `forward()` 与 `generate()` 在相同输入下数值一致
+- 250ms smoke run 能正常训练、保存 checkpoint、跑离线评估
+
+### 首轮正式实验协议
+
+- 数据：`perich_miller_10sessions`
+- 采样：continuous
+- obs_window：500ms
+- pred_window：250ms / 500ms / 1000ms
+- 指标：`fp-bps` / `per-bin fp-bps`
+- 补充指标：`val_loss`、`R-squared`（按需要）
+
+### 本轮的成功标准
+
+- 代码与协议层面：
+  - 完整走通训练 / checkpoint / eval / 汇总 / 图表 / 文档记录链路
+- 结果层面：
+  - 至少得到可比较的三窗口正式结果
+  - 尤其关注 `500ms / 1000ms` 是否相对 `baseline_v2` 出现明确收益
+
+### 当前实现进展
+
+- `latent_dynamics_decoder.py` 已落地，并接入 `NeuroHorizon`
+- `decoder_variant=latent_dynamics` 已能通过功能验证：
+  - `output_shape=(2, 12, 6)`
+  - `tf_vs_rollout_max_delta=0.000000`
+- 250ms smoke run 已通过训练、checkpoint 与离线 continuous valid eval 链路：
+  - train loss：`0.417`
+  - val loss：`0.406`
+  - eval valid fp-bps：`-0.8339`
+  - eval valid R2：`-0.0021`
+- 当前判断：实现链路已通，下一步进入三窗口正式实验
+
+### 后续扩展位
+
+- `1.10.x` 下一轮优先考虑：
+  - Mamba latent dynamics
+  - latent pooling 数量与 state dim 调整
+  - encoder frozen vs end-to-end 微调对比

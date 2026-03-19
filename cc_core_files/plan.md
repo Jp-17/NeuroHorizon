@@ -963,6 +963,117 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 当前结果：较 `20260313_prediction_memory_alignment` 再次小幅提升，`1000ms` 距 `baseline_v2` 仅差 `0.0099 fp-bps`；是否继续细调由用户决定
 
 
+### 1.10 Latent Dynamics Decoder 增量模型管理
+
+> 目标：基于 `2026-03-16` 的方案审查结论，从 observation-space AR decoder 转向 latent dynamics decoder，并将该方向的设计、实现、实验和汇总独立维护。
+> 设计记录：`cc_todo/1.10-latent_dynamics_decoder/model.md`
+> 任务记录：`cc_todo/1.10-latent_dynamics_decoder/{date}_{module_name}.md`
+> 效果追踪：`cc_todo/1.10-latent_dynamics_decoder/results.tsv`
+
+#### 1.10.0 执行规范
+
+**Step 1 -- 想法记录与讨论**（在提出改进想法时）：
+- 在 `cc_todo/1.10-latent_dynamics_decoder/model.md` 中新增一节，标注日期和改进名称
+- 记录：问题背景、转向动机、相比当前方案的改动点、可落地的实现方案、涉及改动模块
+- 必须明确引用当前方向切换的核心依据：
+  - `cc_todo/20260316-review/ar_effectiveness_claude.md`
+  - `cc_todo/20260316-review/long_horizon_prediction_claude.md`
+  - `cc_todo/20260316-review/option_d_implementation_claude.md`（方案一）
+- 基于当前仓库代码实现，写清本轮要复用与要替换的模块：
+  - 复用：POYO+ history encoder、tokenize、PerNeuronMLPHead、训练/评估协议
+  - 替换：当前 observation-space autoregressive decoder 主线
+- 标记状态为“提出”
+
+**Step 2 -- 分支与代码实施**（在用户确认可实施时）：
+- 如果用户未明确指定实施分支，则默认直接在 `dev/latent` 分支上实施
+- 按 `model.md` 中该节的修改方案进行代码改动
+- latent dynamics 主线优先使用尽量少依赖的实现；若要引入新的第三方 dynamics 包，需先明确记录原因和环境影响
+- 完成基本功能验证（代码可跑、无错误、训练/评估链路可走通）
+- 在 `model.md` 中更新状态为“实施中”
+- **Step 2 完成后立即执行一次 `git commit` + `git push`**：提交当前轮的代码、配置、文档和最小验证结果，作为实现阶段 checkpoint
+
+**Step 3 -- 实验验证**（按优先级依次进行）：
+1. **必做 -- 协议确认 + 预测窗口实验**（实验骨架参照 1.3.4，默认协议参照 1.3.7）：
+   - 开始实验前必须明确确认本轮实验是否遵循 `1.3.7 NeuroHorizon 实验默认数据与指标标准`
+   - 如果与 `1.3.7` 不一致，必须在任务记录中书面记录差异项、原因和影响范围
+   - 数据：`examples/neurohorizon/configs/dataset/perich_miller_10sessions.yaml`
+   - 采样方式：连续滑动窗口（非 trial-aligned）
+   - 当前 `1.10` 默认入口说明：
+     - 训练入口：`examples/neurohorizon/train.py`
+     - 离线正式评估入口：`scripts/analysis/neurohorizon/eval_phase1_v2.py`
+     - continuous train sampler：`RandomFixedWindowSampler`
+     - continuous valid/test sampler：`SequentialFixedWindowSampler`
+     - 若某次 `1.10.x` 迭代改动了入口或协议，必须在对应任务记录中显式注明“相对 `1.10.0` 默认入口的变更”
+   - 观察窗口：500ms
+   - 预测窗口：250ms / 500ms / 1000ms（3 个条件）
+   - 默认至少记录的指标：`fp-bps` / `per-bin fp-bps`
+   - `R-squared` / `PSTH-R-squared` / `Poisson NLL` 作为补充指标按需要记录
+   - 当前正式实现要求：每个 eval epoch 保存 checkpoint，train end 按 `max(val/fp_bps)` + `min(val_loss)` 选 best ckpt，显式保存真正 final `last.ckpt`，并对 best ckpt 输出 `valid/test` 指标
+2. **可选 -- 观察窗口实验**（参照 1.4，用户确认后执行）
+3. **可选 -- Session 数目实验**（参照 1.5，用户确认后执行）
+
+**Step 4 -- 实验记录**（遵循 CLAUDE.md 中“任务执行中”的记录规范）：
+- **任务记录**：`cc_todo/1.10-latent_dynamics_decoder/{date}_{module_name}.md`
+  - 必须包含：背景与转向原因、实现方案、涉及改动模块、详细实验配置（数据集、sessions 数、采样方式、obs/pred 窗口）、每次实验的关键超参数（至少包括 `epoch`、`batch_size`、`lr`、`weight_decay`）、训练 loss 结果、train 期间最佳 `val fp-bps`、test `fp-bps`、test 使用的 checkpoint 标识/时间、各条件指标结果（至少 `fp-bps` / `per-bin fp-bps`）、与 baseline 的对比、记录每次训练和评估的脚本命令
+- **脚本**：`scripts/1.10-latent_dynamics_decoder/{date}_{module_name}/`
+- **实验日志**：`results/logs/1.10-latent_dynamics_decoder/{date}_{module_name}/`
+- **可视化**：`results/figures/1.10-latent_dynamics_decoder/{date}_{module_name}/`
+  - 除 training curves 外，还必须补充：
+    - 随预测窗口长度变化的 `fp-bps` 趋势图
+    - 每个预测窗口的 `per-bin fp-bps` 衰减曲线
+    - 配置时间轴图（至少 `lr / weight_decay / effective_batch_size / warmup_progress`）
+    - 一个表格型 PNG，用于汇总每次模型改进在不同预测窗口下的最佳 `val fp-bps`、test `fp-bps`、test checkpoint 标识/时间等核心结果
+- **汇总更新**：`cc_core_files/scripts.md` 和 `cc_core_files/results.md` 按 CLAUDE.md 规范更新
+- **TSV 更新**：将预测窗口实验结果追加到 `cc_todo/1.10-latent_dynamics_decoder/results.tsv`
+- **趋势图更新**：运行 `scripts/1.10-latent_dynamics_decoder/plot_optimization_progress.py` 更新优化进度折线图
+- **Step 4 完成后再执行一次 `git commit` + `git push`**：提交正式实验结果、汇总图表、结论更新与状态变更，保证每轮优化至少留下“实现 checkpoint”和“结果 checkpoint”两次提交
+
+**Step 5 -- 分支合并**（由用户决定）：
+- 效果好 -> merge 到 main，在 `model.md` 中标记状态为“已合并”
+- 效果不佳 -> 保留 `dev/latent` 或派生子分支供参考，在 `model.md` 中标记状态为“已放弃”并记录原因
+
+#### 1.10.1 [ ] Latent Dynamics 方向基线与索引
+
+> 产出：`cc_todo/1.10-latent_dynamics_decoder/model.md`、`cc_todo/1.10-latent_dynamics_decoder/results.tsv`
+
+- [ ] 建立 1.10 专用设计文档与结果追踪 TSV
+- [ ] 将 baseline_v2 与 benchmark 结果复制为 1.10 对照基线
+- [ ] 明确 latent dynamics 主线的默认协议、路径和命名
+- [ ] 创建 1.10 趋势图脚本入口
+
+#### 1.10.2 [ ] Latent Dynamics 模型迭代记录
+
+> 以下按时间顺序记录每次 latent dynamics 方向的实现与实验路径信息
+
+<!-- 模板（每次新优化时复制并填写）:
+##### {date}_{module_name} -- {改进名称}
+> 状态: 提出 / 实施中 / 验证中 / 已合并 / 已放弃
+> 分支: `dev/latent`
+> 文档: `cc_todo/1.10-latent_dynamics_decoder/model.md` 对应小节
+> 任务记录: `cc_todo/1.10-latent_dynamics_decoder/{date}_{module_name}.md`
+> 脚本: `scripts/1.10-latent_dynamics_decoder/{date}_{module_name}/`
+> 日志: `results/logs/1.10-latent_dynamics_decoder/{date}_{module_name}/`
+> 可视化: `results/figures/1.10-latent_dynamics_decoder/{date}_{module_name}/`
+> commit: （实施后填写）
+> 结果: 250ms fp-bps= / 500ms fp-bps= / 1000ms fp-bps=
+-->
+
+##### 20260320_latent_dynamics_decoder -- GRU Latent Dynamics Decoder
+> 状态: 实施中
+> 分支: `dev/latent`
+> 文档: `cc_todo/1.10-latent_dynamics_decoder/model.md` 中“2026-03-20 — GRU Latent Dynamics Decoder”
+> 任务记录: `cc_todo/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder.md`
+> 脚本: `scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/`
+> 日志: `results/logs/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/`
+> 可视化: `results/figures/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/`
+> commit:
+> 结果:
+
+- 核心设计：保留 POYO+ history encoder 与 `PerNeuronMLPHead`，将 observation-space decoder 主线替换为 latent-space dynamics rollout
+- 首轮实现优先保证“无额外依赖可落地”，先做 GRU latent dynamics 主线，把 Mamba 作为后续 `1.10.x` 扩展位
+- 必做实验保持 1.10 统一规范：10 sessions、连续滑动窗口、obs=500ms、pred=250/500/1000ms
+- 与 baseline_v2 的主要对比目标：判断 latent dynamics 是否能在 `500ms / 1000ms` 窗口上优于当前无反馈 baseline
+
 
 ---
 
