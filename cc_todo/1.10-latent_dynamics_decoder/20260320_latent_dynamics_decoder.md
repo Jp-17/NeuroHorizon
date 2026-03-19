@@ -64,7 +64,7 @@
 - [x] 新增 `1.10` model/train configs
 - [x] 新增 `1.10` 脚本目录
 - [x] 完成 250ms smoke run
-- [ ] 启动 250/500/1000ms 正式训练
+- [x] 启动 250/500/1000ms 正式训练
 - [ ] 更新 `results.tsv`
 - [ ] 生成趋势图并更新 `results.md`
 
@@ -149,6 +149,14 @@ python scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/ver
 
 ### 正式训练
 
+- 启动时间：`2026-03-20 05:27 CST`
+- 启动方式：`screen -S latent_dynamics_1p10`
+- 主控脚本：`scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/run_latent_dynamics_experiments.sh`
+- 当前状态：
+  - `250ms / 500ms / 1000ms` 三个窗口已经并发启动
+  - 初步检查显示三路训练均已进入 epoch 1–2，无立即 OOM 或配置错误
+  - `screen` 日志：`results/logs/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/screen_run.log`
+
 | pred_window | teacher-forced fp-bps | rollout fp-bps | rollout R2 | vs baseline_v2 | 备注 |
 |-------------|-----------------------|----------------|------------|----------------|------|
 | 250ms | | | | | |
@@ -165,7 +173,8 @@ python scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/ver
 ## 当前判断
 
 - `1.10` 的第一阶段实现已经完成，主线代码、配置和 smoke protocol 均可用。
-- 下一步应直接进入 `250/500/1000ms` 三窗口正式训练与 best-ckpt `valid/test` 汇总。
+- `250/500/1000ms` 三窗口正式训练已经启动，当前处于正式结果产出阶段。
+- 下一步是在训练完成后汇总 best-ckpt `valid/test`、更新 `results.tsv`，并生成趋势图与结果解读。
 
 ## 备注
 

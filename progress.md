@@ -2191,3 +2191,31 @@
   - 解决：先把目标文件镜像到本地临时工作区，用补丁改完后再同步回远程仓库
 - 由于 `1.10` 首轮不再依赖 future-count feedback，`forward()` 与 `generate()` 的语义重新回到同一路径
   - 解决：在功能验证脚本里显式校验 `tf_vs_rollout_max_delta=0`
+
+## 2026-03-20 05:28 CST
+
+### 任务：提交 1.10 实现检查点并启动三窗口正式训练
+
+**完成内容**：
+1. 提交并推送 `1.10` 实现检查点
+   - 分支：`dev/latent`
+   - commit：`32a1f5f`
+   - 提交信息：`实现1.10 latent dynamics decoder主线与首轮验证`
+
+2. 启动 `250/500/1000ms` 三窗口正式训练
+   - 后台会话：`screen -S latent_dynamics_1p10`
+   - 主控脚本：`scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/run_latent_dynamics_experiments.sh`
+   - 日志文件：`results/logs/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/screen_run.log`
+
+3. 完成启动后健康检查
+   - `screen` 会话存在且处于 detached 状态
+   - GPU 上已有三路 `python` 训练进程
+   - 日志显示三个窗口均已进入 epoch 1–2，暂未出现 OOM 或配置错误
+
+**当前运行状态**：
+- `250ms / 500ms / 1000ms` 正式训练均在运行
+- 当前仓库实现代码已推送到远端，后续可在训练完成后直接汇总正式结果
+
+**遇到的问题与解决**：
+- 正式训练时长较长，不适合占用当前交互终端
+  - 解决：使用 `screen` 后台启动，并把完整终端输出写入 `screen_run.log`，便于后续追踪和恢复
