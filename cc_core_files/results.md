@@ -73,6 +73,89 @@ results/
 
 ---
 
+### diffusion-flow 首轮 formal（三窗口 300 epoch）
+
+- **存储路径**：
+  - `results/logs/1.11-diffusion-decoder/20260320_direct_count_flow_dit/{250ms,500ms,1000ms}/`
+  - `results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/`
+- **产生时间**：2026-03-20
+- **产生方式**：
+  - 正式训练与评估：`scripts/1.11-diffusion-decoder/20260320_direct_count_flow_dit/run_diffusion_flow_windows.sh`
+  - 结果汇总与出图：`scripts/1.11-diffusion-decoder/20260320_direct_count_flow_dit/collect_diffusion_flow_results.py`
+- **实验目的**：在 `1.3.7` 默认协议下，完成 `Option 2B + direct count-space flow matching + DiT` 首轮 formal 验证，判断 diffusion decoder 是否能作为 Phase 1 的新主线
+- **实验配置**：
+  - 数据：Perich-Miller 10 sessions，continuous，obs=500ms，pred=`250 / 500 / 1000ms`
+  - 模型：`decoder_variant=diffusion_flow`，`dim=128`，`enc_depth=6`，`dec_depth=4`，`flow_target_space=log1p_count`，`flow_steps_eval=20`，`conditioning_dropout=0.1`
+  - 优化：`SparseLamb + OneCycleLR`，`base_lr=3.125e-5`，`max_lr=0.002 / 0.002 / 0.001`，`weight_decay=1e-4`
+  - batch：`64 / 64 / 32`，eval batch：`16 / 12 / 8`
+  - 训练轮数：三窗口配置均为 `300 epochs`，实际都跑到 `epoch 299`
+- **主要结果**：
+
+  | window | best val fp-bps | best epoch | test fp-bps | vs baseline_v2 test | test R2 | test PSTH-R2 |
+  |--------|------------------|------------|-------------|----------------------|---------|--------------|
+  | 250ms | -7.3585 | 229 | -7.4950 | -7.7173 | -20.0418 | -13.6578 |
+  | 500ms | -7.7572 | 179 | -7.8601 | -8.0341 | -20.7506 | -9.6705 |
+  | 1000ms | -8.0657 | 199 | -8.2277 | -8.3625 | -20.7491 | -9.1904 |
+
+- **结果分析**：
+  - 三个窗口的 continuous 与 trial-aligned 指标全部显著为负，而且与 `baseline_v2` 的 current evalfix test 差距稳定在 `约8 fp-bps` 量级，这说明当前 1.11 首轮变体不是“略差”，而是结构性失败。
+  - 三窗口的训练都完整跑满 300 epochs，但 `best val/fp_bps` 分别提前出现在 `epoch 229 / 179 / 199`，而 `val_loss` 最低点却出现在更后面的 `epoch 299 / 289 / 269`。这表明当前 flow matching loss 与最终 neural prediction 指标之间存在明显目标错位。
+  - `per-bin fp-bps` 在 `250ms / 500ms / 1000ms` 的所有 bin 上都维持显著负值，不是只在长窗口尾端发生 rollout 崩塌。因此问题不只是 horizon 太长，更可能来自当前 `per-bin summary + shared per-unit head` 结构本身没有保住 unit-level 细节。
+  - 这一轮的有效结论是：diffusion 主线的工程链路已经打通，但当前 `direct_count_flow_dit` 这一具体实现不适合作为主线继续细调。
+- **备注**：
+  - 本轮 formal 结果已写入 `cc_todo/1.11-diffusion-decoder/results.tsv`
+  - 后续若继续 1.11 diffusion 主线，优先方向应是恢复 unit-level token 化或 factorized time-unit attention，而不是沿当前 `per-bin summary` 路线做小幅调参
+
+#### training_curves.png
+
+- **存储路径**：`results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/training_curves.png`
+- **目的**：对比三窗口 formal run 的 `train_loss / val_loss / val/fp_bps` 轨迹，判断优化过程是否稳定，以及指标峰值与 loss 下降是否一致
+- **逐列解读**：
+  - **250ms 列**：`train_loss` 和 `val_loss` 持续下降到训练结束，但 `val/fp_bps` 的最优点停在 `epoch 229` 且仍为 `-7.3585`。这说明不是“训练没收敛”，而是优化方向本身没有把模型推向正向预测指标。
+  - **500ms 列**：最佳 `val/fp_bps` 更早出现在 `epoch 179`，之后 loss 继续下降但指标没有恢复，进一步支持“flow loss 与 fp-bps 目标错位”的判断。
+  - **1000ms 列**：训练同样稳定，没有数值爆炸或明显抖动；但 `val/fp_bps` 整段都维持强负值，说明长窗口失败不是训练不稳定，而是结构表达能力不足。
+- **交叉引用**：
+  - 脚本：`scripts/1.11-diffusion-decoder/20260320_direct_count_flow_dit/collect_diffusion_flow_results.py`
+  - 数据：`results/logs/1.11-diffusion-decoder/20260320_direct_count_flow_dit/*/lightning_logs/version_0/metrics.csv`
+
+#### fp_bps_vs_window.png
+
+- **存储路径**：`results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/fp_bps_vs_window.png`
+- **目的**：把 diffusion-flow 与 `baseline_v2` 的 continuous `fp-bps` 放到同一窗口尺度上比较，并直接展示 test 差值
+- **逐子图解读**：
+  - **左图**：diffusion 的 `valid/test fp-bps` 在 `250 / 500 / 1000ms` 三个窗口上全部远低于 `baseline_v2`，且窗口越长整体越差。
+  - **右图**：`diffusion test - baseline_v2 test` 分别为 `-7.7173 / -8.0341 / -8.3625`，说明失败幅度大而稳定，不是某一个窗口偶发失误。
+- **交叉引用**：
+  - 脚本：`scripts/1.11-diffusion-decoder/20260320_direct_count_flow_dit/collect_diffusion_flow_results.py`
+  - diffusion JSON：`results/logs/1.11-diffusion-decoder/20260320_direct_count_flow_dit/*/eval_v2_{valid,test}_results.json`
+  - baseline JSON：`results/logs/phase1_v2_evalfix_*_cont/lightning_logs/version_0/eval_v2_{valid,test}_results.json`
+
+#### per_bin_fp_bps.png
+
+- **存储路径**：`results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/per_bin_fp_bps.png`
+- **目的**：检查每个预测 bin 的 `fp-bps` 曲线，判断 diffusion 失败是否集中在窗口后半段，还是所有 bin 都已经偏离
+- **逐子图解读**：
+  - **250ms 面板**：12 个预测 bin 全部为负，只有最后一个 bin 略微回升，但仍远低于 baseline。这说明短窗口下也不存在可用的局部生成能力。
+  - **500ms 面板**：25 个 bin 基本维持在 `约-7.6` 到 `约-8.2`，曲线非常平，说明失败并非由 tail-only 误差累积触发。
+  - **1000ms 面板**：50 个 bin 全部显著为负，中后段略差，但没有出现“前段正常、后段崩塌”的模式，因此更像是整体表示能力不足，而不是单纯积分步数不够。
+- **交叉引用**：
+  - 脚本：`scripts/1.11-diffusion-decoder/20260320_direct_count_flow_dit/collect_diffusion_flow_results.py`
+  - diffusion JSON：`results/logs/1.11-diffusion-decoder/20260320_direct_count_flow_dit/*/eval_v2_test_results.json`
+  - baseline JSON：`results/logs/phase1_v2_evalfix_*_cont/lightning_logs/version_0/eval_v2_test_results.json`
+
+#### summary_table.png
+
+- **存储路径**：`results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/summary_table.png`
+- **目的**：把三窗口的 `epoch`、`best val fp-bps`、test `fp-bps`、`R2`、`PSTH-R2` 与 baseline 差值压缩到一张表格图中，方便在路线讨论时快速引用
+- **结果解读**：
+  - 三窗口都完整跑满训练轮数，但最优 checkpoint 依旧显著为负，说明“再多跑一些 epoch”并不能解决当前变体的问题。
+  - 表格把这轮 diffusion-flow 的失败特征定格为一个清晰基线：链路打通，但指标远低于现有 `baseline_v2` 和最优 `1.9` 结果。
+- **交叉引用**：
+  - 脚本：`scripts/1.11-diffusion-decoder/20260320_direct_count_flow_dit/collect_diffusion_flow_results.py`
+  - JSON 汇总：`results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/diffusion_flow_summary.json`
+
+---
+
 ## 说明
 
 > ⚠️ cc_todo/20260221-cc-1st/results/ 和 cc_todo/20260221-cc-1st/figures/ 中存储了来自已废弃早期任务的实验结果，**不作为当前项目的参考结果**，仅作为历史存档。

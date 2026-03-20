@@ -2188,3 +2188,49 @@
   - 解决：当 `estimated_stepping_batches < 4` 时，smoke 直接跳过 scheduler，仅保留 optimizer
 - `conda run` 的 heredoc 输出默认不稳定
   - 解决：关键检查改用 `--no-capture-output` 或 `python -c` 方式执行
+
+## 2026-03-20 09:53 CST - 1.11 diffusion formal 结果归档与结论更新
+
+**任务**：检查 `20260320_direct_count_flow_dit` 的 formal 三窗口运行状态，汇总正式指标，补齐图表与文档，并给出是否继续沿当前变体推进的结论
+
+**完成内容**：
+1. 确认 `250ms / 500ms / 1000ms` 三个 formal run 已全部结束，且当前分支仍为 `dev/diffusion`
+2. 抽取三窗口 `metrics.csv` 与 `eval_v2_{valid,test}_results.json`
+   - 确认三窗口配置统一为 `epochs=300`
+   - 三窗口都实际跑到 `epoch 299`
+   - `best val/fp_bps` 分别出现在 `epoch 229 / 179 / 199`
+3. 新增 `scripts/1.11-diffusion-decoder/20260320_direct_count_flow_dit/collect_diffusion_flow_results.py`
+   - 自动汇总三窗口 formal 结果
+   - 读取 `baseline_v2` current evalfix 结果做对照
+   - 自动更新 `cc_todo/1.11-diffusion-decoder/results.tsv`
+   - 自动生成 summary JSON 和四类图表
+4. 生成正式结果产物：
+   - `results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/diffusion_flow_summary.json`
+   - `training_curves.{png,pdf}`
+   - `fp_bps_vs_window.{png,pdf}`
+   - `per_bin_fp_bps.{png,pdf}`
+   - `summary_table.{png,pdf}`
+5. 回填文档：
+   - 更新 `cc_todo/1.11-diffusion-decoder/model.md`
+   - 更新 `cc_todo/1.11-diffusion-decoder/20260320_direct_count_flow_dit.md`
+   - 更新 `cc_core_files/results.md`
+   - 更新 `cc_core_files/scripts.md`
+   - 更新 `cc_core_files/plan.md`
+
+**执行结果**：
+- 三窗口 formal test continuous `fp-bps`：
+  - `250ms = -7.4950`
+  - `500ms = -7.8601`
+  - `1000ms = -8.2277`
+- 相对 `baseline_v2` current evalfix test 的差值：
+  - `250ms = -7.7173`
+  - `500ms = -8.0341`
+  - `1000ms = -8.3625`
+- `trial-aligned PSTH-R2` 也全部显著为负，说明当前 1.11 首轮变体不是只在某一套指标上失败，而是整体不可用
+- 当前结论已经写回文档：这轮 diffusion 实现的价值在于工程链路打通，但 `direct_count_flow_dit` 当前结构不继续作为主线微调
+
+**遇到的问题与解决**：
+- 非登录 SSH shell 下没有直接带出远程 `python / conda / rg`
+  - 解决：统一改用远程 `bash -lc`，确保在登录环境里解析 conda 与 PATH
+- 结果回填阶段需要同时处理 logs、JSON、TSV、figure 和多份 Markdown，直接在 SSH shell 中维护风险高
+  - 解决：先拉本地临时镜像做编辑，再同步回远程并在远程环境执行汇总脚本

@@ -43,7 +43,7 @@
 
 ## 2026-03-20 — Direct Count-Space Flow Matching with DiT
 
-> 状态：实施中
+> 状态：首轮 formal 完成，当前变体建议放弃
 > 分支：`dev/diffusion`
 > 对应任务记录：`cc_todo/1.11-diffusion-decoder/20260320_direct_count_flow_dit.md`
 
@@ -109,3 +109,22 @@
   - 训练、validation、checkpoint 生成和 best ckpt 选择全部通过
   - 离线 valid smoke 也已成功跑通
   - 当前 smoke 指标显著为负，说明第一版结构只是链路打通，还没有性能结论
+- 三窗口 formal 已完成：
+
+  | window | best val fp-bps | best epoch | test fp-bps | vs baseline_v2 test | test R2 | test PSTH-R2 |
+  |--------|------------------|------------|-------------|----------------------|---------|--------------|
+  | 250ms | -7.3585 | 229 | -7.4950 | -7.7173 | -20.0418 | -13.6578 |
+  | 500ms | -7.7572 | 179 | -7.8601 | -8.0341 | -20.7506 | -9.6705 |
+  | 1000ms | -8.0657 | 199 | -8.2277 | -8.3625 | -20.7491 | -9.1904 |
+
+### 首轮 formal 结论
+
+- 这轮实验证明 diffusion 主线的工程链路已经打通，但当前 `direct_count_flow_dit` 变体在三个窗口上都属于**结构性失败**，不适合作为主线继续调参。
+- 三窗口训练都完整跑满 300 epochs，而 `best val/fp_bps` 却提前停在 `epoch 229 / 179 / 199`，同时 `val_loss` 继续下降到更后面的 epoch。这说明当前 `flow matching velocity loss` 与最终 spike prediction 指标存在明显目标错位。
+- `per-bin fp-bps` 在三个窗口的所有预测 bin 上都显著为负，因此问题不是“长窗口尾部误差积累”这么简单，而是当前 `per-bin summary + shared per-unit head` 结构没有保住必要的 unit-level 预测信息。
+
+### 下一轮优先修正方向
+
+1. 不再沿当前 `per-bin summary` 结构做小幅超参微调；当前结果差距过大，价值不高。
+2. 如果继续坚持 `Option 2B`，优先改为 **unit-level tokenization + factorized time-unit attention / axial block**，在保留可训练复杂度的同时恢复 unit 维建模能力。
+3. `Option 2A latent diffusion` 继续保留为备选，但只在新的 `Option 2B` 结构仍然不能收口时再转向。

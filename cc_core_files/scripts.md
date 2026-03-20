@@ -218,6 +218,7 @@
   python scripts/tests/test_causal_mask.py
   ```
 - **依赖**：poyo conda 环境
+- **备注**：对应 plan.md 任务 1.1.3；从 `/tmp/neurohorizon_test_causal.py` 迁移
 
 ### run_diffusion_flow_windows.sh（1.11 diffusion decoder 正式窗口实验）
 
@@ -242,7 +243,36 @@
   - 每个窗口的 `eval_v2_test_results.json`
 - **依赖**：`poyo` conda 环境；更新后的 `train.py` 和 `eval_phase1_v2.py` 需支持 `diffusion_flow`
 - **备注**：对应 plan.md 任务 1.11 首轮正式实验执行
-- **备注**：对应 plan.md 任务 1.1.3；从 `/tmp/neurohorizon_test_causal.py` 迁移
+
+### collect_diffusion_flow_results.py（1.11 diffusion 结果汇总与出图）
+
+- **路径**：`scripts/1.11-diffusion-decoder/20260320_direct_count_flow_dit/collect_diffusion_flow_results.py`
+- **功能用途**：汇总 1.11 diffusion-flow formal run 的结果，并自动完成首轮出图与结果表更新
+  - 读取 `250ms / 500ms / 1000ms` 三窗口的 `metrics.csv` 与 `eval_v2_{valid,test}_results.json`
+  - 读取 `baseline_v2` 的 current evalfix `valid/test` JSON 作为对照
+  - 更新 `cc_todo/1.11-diffusion-decoder/results.tsv`
+  - 生成 `diffusion_flow_summary.json`
+  - 生成 `training_curves`、`fp_bps_vs_window`、`per_bin_fp_bps` 和 `summary_table` 图表
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/1.11-diffusion-decoder/20260320_direct_count_flow_dit/collect_diffusion_flow_results.py
+  ```
+- **输入**：
+  - `results/logs/1.11-diffusion-decoder/20260320_direct_count_flow_dit/{250ms,500ms,1000ms}/`
+  - `results/logs/phase1_v2_evalfix_{250ms,500ms,1000ms}_cont/lightning_logs/version_0/eval_v2_{valid,test}_results.json`
+  - `cc_todo/1.11-diffusion-decoder/results.tsv`
+- **输出**：
+  - `results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/diffusion_flow_summary.json`
+  - `results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/training_curves.{png,pdf}`
+  - `results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/fp_bps_vs_window.{png,pdf}`
+  - `results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/per_bin_fp_bps.{png,pdf}`
+  - `results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/summary_table.{png,pdf}`
+  - `cc_todo/1.11-diffusion-decoder/results.tsv`
+- **依赖**：`poyo` conda 环境（`matplotlib`、`numpy`）
+- **备注**：对应 plan.md 任务 1.11 Step 4 正式结果收尾
 
 ### test_decoder.py（1.1.4 单元测试）
 

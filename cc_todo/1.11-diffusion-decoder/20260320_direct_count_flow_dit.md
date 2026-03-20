@@ -2,7 +2,7 @@
 
 > 对应计划：`cc_core_files/plan.md` §1.11  
 > 分支：`dev/diffusion`  
-> 状态：实施中
+> 状态：首轮 formal 完成，效果不佳，当前变体建议停止继续微调
 
 ## 任务背景
 
@@ -146,3 +146,48 @@ python scripts/analysis/neurohorizon/eval_phase1_v2.py \
   - diffusion 主线的训练、checkpoint、best ckpt 选择、离线评估入口都已经打通
   - 第一版结构目前只有链路验证价值，还没有性能上的积极信号
   - 下一步应转向正式三窗口训练，并结合结果决定是否调整 `flow_steps_eval`、decoder depth、condition 设计或 count summary 方式
+
+### 2026-03-20（formal 三窗口完成 + 结果归档）
+
+- 正式运行命令：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/1.11-diffusion-decoder/20260320_direct_count_flow_dit/run_diffusion_flow_windows.sh
+  ```
+- 结果收集与出图命令：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/1.11-diffusion-decoder/20260320_direct_count_flow_dit/collect_diffusion_flow_results.py
+  ```
+- 统一关键超参：
+  - 数据协议：Perich-Miller 10 sessions，continuous，obs=500ms，pred=`250 / 500 / 1000ms`
+  - optimizer：`SparseLamb + OneCycleLR`
+  - `base_lr = 3.125e-5`
+  - `max_lr = 0.002 / 0.002 / 0.001`
+  - `weight_decay = 1e-4`
+  - `flow_steps_eval = 20`
+  - `epochs = 300`，`eval_epochs = 10`
+  - batch size：`64 / 64 / 32`
+  - eval batch size：`16 / 12 / 8`
+- 正式结果：
+
+  | window | best val fp-bps | best epoch | best val loss | test fp-bps | vs baseline_v2 test | test R2 | test PSTH-R2 |
+  |--------|------------------|------------|---------------|-------------|----------------------|---------|--------------|
+  | 250ms | -7.3585 | 229 | 0.3413 | -7.4950 | -7.7173 | -20.0418 | -13.6578 |
+  | 500ms | -7.7572 | 179 | 0.3276 | -7.8601 | -8.0341 | -20.7506 | -9.6705 |
+  | 1000ms | -8.0657 | 199 | 0.3504 | -8.2277 | -8.3625 | -20.7491 | -9.1904 |
+
+- 生成产物：
+  - `cc_todo/1.11-diffusion-decoder/results.tsv`
+  - `results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/diffusion_flow_summary.json`
+  - `results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/training_curves.png`
+  - `results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/fp_bps_vs_window.png`
+  - `results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/per_bin_fp_bps.png`
+  - `results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/summary_table.png`
+- 当前结论：
+  - 三窗口都完整跑满到 `epoch 299`，说明这轮失败不是“没跑够”，而是模型结构本身没有学到有效的 future count field。
+  - `best val/fp_bps` 出现在 `epoch 229 / 179 / 199`，而 `val_loss` 最低点在更后面，进一步说明当前 flow loss 与真正关心的 spike prediction 指标不对齐。
+  - `per-bin fp-bps` 在所有 bin 上都显著为负，不是只在长窗口尾端崩塌；当前问题更像是 `per-bin summary` 丢掉了 unit-level 细节。
+  - 这意味着继续在当前实现上微调 `flow_steps_eval`、depth、dropout 的性价比很低；若继续 1.11 主线，应改为 unit-level tokenization 或 factorized time-unit attention。

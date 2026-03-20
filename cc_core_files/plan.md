@@ -1025,14 +1025,14 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 效果好 -> merge 到 main，在 `cc_todo/1.11-diffusion-decoder/model.md` 中标记状态为“已合并”
 - 效果不佳 -> 保留在 `dev/diffusion` 主线下继续修正，或在文档中标记“已放弃”并记录原因
 
-#### 1.11.1 [ ] Diffusion Decoder 路线基线
+#### 1.11.1 [x] Diffusion Decoder 路线基线 <!-- 记录：cc_todo/1.11-diffusion-decoder/20260320_direct_count_flow_dit.md -->
 
 > 产出：`cc_todo/1.11-diffusion-decoder/model.md`、`cc_todo/1.11-diffusion-decoder/results.tsv`
 
-- [ ] 整理 1.9 AR 路线的失败结论与迁移动机
-- [ ] 明确 `Option 2B + flow matching + DiT` 为当前主线
-- [ ] 将 `Option 2A latent diffusion` 记录为后续备选
-- [ ] 创建 diffusion 路线的首轮配置、脚本和结果目录
+- [x] 整理 1.9 AR 路线的失败结论与迁移动机
+- [x] 明确 `Option 2B + flow matching + DiT` 为当前主线
+- [x] 将 `Option 2A latent diffusion` 记录为后续备选
+- [x] 创建 diffusion 路线的首轮配置、脚本和结果目录
 
 #### 1.11.2 [ ] Diffusion Decoder 迭代记录
 
@@ -1052,20 +1052,22 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 -->
 
 ##### 20260320_direct_count_flow_dit -- Direct Count-Space Flow Matching with DiT
-> 状态: 实施中
+> 状态: 已放弃
 > 分支: `dev/diffusion`
 > 文档: `cc_todo/1.11-diffusion-decoder/model.md` 中“2026-03-20 — Direct Count-Space Flow Matching with DiT”
 > 任务记录: `cc_todo/1.11-diffusion-decoder/20260320_direct_count_flow_dit.md`
 > 脚本: `scripts/1.11-diffusion-decoder/20260320_direct_count_flow_dit/`
 > 日志: `results/logs/1.11-diffusion-decoder/20260320_direct_count_flow_dit/`
 > 可视化: `results/figures/1.11-diffusion-decoder/20260320_direct_count_flow_dit/`
-> commit:
-> 结果: 250ms fp-bps= / 500ms fp-bps= / 1000ms fp-bps=
+> commit: `729b4b0`（实现 checkpoint）
+> 结果: 250ms fp-bps=`-7.4950` / 500ms fp-bps=`-7.8601` / 1000ms fp-bps=`-8.2277`
 
 - 核心设计：保持 POYO+ encoder 不变，使用 direct count-space flow matching + DiT 风格时间主干生成未来 spike count 场
 - 当前主线不再继续 1.9 的 prediction-memory / alignment decoder 分支，相关历史结果仅保留作参考
 - 本轮必做实验遵循 1.11 统一规范：10 sessions、连续滑动窗口、obs=500ms、pred=250/500/1000ms
 - `Option 2A latent diffusion` 暂不实施，仅作为后续备选保留在文档中
+- 三窗口 formal 都跑满 `300 epochs`，但 `continuous / trial-aligned` 指标全部显著为负，说明该变体不是可调优基线，而是结构性失败
+- 失败特征不是“只在 tail 崩塌”，而是所有预测 bin 全面为负；后续 diffusion 若继续推进，优先重做 unit-level tokenization 或 factorized time-unit attention，而不是继续沿当前 `per-bin summary` 微调
 
 
 ---
