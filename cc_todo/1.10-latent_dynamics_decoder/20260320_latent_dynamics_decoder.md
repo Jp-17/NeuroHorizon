@@ -2,7 +2,7 @@
 
 **日期**：2026-03-20
 **模块名**：`latent_dynamics_decoder`
-**状态**：实施中
+**状态**：验证完成
 **分支**：`dev/latent`
 
 ## 改进摘要
@@ -65,8 +65,8 @@
 - [x] 新增 `1.10` 脚本目录
 - [x] 完成 250ms smoke run
 - [x] 启动 250/500/1000ms 正式训练
-- [ ] 更新 `results.tsv`
-- [ ] 生成趋势图并更新 `results.md`
+- [x] 更新 `results.tsv`
+- [x] 生成趋势图并更新 `results.md`
 
 ## 基本功能验证
 
@@ -153,15 +153,19 @@ python scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/ver
 - 启动方式：`screen -S latent_dynamics_1p10`
 - 主控脚本：`scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/run_latent_dynamics_experiments.sh`
 - 当前状态：
-  - `250ms / 500ms / 1000ms` 三个窗口已经并发启动
-  - 初步检查显示三路训练均已进入 epoch 1–2，无立即 OOM 或配置错误
+  - `250ms / 500ms / 1000ms` 三个窗口训练、best-ckpt formal `valid/test` 评估均已完成
+  - `screen` 后台会话已正常退出，无残留训练进程
   - `screen` 日志：`results/logs/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/screen_run.log`
+  - 图表输出：
+    - `results/figures/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/training_curves.png`
+    - `results/figures/1.10-latent_dynamics_decoder/optimization_progress.png`
+    - `results/figures/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/latent_dynamics_summary.json`
 
 | pred_window | teacher-forced fp-bps | rollout fp-bps | rollout R2 | vs baseline_v2 | 备注 |
 |-------------|-----------------------|----------------|------------|----------------|------|
-| 250ms | | | | | |
-| 500ms | | | | | |
-| 1000ms | | | | | |
+| 250ms | 0.1882 | 0.1882 | 0.2493 | -0.0233 | test `fp-bps=0.1966`; best epoch `289` |
+| 500ms | 0.0904 | 0.0904 | 0.2041 | -0.0840 | test `fp-bps=0.0857`; best epoch `259` |
+| 1000ms | 0.0674 | 0.0674 | 0.1946 | -0.0643 | test `fp-bps=0.0667`; best epoch `289` |
 
 ## 与 baseline_v2 的对比
 
@@ -172,9 +176,11 @@ python scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/ver
 
 ## 当前判断
 
-- `1.10` 的第一阶段实现已经完成，主线代码、配置和 smoke protocol 均可用。
-- `250/500/1000ms` 三窗口正式训练已经启动，当前处于正式结果产出阶段。
-- 下一步是在训练完成后汇总 best-ckpt `valid/test`、更新 `results.tsv`，并生成趋势图与结果解读。
+- `1.10` 的第一阶段实现与首轮正式实验已经完成。
+- 当前 GRU latent dynamics baseline 已经证明方向可实现，但没有证明它优于 `baseline_v2`。
+- `250ms` 已接近 `baseline_v2`，但 `500ms / 1000ms` 明显落后，首轮的“长时程更优”目标未达成。
+- 由于本实现里 `teacher-forced == rollout`，这轮失败更像 latent state / dynamics capacity 不足，而不是 rollout exposure gap。
+- 下一步应优先尝试更强的 dynamics backbone 或更大的 latent state，而不是继续停留在当前压缩强度下做小幅超参微调。
 
 ## 备注
 

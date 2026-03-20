@@ -1032,14 +1032,14 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 效果好 -> merge 到 main，在 `model.md` 中标记状态为“已合并”
 - 效果不佳 -> 保留 `dev/latent` 或派生子分支供参考，在 `model.md` 中标记状态为“已放弃”并记录原因
 
-#### 1.10.1 [ ] Latent Dynamics 方向基线与索引
+#### 1.10.1 [x] Latent Dynamics 方向基线与索引 <!-- 记录：cc_todo/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder.md -->
 
 > 产出：`cc_todo/1.10-latent_dynamics_decoder/model.md`、`cc_todo/1.10-latent_dynamics_decoder/results.tsv`
 
-- [ ] 建立 1.10 专用设计文档与结果追踪 TSV
-- [ ] 将 baseline_v2 与 benchmark 结果复制为 1.10 对照基线
-- [ ] 明确 latent dynamics 主线的默认协议、路径和命名
-- [ ] 创建 1.10 趋势图脚本入口
+- [x] 建立 1.10 专用设计文档与结果追踪 TSV <!-- 记录：cc_todo/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder.md -->
+- [x] 将 baseline_v2 与 benchmark 结果复制为 1.10 对照基线 <!-- 记录：cc_todo/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder.md -->
+- [x] 明确 latent dynamics 主线的默认协议、路径和命名 <!-- 记录：cc_todo/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder.md -->
+- [x] 创建 1.10 趋势图脚本入口 <!-- 记录：cc_todo/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder.md -->
 
 #### 1.10.2 [ ] Latent Dynamics 模型迭代记录
 
@@ -1059,20 +1059,21 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 -->
 
 ##### 20260320_latent_dynamics_decoder -- GRU Latent Dynamics Decoder
-> 状态: 实施中
+> 状态: 验证完成
 > 分支: `dev/latent`
 > 文档: `cc_todo/1.10-latent_dynamics_decoder/model.md` 中“2026-03-20 — GRU Latent Dynamics Decoder”
 > 任务记录: `cc_todo/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder.md`
 > 脚本: `scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/`
 > 日志: `results/logs/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/`
 > 可视化: `results/figures/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/`
-> commit:
-> 结果:
+> commit: `32a1f5f`
+> 结果: 250ms fp-bps=`0.1882` / 500ms fp-bps=`0.0904` / 1000ms fp-bps=`0.0674`
 
 - 核心设计：保留 POYO+ history encoder 与 `PerNeuronMLPHead`，将 observation-space decoder 主线替换为 latent-space dynamics rollout
 - 首轮实现优先保证“无额外依赖可落地”，先做 GRU latent dynamics 主线，把 Mamba 作为后续 `1.10.x` 扩展位
 - 必做实验保持 1.10 统一规范：10 sessions、连续滑动窗口、obs=500ms、pred=250/500/1000ms
 - 与 baseline_v2 的主要对比目标：判断 latent dynamics 是否能在 `500ms / 1000ms` 窗口上优于当前无反馈 baseline
+- 首轮正式结果显示：`250ms` 已接近 `baseline_v2`，但 `500ms / 1000ms` 明显落后；当前 GRU latent dynamics 证明了路线可实现，但尚未证明该方向在长时程窗口上的效果优势
 
 
 ---

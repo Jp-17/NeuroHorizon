@@ -60,7 +60,7 @@
 
 ## 2026-03-20 — GRU Latent Dynamics Decoder
 
-> 状态：实施中
+> 状态：验证完成
 > 分支：`dev/latent`
 > 任务记录：`cc_todo/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder.md`
 
@@ -145,11 +145,34 @@ history spikes
   - val loss：`0.406`
   - eval valid fp-bps：`-0.8339`
   - eval valid R2：`-0.0021`
-- 当前判断：实现链路已通，下一步进入三窗口正式实验
+
+### 首轮正式结果
+
+- `250ms`
+  - valid `fp-bps=0.1882`, `R2=0.2493`, 相对 `baseline_v2=0.2115` 差 `-0.0233`
+  - test `fp-bps=0.1966`, `R2=0.2511`, 相对 `baseline_v2` 差 `-0.0149`
+  - best checkpoint 出现在 `epoch 289`
+- `500ms`
+  - valid `fp-bps=0.0904`, `R2=0.2041`, 相对 `baseline_v2=0.1744` 差 `-0.0840`
+  - test `fp-bps=0.0857`, `R2=0.2033`, 相对 `baseline_v2` 差 `-0.0887`
+  - best checkpoint 出现在 `epoch 259`
+- `1000ms`
+  - valid `fp-bps=0.0674`, `R2=0.1946`, 相对 `baseline_v2=0.1317` 差 `-0.0643`
+  - test `fp-bps=0.0667`, `R2=0.1937`, 相对 `baseline_v2` 差 `-0.0650`
+  - best checkpoint 出现在 `epoch 289`
+
+### 当前结论
+
+- 当前 GRU latent dynamics baseline 已证明这条路线在现有仓库里可完整落地：训练、best checkpoint、离线 `valid/test`、结果汇总和图表都能稳定产出
+- 但它没有达到本轮“重点观察 `500ms / 1000ms` 是否优于 `baseline_v2`”的目标
+- `250ms` 已经接近 `baseline_v2`，说明 latent rollout 不是完全不可用
+- `500ms / 1000ms` 明显落后，说明仅靠当前的 attention pooling + 紧凑 latent state + autonomous GRU dynamics，还不足以支持更长预测窗
+- 由于本实现里 `teacher-forced == rollout`，当前瓶颈更像是 latent state 容量 / pooling 压缩 / dynamics expressiveness 不足，而不是 exposure bias
 
 ### 后续扩展位
 
 - `1.10.x` 下一轮优先考虑：
-  - Mamba latent dynamics
-  - latent pooling 数量与 state dim 调整
+  - 提高 latent pooling 数量与 state dim，减少过强压缩
+  - 保持当前接口，尝试更强的 dynamics backbone（优先 Mamba）
+  - 增加 context skip / recurrent conditioning，而不是纯 autonomous rollout
   - encoder frozen vs end-to-end 微调对比

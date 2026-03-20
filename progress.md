@@ -2219,3 +2219,34 @@
 **遇到的问题与解决**：
 - 正式训练时长较长，不适合占用当前交互终端
   - 解决：使用 `screen` 后台启动，并把完整终端输出写入 `screen_run.log`，便于后续追踪和恢复
+
+## 2026-03-20 09:42 CST
+
+### 任务：完成 1.10 首轮正式三窗口实验与结果回填
+
+**完成内容**：
+1. 完成 `250ms / 500ms / 1000ms` 三窗口正式训练与 best-ckpt `valid/test` 评估
+   - `250ms`：valid `fp-bps=0.1882`, test `fp-bps=0.1966`, best epoch `289`
+   - `500ms`：valid `fp-bps=0.0904`, test `fp-bps=0.0857`, best epoch `259`
+   - `1000ms`：valid `fp-bps=0.0674`, test `fp-bps=0.0667`, best epoch `289`
+
+2. 生成正式图表与汇总文件
+   - `results/figures/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/training_curves.{png,pdf}`
+   - `results/figures/1.10-latent_dynamics_decoder/optimization_progress.{png,pdf}`
+   - `results/figures/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder/latent_dynamics_summary.json`
+   - 更新 `cc_todo/1.10-latent_dynamics_decoder/results.tsv`
+
+3. 回填核心文档
+   - 更新 `cc_core_files/results.md`
+   - 更新 `cc_core_files/plan.md`
+   - 更新 `cc_todo/1.10-latent_dynamics_decoder/model.md`
+   - 更新 `cc_todo/1.10-latent_dynamics_decoder/20260320_latent_dynamics_decoder.md`
+
+**当前结论**：
+- 当前 GRU latent dynamics baseline 已证明该方向在仓库里可完整实现，但没有优于 `baseline_v2`
+- `250ms` 已接近 baseline，说明 latent rollout 有可行性
+- `500ms / 1000ms` 明显落后，且 `best epoch` 已出现在 `259–289`，说明这轮的主要问题不是训练轮数不足，而是当前 latent state 压缩和 dynamics 表达能力不够
+
+**遇到的问题与解决**：
+- `collect_latent_dynamics_results.py` 已自动写入 `results.tsv`，但图表和结论文档仍需手动补全
+  - 解决：补跑绘图脚本，并把 `best epoch / final epoch / baseline delta` 统一写回 `results.md`、`plan.md` 和 `1.10` 任务文档

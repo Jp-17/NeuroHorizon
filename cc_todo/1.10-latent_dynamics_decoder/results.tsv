@@ -3,4 +3,4 @@ baseline_v2	e5dea0a	2026-03-11	NeuroHorizon v2 baseline (POYO+ encoder + AR deco
 benchmark_ndt2	23469ca	2026-03-12	NDT2 benchmark (MAE encoder-decoder)	0.1691	0.1502	0.1079	-	-	-	-	-	-	-	-	-	-	-	4.8M params
 benchmark_neuroformer	23469ca	2026-03-12	Neuroformer benchmark (GPT-style decoder)	0.1856	0.1583	0.1210	-	-	-	-	-	-	-	-	-	-	-	4.9M params
 benchmark_ibl_mtm	23469ca	2026-03-12	IBL-MtM benchmark (causal encoder NDT1)	0.1749	0.1531	0.1001	-	-	-	-	-	-	-	-	-	-	-	10.7M params
-20260320_latent_dynamics_decoder		2026-03-20	GRU latent dynamics decoder						
+20260320_latent_dynamics_decoder	32a1f5f	2026-03-20	GRU latent dynamics decoder	0.18824139456916678	0.09041394189477088	0.06744283392223616	0.1883	0.0902	0.0675	0.19659911592815865	0.08567585084392	0.06670525175554717	best.ckpt	best.ckpt	best.ckpt			obs=500ms; cont sampling; 10 sessions; 300 epochs; latent dynamics teacher-forced == rollout; best epochs=289/259/289
