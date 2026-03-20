@@ -1,10 +1,14 @@
 """Diffusion-style flow matching decoder for NeuroHorizon.
 
-This decoder keeps the prediction target in count space while avoiding a
-full ``T x N`` token transformer, which would be prohibitively expensive for
-the current unit counts. The noisy count field is summarized into per-bin
-tokens, processed by a DiT-style time backbone, and decoded back to per-unit
-velocities with a shared head.
+This revision keeps explicit ``(time bin, unit)`` tokens and avoids the
+previous summary bottleneck. The decoder mixes tokens with a factorized stack:
+
+1. pooled time-token cross-attention to history latents
+2. per-unit time self-attention across prediction bins
+3. per-time unit attention across neurons
+
+This preserves unit-level detail while keeping the cost far below a full
+``(T * N) x (T * N)`` transformer.
 """
 
 from __future__ import annotations
@@ -13,14 +17,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .autoregressive_decoder import PerNeuronMLPHead
 from .feedforward import FeedForward
 from .position_embeddings import SinusoidalTimeEmbedding
 from .rotary_attention import RotaryCrossAttention, RotarySelfAttention
 
 
-class DiTTimeBlock(nn.Module):
-    """Time-token block with diffusion-time conditioning."""
+class FactorizedUnitTimeBlock(nn.Module):
+    """Factorized token block with pooled cross-conditioning."""
 
     def __init__(
         self,
@@ -40,58 +43,120 @@ class DiTTimeBlock(nn.Module):
             dim_head=dim_head,
             rotate_value=False,
         )
-        self.self_attn = RotarySelfAttention(
+        self.time_attn = RotarySelfAttention(
             dim=dim,
             heads=self_heads,
             dropout=atn_dropout,
             dim_head=dim_head,
             rotate_value=False,
         )
+        self.unit_attn = nn.MultiheadAttention(
+            embed_dim=dim,
+            num_heads=self_heads,
+            dropout=atn_dropout,
+            batch_first=True,
+        )
         self.ffn = nn.Sequential(
             nn.LayerNorm(dim),
             FeedForward(dim=dim, dropout=ffn_dropout),
         )
-        self.modulation = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(dim, dim * 6),
-        )
         self.cross_norm = nn.LayerNorm(dim)
-        self.self_norm = nn.LayerNorm(dim)
+        self.time_norm = nn.LayerNorm(dim)
+        self.unit_norm = nn.LayerNorm(dim)
         self.ffn_norm = nn.LayerNorm(dim)
+        self.flow_mod = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(dim, dim * 4),
+        )
 
     @staticmethod
-    def _modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
-        return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
+    def _apply_unit_mask(
+        x: torch.Tensor,
+        unit_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        if unit_mask is None:
+            return x
+        return x * unit_mask[:, None, :, None].to(x.dtype)
+
+    @staticmethod
+    def _masked_mean(
+        x: torch.Tensor,
+        unit_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        if unit_mask is None:
+            return x.mean(dim=2)
+        weights = unit_mask[:, None, :, None].to(x.dtype)
+        denom = weights.sum(dim=2).clamp_min(1.0)
+        return (x * weights).sum(dim=2) / denom
+
+    def _time_mix(
+        self,
+        x: torch.Tensor,
+        bin_time_emb: torch.Tensor,
+    ) -> torch.Tensor:
+        batch_size, num_bins, num_units, dim = x.shape
+        time_tokens = x.permute(0, 2, 1, 3).reshape(batch_size * num_units, num_bins, dim)
+        time_pos = (
+            bin_time_emb[:, None, :, :]
+            .expand(batch_size, num_units, num_bins, -1)
+            .reshape(batch_size * num_units, num_bins, -1)
+        )
+        time_tokens = self.time_attn(time_tokens, time_pos)
+        return time_tokens.reshape(batch_size, num_units, num_bins, dim).permute(0, 2, 1, 3)
+
+    def _unit_mix(
+        self,
+        x: torch.Tensor,
+        unit_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        batch_size, num_bins, num_units, dim = x.shape
+        unit_tokens = x.reshape(batch_size * num_bins, num_units, dim)
+        key_padding_mask = None
+        if unit_mask is not None:
+            key_padding_mask = (
+                (~unit_mask)[:, None, :]
+                .expand(batch_size, num_bins, num_units)
+                .reshape(batch_size * num_bins, num_units)
+            )
+        mixed, _ = self.unit_attn(
+            unit_tokens,
+            unit_tokens,
+            unit_tokens,
+            key_padding_mask=key_padding_mask,
+            need_weights=False,
+        )
+        return mixed.reshape(batch_size, num_bins, num_units, dim)
 
     def forward(
         self,
         x: torch.Tensor,
         *,
-        x_time_emb: torch.Tensor,
+        bin_time_emb: torch.Tensor,
         encoder_latents: torch.Tensor,
         latent_time_emb: torch.Tensor,
-        cond: torch.Tensor,
+        flow_cond: torch.Tensor,
+        unit_mask: torch.Tensor | None,
     ) -> torch.Tensor:
-        shift_cross, scale_cross, gate_cross, shift_self, scale_self, gate_ffn = (
-            self.modulation(cond).chunk(6, dim=-1)
-        )
+        cross_bias, time_bias, unit_bias, ffn_bias = self.flow_mod(flow_cond).chunk(4, dim=-1)
 
-        cross_in = self._modulate(self.cross_norm(x), shift_cross, scale_cross)
-        x = x + gate_cross.unsqueeze(1) * self.cross_attn(
-            cross_in,
+        pooled = self._masked_mean(self.cross_norm(x), unit_mask)
+        pooled = pooled + cross_bias[:, None, :]
+        time_context = self.cross_attn(
+            pooled,
             encoder_latents,
-            x_time_emb,
+            bin_time_emb,
             latent_time_emb,
         )
+        x = self._apply_unit_mask(x + time_context[:, :, None, :], unit_mask)
 
-        self_in = self._modulate(self.self_norm(x), shift_self, scale_self)
-        x = x + self.self_attn(
-            self_in,
-            x_time_emb,
-        )
+        time_input = self.time_norm(x) + time_bias[:, None, None, :]
+        x = self._apply_unit_mask(x + self._time_mix(time_input, bin_time_emb), unit_mask)
 
-        ffn_in = self._modulate(self.ffn_norm(x), shift_self, scale_self)
-        x = x + gate_ffn.unsqueeze(1) * self.ffn(ffn_in)
+        unit_input = self.unit_norm(x) + unit_bias[:, None, None, :]
+        x = self._apply_unit_mask(x + self._unit_mix(unit_input, unit_mask), unit_mask)
+
+        ffn_input = self.ffn_norm(x) + ffn_bias[:, None, None, :]
+        x = self._apply_unit_mask(x + self.ffn(ffn_input), unit_mask)
         return x
 
 
@@ -135,15 +200,21 @@ class DiffusionFlowDecoder(nn.Module):
             nn.SiLU(),
             nn.Linear(dim, dim),
         )
-        self.input_proj = nn.Sequential(
-            nn.Linear(dim + 4, dim),
-            nn.LayerNorm(dim),
-            nn.GELU(),
+        self.bin_token_emb = SinusoidalTimeEmbedding(dim=dim, t_min=1e-4, t_max=1.0)
+        self.bin_token_mlp = nn.Sequential(
+            nn.Linear(dim, dim),
+            nn.SiLU(),
             nn.Linear(dim, dim),
         )
+        self.count_proj = nn.Sequential(
+            nn.Linear(1, dim),
+            nn.SiLU(),
+            nn.Linear(dim, dim),
+        )
+        self.input_norm = nn.LayerNorm(dim)
         self.layers = nn.ModuleList(
             [
-                DiTTimeBlock(
+                FactorizedUnitTimeBlock(
                     dim=dim,
                     dim_head=dim_head,
                     cross_heads=cross_heads,
@@ -155,7 +226,11 @@ class DiffusionFlowDecoder(nn.Module):
             ]
         )
         self.final_norm = nn.LayerNorm(dim)
-        self.velocity_head = PerNeuronMLPHead(dim)
+        self.velocity_head = nn.Sequential(
+            nn.Linear(dim, dim),
+            nn.GELU(),
+            nn.Linear(dim, 1),
+        )
 
     def _target_transform(self, counts: torch.Tensor) -> torch.Tensor:
         return torch.log1p(counts.clamp_min(0.0))
@@ -181,35 +256,54 @@ class DiffusionFlowDecoder(nn.Module):
             return encoder_latents * keep
         return encoder_latents
 
-    def _summarize_noisy_counts(
+    def _resolve_unit_mask(
         self,
         noisy_counts: torch.Tensor,
+        unit_mask: torch.Tensor | None,
+    ) -> torch.Tensor | None:
+        if unit_mask is not None:
+            return unit_mask
+        return torch.ones(
+            noisy_counts.shape[0],
+            noisy_counts.shape[-1],
+            device=noisy_counts.device,
+            dtype=torch.bool,
+        )
+
+    def _bin_token_features(
+        self,
+        batch_size: int,
+        num_bins: int,
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        positions = torch.linspace(0.0, 1.0, num_bins, device=device, dtype=dtype)
+        features = self.bin_token_mlp(self.bin_token_emb(positions))
+        return features.view(1, num_bins, 1, self.dim).expand(batch_size, -1, -1, -1)
+
+    def _build_tokens(
+        self,
+        *,
+        noisy_counts: torch.Tensor,
         unit_embs: torch.Tensor,
+        flow_cond: torch.Tensor,
         unit_mask: torch.Tensor | None,
     ) -> torch.Tensor:
-        if unit_mask is None:
-            unit_mask = torch.ones(
-                noisy_counts.shape[0],
-                noisy_counts.shape[-1],
-                device=noisy_counts.device,
-                dtype=torch.bool,
-            )
-
-        mask = unit_mask.unsqueeze(1)
-        masked_counts = noisy_counts.masked_fill(~mask, 0.0)
-        denom = mask.sum(dim=-1, keepdim=True).clamp_min(1).to(noisy_counts.dtype)
-
-        mean = masked_counts.sum(dim=-1, keepdim=True) / denom
-        centered = (masked_counts - mean) * mask.to(noisy_counts.dtype)
-        std = torch.sqrt(centered.square().sum(dim=-1, keepdim=True) / denom + 1e-6)
-        max_value = masked_counts.masked_fill(~mask, float("-inf")).amax(dim=-1, keepdim=True)
-        max_value = torch.where(torch.isfinite(max_value), max_value, torch.zeros_like(max_value))
-        l1 = masked_counts.abs().sum(dim=-1, keepdim=True) / denom
-
-        pooled = torch.einsum("btn,bnd->btd", masked_counts, unit_embs)
-        pooled = pooled / denom
-
-        return torch.cat([pooled, mean, std, max_value, l1], dim=-1)
+        batch_size, num_bins, _ = noisy_counts.shape
+        count_tokens = self.count_proj(noisy_counts.unsqueeze(-1))
+        bin_tokens = self._bin_token_features(
+            batch_size,
+            num_bins,
+            device=noisy_counts.device,
+            dtype=noisy_counts.dtype,
+        )
+        unit_tokens = unit_embs[:, None, :, :]
+        x = count_tokens + bin_tokens + unit_tokens + flow_cond[:, None, None, :]
+        x = self.input_norm(x)
+        if unit_mask is not None:
+            x = x * unit_mask[:, None, :, None].to(x.dtype)
+        return x
 
     def predict_velocity(
         self,
@@ -222,24 +316,31 @@ class DiffusionFlowDecoder(nn.Module):
         unit_embs: torch.Tensor,
         unit_mask: torch.Tensor | None,
     ) -> torch.Tensor:
+        unit_mask = self._resolve_unit_mask(noisy_counts, unit_mask)
         cond_latents = self._condition_encoder_latents(encoder_latents)
-        noisy_summary = self._summarize_noisy_counts(noisy_counts, unit_embs, unit_mask)
-        x = self.input_proj(noisy_summary)
-
         flow_cond = self.diffusion_time_mlp(self.diffusion_time_emb(flow_t))
-        x = x + flow_cond.unsqueeze(1)
+        x = self._build_tokens(
+            noisy_counts=noisy_counts,
+            unit_embs=unit_embs,
+            flow_cond=flow_cond,
+            unit_mask=unit_mask,
+        )
 
         for layer in self.layers:
             x = layer(
                 x,
-                x_time_emb=bin_time_emb,
+                bin_time_emb=bin_time_emb,
                 encoder_latents=cond_latents,
                 latent_time_emb=latent_time_emb,
-                cond=flow_cond,
+                flow_cond=flow_cond,
+                unit_mask=unit_mask,
             )
 
         x = self.final_norm(x)
-        return self.velocity_head(x, unit_embs)
+        velocity = self.velocity_head(x).squeeze(-1)
+        if unit_mask is not None:
+            velocity = velocity * unit_mask[:, None, :].to(velocity.dtype)
+        return velocity
 
     def compute_flow_matching_loss(
         self,
@@ -271,7 +372,7 @@ class DiffusionFlowDecoder(nn.Module):
         if unit_mask is None:
             loss = F.mse_loss(velocity_pred, velocity_target)
         else:
-            mask = unit_mask.unsqueeze(1).expand_as(target_counts)
+            mask = unit_mask[:, None, :].expand_as(target_counts)
             loss = F.mse_loss(velocity_pred[mask], velocity_target[mask])
 
         aux = {
@@ -323,10 +424,10 @@ class DiffusionFlowDecoder(nn.Module):
                 unit_mask=unit_mask,
             )
             if unit_mask is not None:
-                velocity = velocity * unit_mask.unsqueeze(1).to(dtype)
+                velocity = velocity * unit_mask[:, None, :].to(dtype)
             sample = sample + dt * velocity
 
         expected_counts = self._target_inverse(sample)
         if unit_mask is not None:
-            expected_counts = expected_counts * unit_mask.unsqueeze(1).to(dtype)
+            expected_counts = expected_counts * unit_mask[:, None, :].to(dtype)
         return expected_counts.clamp_min(1e-6).log().clamp(-10, 10)

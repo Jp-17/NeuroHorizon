@@ -156,6 +156,37 @@ results/
 
 ---
 
+### factorized unit-time flow 250ms smoke（第二轮结构验证）
+
+- **存储路径**：
+  - `results/logs/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/250ms_smoke/`
+  - `results/logs/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/250ms_smoke/lightning_logs/version_0/eval_v2_valid_results.json`
+- **产生时间**：2026-03-20
+- **产生方式**：
+  - 训练：`examples/neurohorizon/train.py --config-name train_1p11_factorized_unit_time_flow_250ms.yaml`
+  - smoke override：`epochs=1 eval_epochs=1 batch_size=2 eval_batch_size=2 num_workers=0 +max_steps=2 +limit_train_batches=2 +limit_val_batches=1`
+  - 评估：`scripts/analysis/neurohorizon/eval_phase1_v2.py --log-dir .../250ms_smoke --checkpoint-kind best --split valid --batch-size 2 --skip-trial --max-batches 1`
+- **实验目的**：验证第二轮 `factorized unit-time token` diffusion decoder 是否已经在真实数据上完整跑通训练、checkpoint 和离线评估链路
+- **实验配置**：
+  - 模型：`decoder_variant=diffusion_flow`，内部结构改为 factorized unit-time token mixing
+  - 数据：Perich-Miller 10 sessions，continuous，obs=500ms，pred=250ms
+  - smoke 限制：2 个训练 step，1 个 validation batch，1 个离线评估 batch
+- **主要结果**：
+  - 训练 smoke：`train_loss = 1.140`，`val_loss = 1.146`，`val/fp_bps = -15.280`
+  - 离线 valid smoke（1 batch）：
+    - `fp-bps = -15.2633`
+    - `R2 = -51.9120`
+    - `val_loss = 1.7312`
+- **结果分析**：
+  - 这轮 smoke 的价值在于结构替换后的工程链路验证，而不是性能判断。
+  - 新 decoder 已经能够稳定完成训练、保存 `best.ckpt / last.ckpt`、并通过离线 eval，因此第二轮 factorized 结构具备继续做正式实验的基础。
+  - 当前指标依旧显著为负，但因为 smoke 只有极少步数，这个结果不能与上一轮 formal 或 `baseline_v2` 做有效性能比较。
+- **备注**：
+  - 第二轮结构 smoke 已写入 `cc_todo/1.11-diffusion-decoder/results.tsv`
+  - 若继续 formal，应直接沿 `250 / 500 / 1000ms` 三窗口执行，而不是继续在 smoke 级别做指标比较
+
+---
+
 ## 说明
 
 > ⚠️ cc_todo/20260221-cc-1st/results/ 和 cc_todo/20260221-cc-1st/figures/ 中存储了来自已废弃早期任务的实验结果，**不作为当前项目的参考结果**，仅作为历史存档。

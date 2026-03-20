@@ -128,3 +128,51 @@
 1. 不再沿当前 `per-bin summary` 结构做小幅超参微调；当前结果差距过大，价值不高。
 2. 如果继续坚持 `Option 2B`，优先改为 **unit-level tokenization + factorized time-unit attention / axial block**，在保留可训练复杂度的同时恢复 unit 维建模能力。
 3. `Option 2A latent diffusion` 继续保留为备选，但只在新的 `Option 2B` 结构仍然不能收口时再转向。
+
+## 2026-03-20 — Factorized Unit-Time Flow Tokens
+
+> 状态：实施中
+> 分支：`dev/diffusion`
+> 对应任务记录：`cc_todo/1.11-diffusion-decoder/20260320_factorized_unit_time_flow.md`
+
+### 想法描述
+
+保留 `Option 2B` 的 direct count-space flow matching，不再在进入主干前把 `N` 个 unit 汇总成单个 per-bin token，而是改成显式 `(time bin, unit)` token。为了避免 `T x N` full attention 的计算爆炸，这一轮采用 factorized token mixing：
+
+1. 先把每个 `(time bin, unit)` 的 noisy scalar、unit embedding 和 bin position 组合成 token
+2. 对 unit 维做 masked pooling，得到 time tokens，并通过 cross-attention 条件化到 history latents
+3. 对每个 unit 独立做 time self-attention
+4. 对每个 time bin 独立做 unit attention
+5. 用 token-level scalar head 直接回归每个 `(time bin, unit)` 的 velocity
+
+### 相比上一轮的关键改动
+
+- 不再使用 `per-bin summary + shared per-unit head`
+- 保留 direct count-space flow matching，不引入 autoencoder
+- 计算复杂度从 full `O((TN)^2)` 改成 factorized `time-mix + unit-mix`
+
+### 预期优点
+
+- unit-level 信息会显式进入主干，而不是只作为 pooled summary 的读出条件
+- 若问题主要来自 summary bottleneck，这一轮应至少能把所有 bin 都显著为负的状态拉回到更合理的区间
+- 训练与评估入口不变，便于直接与 `20260320_direct_count_flow_dit` 做对照
+
+### 主要风险
+
+- unit attention 会把 unit 数带回计算图主干，显存和速度开销高于上一轮
+- pooled time-token cross-attention 仍然可能不足以提供足够强的 history conditioning
+- 如果 smoke 仍然明显不对，说明问题可能不只在 summary bottleneck，而要进一步考虑 `Option 2A` 或更强的 conditioning 路线
+
+### 当前进展（2026-03-20）
+
+- factorized unit-time token 版本的 `DiffusionFlowDecoder` 已完成初版实现
+- 新增三窗口配置：
+  - `examples/neurohorizon/configs/model/neurohorizon_factorized_unit_time_flow_{250,500,1000}ms.yaml`
+  - `examples/neurohorizon/configs/train_1p11_factorized_unit_time_flow_{250,500,1000}ms.yaml`
+- 250ms 真实数据 smoke 已跑通：
+  - 训练 smoke：`train_loss = 1.140`，`val_loss = 1.146`，`val/fp_bps = -15.280`
+  - 离线 valid smoke（1 batch）：`fp-bps = -15.2633`，`R2 = -51.9120`，`val_loss = 1.7312`
+- 当前解读：
+  - 新结构的训练、checkpoint、best ckpt 解析和离线评估入口都可用，说明第二轮结构替换没有破坏工程链路
+  - 由于这仍然只是 `2 train steps + 1 valid batch + 1 offline eval batch` 的 smoke，当前负指标只能说明性能尚未显现，不能据此直接否定结构本身
+  - 下一步应先提交实现 checkpoint，再决定是否直接启动 `250 / 500 / 1000ms` formal

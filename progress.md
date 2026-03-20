@@ -2234,3 +2234,32 @@
   - 解决：统一改用远程 `bash -lc`，确保在登录环境里解析 conda 与 PATH
 - 结果回填阶段需要同时处理 logs、JSON、TSV、figure 和多份 Markdown，直接在 SSH shell 中维护风险高
   - 解决：先拉本地临时镜像做编辑，再同步回远程并在远程环境执行汇总脚本
+
+## 2026-03-20 15:00 CST - 1.11 第二轮 factorized unit-time diffusion 实现与 smoke
+
+**任务**：在 `20260320_direct_count_flow_dit` 失败结论基础上，启动第二轮 1.11 diffusion 迭代，把 decoder 从 `per-bin summary` 改成 factorized unit-time token 结构，并完成最小 smoke 验证
+
+**完成内容**：
+1. 在 `cc_todo/1.11-diffusion-decoder/model.md` 中新增第二轮设计条目 `20260320_factorized_unit_time_flow`
+2. 新建任务记录：
+   - `cc_todo/1.11-diffusion-decoder/20260320_factorized_unit_time_flow.md`
+3. 更新 `cc_core_files/plan.md`，在 `1.11.2` 中登记第二轮迭代
+4. 重写 `torch_brain/nn/diffusion_decoder.py`
+   - 保留 `Option 2B` 的 direct count-space flow matching
+   - 改成显式 `(time bin, unit)` token
+   - 用 pooled time-token cross-attention + per-unit time self-attention + per-time unit attention 做 factorized mixing
+5. 新增三窗口配置：
+   - `neurohorizon_factorized_unit_time_flow_{250,500,1000}ms.yaml`
+   - `train_1p11_factorized_unit_time_flow_{250,500,1000}ms.yaml`
+6. 完成 250ms 真实数据 smoke：
+   - 训练 smoke：`train_loss=1.140`，`val_loss=1.146`，`val/fp_bps=-15.280`
+   - 离线 valid smoke：`fp-bps=-15.2633`，`R2=-51.9120`，`val_loss=1.7312`
+7. 更新 `cc_core_files/results.md` 与 `cc_todo/1.11-diffusion-decoder/results.tsv`
+
+**执行结果**：
+- 第二轮结构替换没有破坏训练和离线评估链路，说明 factorized unit-time token 版本已经具备继续 formal 的工程基础
+- 当前 smoke 指标仍为负，但由于训练步数极少，这一结果只说明“尚未学到东西”，不能用于正式性能比较
+
+**遇到的问题与解决**：
+- 第二轮结构需要在不恢复 full `T x N` attention 的前提下把 unit 维重新纳入主干
+  - 解决：采用 factorized mixing，把 history conditioning 放在 pooled time token 上，再分别做 time mix 和 unit mix
