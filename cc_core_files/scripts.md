@@ -274,6 +274,30 @@
 - **依赖**：`poyo` conda 环境（`matplotlib`、`numpy`）
 - **备注**：对应 plan.md 任务 1.11 Step 4 正式结果收尾
 
+### run_factorized_unit_time_flow_windows.sh（1.11 第二轮 factorized diffusion 正式窗口实验）
+
+- **路径**：`scripts/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/run_factorized_unit_time_flow_windows.sh`
+- **功能用途**：串行执行第二轮 factorized unit-time diffusion 的三窗口正式实验
+  - 依次运行 `250ms / 500ms / 1000ms` 三个训练配置
+  - 每个窗口训练结束后，自动调用 `eval_phase1_v2.py` 对 best checkpoint 做 `valid/test` 离线评估
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/run_factorized_unit_time_flow_windows.sh
+  ```
+- **输入**：
+  - `examples/neurohorizon/configs/train_1p11_factorized_unit_time_flow_{250,500,1000}ms.yaml`
+  - `examples/neurohorizon/train.py`
+  - `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+- **输出**：
+  - `results/logs/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/{250ms,500ms,1000ms}/`
+  - 每个窗口的 `eval_v2_valid_results.json`
+  - 每个窗口的 `eval_v2_test_results.json`
+- **依赖**：`poyo` conda 环境；当前 `diffusion_flow` decoder 需为 factorized unit-time token 版本
+- **备注**：对应 plan.md 任务 1.11 第二轮正式实验执行
+
 ### test_decoder.py（1.1.4 单元测试）
 
 - **路径**：`scripts/tests/test_decoder.py`
