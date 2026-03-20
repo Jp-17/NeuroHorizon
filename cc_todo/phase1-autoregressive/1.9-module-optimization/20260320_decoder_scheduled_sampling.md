@@ -47,7 +47,7 @@
 - [x] 新增 smoke / 正式实验脚本
 - [x] 修复训练入口优先命中当前 worktree 源码
 - [x] 修复评估入口优先命中当前 worktree 源码
-- [ ] 完成 smoke matrix
+- [x] 完成 smoke matrix
 - [ ] 执行 Step 2 checkpoint commit + push
 - [ ] 完成正式实验 matrix
 - [ ] 更新 `results.tsv` / `results.md` / `progress.md`
@@ -143,3 +143,33 @@ conda activate poyo
 cd /root/autodl-tmp/NeuroHorizon_dev_20260320_decoder_scheduled_sampling
 python scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/collect_decoder_scheduled_sampling_results.py
 ```
+
+## 2026-03-20 09:30 CST 补充：smoke 完成并启动正式实验
+
+### smoke 当前结果
+
+- `run_decoder_scheduled_sampling_smoke.sh` 已完整跑完
+- 已覆盖：
+  - `memory_only_mix035`
+  - `decoder_ss_fixed_050`
+  - `decoder_ss_linear_0_to_050`
+  - `hybrid_mix035_plus_linear_050`
+- 每个 setting 都覆盖了：
+  - `250ms / 500ms / 1000ms`
+  - best-ckpt `teacher-forced valid`
+  - best-ckpt `rollout valid`
+
+### 继续执行情况
+
+- Step 2 checkpoint commit 已完成并推送：
+  - commit: `0b79c60`
+  - branch: `dev/20260320_decoder_scheduled_sampling`
+- 正式实验已放入 `screen`：
+  - session: `phase1_decoder_ss_formal`
+  - 当前从 `memory_only_mix035 / 250ms` 开始顺序执行 `7 settings × 3 windows`
+
+### 遇到的问题与解决
+
+- 原先用于等待 smoke 的 formal `screen` 命令把自身也匹配进 `pgrep -f run_decoder_scheduled_sampling_smoke.sh`
+  - 现象：smoke 完成后 formal 没有自动接棒
+  - 解决：手动终止旧 waiting screen，并在 smoke 确认结束后直接启动正式实验 screen

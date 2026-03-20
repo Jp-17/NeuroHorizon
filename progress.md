@@ -2218,3 +2218,28 @@
   - 解决：在训练和评估入口显式将当前 repo root 插到 `sys.path` 最前，强制优先使用当前 worktree 源码
 - 问题 3：一次错误 rsync 在 worktree 根目录落下了 `train.py / eval_phase1_v2.py / verify_decoder_scheduled_sampling.py`
   - 解决：删除误拷贝文件，仅保留项目正确路径下的版本
+
+## 2026-03-20 09:30 CST - 1.9 decoder scheduled sampling smoke完成并启动formal
+
+**完成事项**：
+1. 完整跑完 `decoder scheduled sampling` 代表性 smoke matrix
+   - `memory_only_mix035`
+   - `decoder_ss_fixed_050`
+   - `decoder_ss_linear_0_to_050`
+   - `hybrid_mix035_plus_linear_050`
+   - 每个 setting 都覆盖 `250ms / 500ms / 1000ms`
+   - 每个窗口都已产出 best-ckpt `teacher-forced valid` 与 `rollout valid` JSON
+2. 执行 Step 2 checkpoint git 提交与推送
+   - commit: `0b79c60`
+   - branch: `dev/20260320_decoder_scheduled_sampling`
+3. 启动正式实验
+   - `screen` 会话：`phase1_decoder_ss_formal`
+   - 当前开始顺序执行完整 `7 settings × 3 windows` 正式矩阵
+
+**当前运行状态**：
+- smoke 已完成
+- 正式实验已启动并正在跑 `memory_only_mix035 / 250ms`
+
+**遇到的问题与解决**：
+- 第一次创建的 formal waiting screen 因 `pgrep -f run_decoder_scheduled_sampling_smoke.sh` 匹配到了自身命令行，导致 smoke 完成后没有自动接棒
+  - 解决：确认 smoke 结束后，显式重建 `phase1_decoder_ss_formal` screen，并直接执行正式实验脚本
