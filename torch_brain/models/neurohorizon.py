@@ -65,6 +65,8 @@ class NeuroHorizon(nn.Module):
         prediction_memory_input_dropout: float = 0.0,
         prediction_memory_input_noise_std: float = 0.0,
         latent_dynamics_num_queries: int = 4,
+        latent_dynamics_pool_token_dim: Optional[int] = None,
+        latent_dynamics_state_dim: Optional[int] = None,
     ):
         super().__init__()
 
@@ -154,6 +156,8 @@ class NeuroHorizon(nn.Module):
             self.latent_dynamics_decoder = LatentDynamicsDecoder(
                 dim=dim,
                 num_pool_tokens=latent_dynamics_num_queries,
+                pool_token_dim=latent_dynamics_pool_token_dim,
+                state_dim=latent_dynamics_state_dim,
                 num_layers=dec_depth,
                 num_heads=cross_heads,
                 atn_dropout=atn_dropout,

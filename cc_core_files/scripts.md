@@ -1324,3 +1324,39 @@
   - `results/figures/1.10-latent_dynamics_decoder/optimization_progress.pdf`
 - **依赖**：poyo conda 环境（matplotlib, pandas）
 - **备注**：当前以 `baseline_v2` 为水平参考线
+
+### verify_latent_dynamics_state_scaling.py（1.10 state scaling 功能验证）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling/verify_latent_dynamics_state_scaling.py`
+- **功能用途**：验证更大 latent state 配置下的 `latent_dynamics` 基础功能
+  - 检查实例化与输出 shape
+  - 检查 `requires_target_counts=False`
+  - 检查 `forward()` 与 `generate()` 数值一致
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling/verify_latent_dynamics_state_scaling.py
+  ```
+- **输出**：stdout 验证信息
+- **依赖**：poyo conda 环境（PyTorch）
+- **备注**：对应 `20260320_latent_dynamics_state_scaling` 的最小功能回归
+
+### run_latent_dynamics_state_scaling_500ms.sh（1.10 500ms state scaling gate）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling/run_latent_dynamics_state_scaling_500ms.sh`
+- **功能用途**：执行更大 latent state 配置下的 `500ms` gate
+  - 先跑功能验证
+  - 再执行 `500ms` 正式训练
+  - 最后执行 best-ckpt continuous `valid/test` 离线评估
+- **创建时间**：2026-03-20
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling/run_latent_dynamics_state_scaling_500ms.sh
+  ```
+- **输出**：`results/logs/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling/500ms/`
+- **依赖**：poyo conda 环境
+- **备注**：作为 `1.10.x` 的 `500ms` capacity-scaling gate，不直接扩展到 `250ms / 1000ms`

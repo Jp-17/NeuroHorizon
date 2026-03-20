@@ -1075,6 +1075,21 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 与 baseline_v2 的主要对比目标：判断 latent dynamics 是否能在 `500ms / 1000ms` 窗口上优于当前无反馈 baseline
 - 首轮正式结果显示：`250ms` 已接近 `baseline_v2`，但 `500ms / 1000ms` 明显落后；当前 GRU latent dynamics 证明了路线可实现，但尚未证明该方向在长时程窗口上的效果优势
 
+##### 20260320_latent_dynamics_state_scaling -- Wider Latent State 500ms Gate
+> 状态: 实施中
+> 分支: `dev/latent`
+> 文档: `cc_todo/1.10-latent_dynamics_decoder/model.md` 中“2026-03-20 — Latent Dynamics State Scaling (500ms Gate)”
+> 任务记录: `cc_todo/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling.md`
+> 脚本: `scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling/`
+> 日志: `results/logs/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling/`
+> 可视化: `results/figures/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling/`
+> commit:
+> 结果:
+
+- 核心改动：将 latent dynamics 的 `state_dim` 与 `pool_token_dim` 从主模型 `dim` 中解耦，避免“增加 pooling query 但总状态容量不变”
+- gate 设计：先只做 `500ms`，因为上一轮的主要失败点集中在中长 horizon，而 `250ms` 已接近 `baseline_v2`
+- 若 `500ms` gate 仍无明显改善，则优先转向更强的 dynamics backbone（Mamba）或 context skip，而不是继续在当前 GRU 主线做小幅调参
+
 
 ---
 

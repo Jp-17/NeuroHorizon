@@ -2250,3 +2250,34 @@
 **遇到的问题与解决**：
 - `collect_latent_dynamics_results.py` 已自动写入 `results.tsv`，但图表和结论文档仍需手动补全
   - 解决：补跑绘图脚本，并把 `best epoch / final epoch / baseline delta` 统一写回 `results.md`、`plan.md` 和 `1.10` 任务文档
+
+## 2026-03-20 14:57 CST
+
+### 任务：启动 1.10.x 的 latent dynamics state scaling 500ms gate
+
+**完成内容**：
+1. 实现更大 latent state 的 decoder 接口
+   - `LatentDynamicsDecoder` 新增 `pool_token_dim / state_dim`
+   - `NeuroHorizon` 新增对应配置入口
+
+2. 新建 `500ms` gate 的配置、脚本与任务文档
+   - `cc_todo/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling.md`
+   - `examples/neurohorizon/configs/model/neurohorizon_latent_dynamics_state_scaling_500ms.yaml`
+   - `examples/neurohorizon/configs/train_1p10_latent_dynamics_state_scaling_500ms.yaml`
+   - `scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling/`
+
+3. 完成功能验证与 smoke 验证
+   - verify 输出：`output_shape=(2, 25, 6)`, `tf_vs_rollout_max_delta=0.000000`
+   - `500ms` smoke：train loss `0.412`, val loss `0.393`, continuous valid `fp-bps=-0.8411`
+
+4. 启动正式 `500ms` gate run
+   - 后台会话：`screen -S latent_dyn_state_500`
+   - 日志：`results/logs/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling/screen_run.log`
+
+**当前判断**：
+- 这一轮先不更换 GRU backbone，而是优先验证“更大 latent state”本身是否有价值
+- 当前链路已打通，正式 `500ms` gate 已经开始训练
+
+**遇到的问题与解决**：
+- 首轮实现里即使增加 pooled query，最终 dynamics hidden size 仍被压回 `dim=128`
+  - 解决：把 `pool_token_dim` 和 `state_dim` 做成显式可调参数，避免出现“query 数增加但总状态容量不变”的伪扩容

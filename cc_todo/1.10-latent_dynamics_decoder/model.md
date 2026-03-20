@@ -176,3 +176,59 @@ history spikes
   - 保持当前接口，尝试更强的 dynamics backbone（优先 Mamba）
   - 增加 context skip / recurrent conditioning，而不是纯 autonomous rollout
   - encoder frozen vs end-to-end 微调对比
+
+---
+
+## 2026-03-20 — Latent Dynamics State Scaling (500ms Gate)
+
+> 状态：实施中
+> 分支：`dev/latent`
+> 任务记录：`cc_todo/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling.md`
+
+### 动机
+
+- `20260320_latent_dynamics_decoder` 的正式结果说明：问题不在 epoch 不够，而在当前 latent dynamics 表达能力不足
+- 复查实现后可以确认，首轮 decoder 会把任意数量的 pooled tokens 再压回 `dim=128`
+- 这意味着仅增加 `num_pool_tokens` 并不会真正增加 latent state 容量，因此下一轮必须先把 `state_dim` 和 `pool_token_dim` 显式做成可调参数
+
+### 本轮方案
+
+1. 在 `LatentDynamicsDecoder` 中引入两个新参数：
+   - `pool_token_dim`：控制每个 pooled token 在进入 dynamics 前保留多少信息
+   - `state_dim`：控制 GRU dynamics 的真实 hidden size
+2. 保持训练入口、评估入口、数据协议不变
+3. 先只做 `500ms` gate，避免在 `250ms` 已较接近 baseline 的情况下继续重复低价值长跑
+
+### 初始配置
+
+- `num_pool_tokens = 8`
+- `pool_token_dim = 64`
+- `state_dim = 256`
+- 其他训练协议保持 `1.10.0` 默认值
+
+### 本轮成功标准
+
+- 代码层面：
+  - 新 decoder 参数可正常实例化、训练、保存、加载
+  - `forward()` 与 `generate()` 仍保持一致
+- 实验层面：
+  - 跑通 `500ms` gate 的训练和 best-ckpt formal `valid/test`
+  - 至少判断“更大 latent state”是否能明显抬高上一轮 `500ms valid fp-bps = 0.0904`
+
+### 当前执行进展
+
+- 新接口已落地：
+  - `latent_dynamics_pool_token_dim`
+  - `latent_dynamics_state_dim`
+- 新的 `500ms` gate 配置为：
+  - `num_pool_tokens=8`
+  - `pool_token_dim=64`
+  - `state_dim=256`
+- 功能验证已通过：
+  - `output_shape=(2, 25, 6)`
+  - `tf_vs_rollout_max_delta=0.000000`
+- `500ms` smoke run 已通过训练和离线 continuous valid eval：
+  - train loss：`0.412`
+  - val loss：`0.393`
+  - valid `fp-bps=-0.8411`
+- `500ms` formal gate 已于 `2026-03-20 14:57 CST` 在 `screen` 会话 `latent_dyn_state_500` 中启动
