@@ -1283,3 +1283,47 @@
   python3 neural-benchmark/compare_faithful_neuroformer.py     --canonical-json results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_formal_eval_v1/eval_results.json     --reference-json results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e3/results.json     --output-dir results/logs/phase1_benchmark_repro_faithful_neuroformer_compare     --split test
   ```
 - **输出**：`comparison.json`, `comparison.md`
+
+### run_decoder_scheduled_sampling_250ms_screening.sh（1.9.0 250ms 筛选）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/run_decoder_scheduled_sampling_250ms_screening.sh`
+- **功能用途**：优先完成 `7 settings` 的 `250ms` 正式训练与 best-ckpt `teacher-forced/rollout valid/test` 评估
+  - 自动跳过已完成的 `250ms` setting
+  - 若存在未完成的 `250ms` 日志目录，会先归档为 `_interrupted_<timestamp>` 再重跑
+  - 结束后自动调用 `250ms` ranking 汇总脚本
+- **创建时间**：2026-03-21
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon_dev_20260320_decoder_scheduled_sampling
+  bash scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/run_decoder_scheduled_sampling_250ms_screening.sh
+  ```
+- **输入**：
+  - `examples/neurohorizon/configs/train_1p9_decoder_scheduled_sampling_250ms.yaml`
+  - `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+  - 已完成的 `250ms` 日志目录（用于 skip）
+- **输出**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/*/250ms/`
+  - `decoder_scheduled_sampling_250ms_screening_summary.{json,md,tsv}`
+- **依赖**：poyo conda 环境（PyTorch Lightning, Hydra）
+- **备注**：用于在继续 `500ms / 1000ms` 前先做 `250ms` setting 筛选
+
+### collect_decoder_scheduled_sampling_250ms_screening.py（1.9.0 250ms ranking 汇总）
+
+- **路径**：`scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/collect_decoder_scheduled_sampling_250ms_screening.py`
+- **功能用途**：汇总 `7 settings` 的 `250ms` best-ckpt `teacher-forced/rollout valid/test fp-bps`，并按 `rollout test fp-bps` 排名
+- **创建时间**：2026-03-21
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon_dev_20260320_decoder_scheduled_sampling
+  python scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/collect_decoder_scheduled_sampling_250ms_screening.py
+  ```
+- **输入**：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/*/250ms/eval_*.json`
+- **输出**：
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/decoder_scheduled_sampling_250ms_screening_summary.json`
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/decoder_scheduled_sampling_250ms_screening_summary.md`
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/decoder_scheduled_sampling_250ms_screening_summary.tsv`
+- **依赖**：poyo conda 环境（Python 标准库）
+- **备注**：中期筛选工具，不替代最终三窗口正式汇总脚本

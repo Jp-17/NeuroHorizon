@@ -2243,3 +2243,70 @@
 **遇到的问题与解决**：
 - 第一次创建的 formal waiting screen 因 `pgrep -f run_decoder_scheduled_sampling_smoke.sh` 匹配到了自身命令行，导致 smoke 完成后没有自动接棒
   - 解决：确认 smoke 结束后，显式重建 `phase1_decoder_ss_formal` screen，并直接执行正式实验脚本
+
+## 2026-03-21-20h
+
+### 任务：将 decoder scheduled sampling 正式矩阵改为 250ms 优先 setting 筛选
+
+**完成时间**：2026-03-21-20h
+
+**完成内容**：
+1. 检查 formal 运行耗时后，确认单卡顺序跑完整个 `7 settings × 3 windows` 仍需约 11-12.5 天
+2. 手动停止原 `phase1_decoder_ss_formal` 会话，并中断正在运行的 `decoder_ss_fixed_025 / 1000ms` 训练
+3. 将未完成 `1000ms` 日志归档到 `1000ms_interrupted_20260321_prioritize_250ms`，避免后续重跑时混入 partial 状态
+4. 新增 `run_decoder_scheduled_sampling_250ms_screening.sh`，只跑 `250ms`，并自动跳过已完成的 `memory_only_mix035` 与 `decoder_ss_fixed_025`
+5. 新增 `collect_decoder_scheduled_sampling_250ms_screening.py`，按 `250ms rollout test fp-bps` 输出 setting ranking summary
+6. 启动新的后台 `screen` 会话 `phase1_decoder_ss_250ms_screening`
+7. 完成 collector 最小校验；当前已有 2/7 settings 的 `250ms` summary
+
+**执行结果**：
+- 当前已保留的正式结果：
+  - `memory_only_mix035`: `250ms / 500ms / 1000ms`
+  - `decoder_ss_fixed_025`: `250ms / 500ms`
+- 当前新队列已开始运行：
+  - session: `phase1_decoder_ss_250ms_screening`
+  - 当前起跑 setting: `decoder_ss_fixed_050 / 250ms`
+- 当前 `250ms` 中期 ranking（2/7 complete）：
+  - `decoder_ss_fixed_025`: rollout test `0.2230`
+  - `memory_only_mix035`: rollout test `0.2176`
+
+**遇到的问题**：
+- 直接通过单条 SSH heredoc 回传新脚本时，本地 shell 展开了 markdown/table 字符，导致脚本写入失败；解决：改为先在本地生成临时文件，再通过 `scp` 上传到远程目标路径
+
+**对应 plan.md 任务**：Phase 1.9.0 暴露偏差实验的执行顺序调整（先完成三窗口计划中的 `250ms` setting 筛选）
+
+## 2026-03-22-05h
+
+### 任务：记录 decoder scheduled sampling 250ms screening 的当前进度快照
+
+**完成时间**：2026-03-22-05h
+
+**完成内容**：
+1. 检查 `phase1_decoder_ss_250ms_screening` 后台队列状态
+2. 刷新 `250ms` ranking summary，并核对已完成 setting 的 eval JSON 是否齐全
+3. 记录当前已完成 `4/7` 个 `250ms` setting 的阶段性排序和暴露偏差 gap
+4. 估计剩余只需继续跑完 `linear_0_to_050`、`linear_0_to_075` 和 `hybrid` 三组 `250ms`
+
+**执行结果**：
+- 当前 `screen`：`phase1_decoder_ss_250ms_screening`
+- 当前正在运行：`decoder_ss_linear_0_to_050 / 250ms`
+  - 最新训练进度：`epoch 112`
+  - 最新验证进度：`epoch 109`
+- 当前已完成 `4/7` 个 `250ms` setting：
+  - `memory_only_mix035`
+  - `decoder_ss_fixed_025`
+  - `decoder_ss_fixed_050`
+  - `decoder_ss_fixed_075`
+- 当前 `250ms` ranking：
+  - `decoder_ss_fixed_025`: rollout test `0.2230`
+  - `decoder_ss_fixed_075`: rollout test `0.2190`, test gap `0.0377`
+  - `memory_only_mix035`: rollout test `0.2176`
+  - `decoder_ss_fixed_050`: rollout test `0.2173`
+- 阶段性结论：
+  - 当前最佳 rollout test 仍是 `decoder_ss_fixed_025`
+  - 当前最小暴露偏差 gap 是 `decoder_ss_fixed_075`
+
+**遇到的问题**：
+- 无新的阻塞；当前仅需等待剩余 3 个 `250ms` setting 跑完
+
+**对应 plan.md 任务**：Phase 1.9.0 暴露偏差实验的 `250ms` setting screening 中期快照

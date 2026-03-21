@@ -48,7 +48,7 @@
 - [x] 修复训练入口优先命中当前 worktree 源码
 - [x] 修复评估入口优先命中当前 worktree 源码
 - [x] 完成 smoke matrix
-- [ ] 执行 Step 2 checkpoint commit + push
+- [x] 执行 Step 2 checkpoint commit + push
 - [ ] 完成正式实验 matrix
 - [ ] 更新 `results.tsv` / `results.md` / `progress.md`
 - [ ] 执行 Step 4 results commit + push
@@ -173,3 +173,82 @@ python scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_sc
 - 原先用于等待 smoke 的 formal `screen` 命令把自身也匹配进 `pgrep -f run_decoder_scheduled_sampling_smoke.sh`
   - 现象：smoke 完成后 formal 没有自动接棒
   - 解决：手动终止旧 waiting screen，并在 smoke 确认结束后直接启动正式实验 screen
+
+## 2026-03-21 20:42 CST 补充：正式矩阵调整为先做 250ms setting 筛选
+
+### 调度调整原因
+
+- 按当前单卡顺序执行 `7 settings × 3 windows × 300 epochs`，剩余时间已拉长到约 11-12.5 天。
+- 因此改为先完成 `7 settings` 的 `250ms`，用中期 ranking 先判断哪类 setting 更值得继续扩展到 `500ms / 1000ms`。
+
+### 已执行调整
+
+- 已手动停止原 `screen` 会话 `phase1_decoder_ss_formal`
+- 已中断正在运行的 `decoder_ss_fixed_025 / 1000ms` 正式训练
+- 其未完成日志已归档到：
+  - `results/logs/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/decoder_ss_fixed_025/1000ms_interrupted_20260321_prioritize_250ms`
+- 已保留的正式结果：
+  - `memory_only_mix035`: `250ms / 500ms / 1000ms`
+  - `decoder_ss_fixed_025`: `250ms / 500ms`
+
+### 新增执行入口
+
+- 新 `screen`：`phase1_decoder_ss_250ms_screening`
+- 新 runner：`run_decoder_scheduled_sampling_250ms_screening.sh`
+- 新 collector：`collect_decoder_scheduled_sampling_250ms_screening.py`
+- 新 collector 输出：
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/decoder_scheduled_sampling_250ms_screening_summary.{json,md,tsv}`
+
+### 当前 250ms 中期排名（2/7 complete）
+
+1. `decoder_ss_fixed_025`
+   - rollout test fp-bps: `0.2230`
+   - test gap: `0.0638`
+2. `memory_only_mix035`
+   - rollout test fp-bps: `0.2176`
+   - test gap: `0.0617`
+
+### 后续执行顺序
+
+- 先补齐剩余 5 个 setting 的 `250ms`
+- 刷新 `250ms` ranking summary
+- 再基于 `rollout test fp-bps` 和 `teacher-forced - rollout gap` 决定后续扩展到 `500ms / 1000ms` 的 setting
+
+## 2026-03-22 05:26 CST 补充：250ms screening 已完成 4/7
+
+### 当前运行状态
+
+- `screen` 会话：`phase1_decoder_ss_250ms_screening`
+- 已完成的 `250ms` setting：
+  - `memory_only_mix035`
+  - `decoder_ss_fixed_025`
+  - `decoder_ss_fixed_050`
+  - `decoder_ss_fixed_075`
+- 正在运行：`decoder_ss_linear_0_to_050 / 250ms`
+  - 最新训练进度：`epoch 112`
+  - 最新验证进度：`epoch 109`
+- 尚未开始：
+  - `decoder_ss_linear_0_to_075 / 250ms`
+  - `hybrid_mix035_plus_linear_050 / 250ms`
+
+### 当前 250ms 排名（4/7 complete）
+
+1. `decoder_ss_fixed_025`
+   - rollout test fp-bps: `0.2230`
+   - test gap: `0.0638`
+2. `decoder_ss_fixed_075`
+   - rollout test fp-bps: `0.2190`
+   - test gap: `0.0377`
+3. `memory_only_mix035`
+   - rollout test fp-bps: `0.2176`
+   - test gap: `0.0617`
+4. `decoder_ss_fixed_050`
+   - rollout test fp-bps: `0.2173`
+   - test gap: `0.0568`
+
+### 阶段性观察
+
+- 目前 `rollout test fp-bps` 最好的 setting 仍是 `decoder_ss_fixed_025`
+- 当前暴露偏差 gap 最小的是 `decoder_ss_fixed_075`
+- `decoder_ss_fixed_050` 尚未表现出明显优于 control 的优势
+- 是否继续扩展到 `500ms / 1000ms`，仍需等待 `linear` 与 `hybrid` 三组 `250ms` 结果补齐后再判断
