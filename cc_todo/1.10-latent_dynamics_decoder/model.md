@@ -181,7 +181,7 @@ history spikes
 
 ## 2026-03-20 — Latent Dynamics State Scaling (500ms Gate)
 
-> 状态：实施中
+> 状态：已放弃
 > 分支：`dev/latent`
 > 任务记录：`cc_todo/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling.md`
 
@@ -232,3 +232,29 @@ history spikes
   - val loss：`0.393`
   - valid `fp-bps=-0.8411`
 - `500ms` formal gate 已于 `2026-03-20 14:57 CST` 在 `screen` 会话 `latent_dyn_state_500` 中启动
+
+### 正式结果
+
+- best checkpoint 出现在 `epoch 69`
+- `500ms` formal valid：
+  - `fp-bps=0.0048`
+  - `R2=0.1791`
+  - `val_loss=0.3250`
+- `500ms` formal test：
+  - `fp-bps=0.0049`
+  - `R2=0.1790`
+  - `val_loss=0.3235`
+- 对比基线：
+  - 相对 `baseline_v2=0.1744`，valid 差 `-0.1696`
+  - 相对上一轮 `20260320_latent_dynamics_decoder` 的 `500ms valid fp-bps=0.0904`，本轮差 `-0.0856`
+- final `epoch 299` 的 `val/fp_bps` 已回落到 `0.0006`，说明这轮不仅没有提升，后段还进一步退化
+
+### 当前结论
+
+- 单纯放大 latent state 容量并没有解决长时程预测问题，反而显著恶化了 `500ms` 的 formal 指标
+- 这说明当前瓶颈并不只是“状态太小”，更可能是 dynamics 结构本身、context 注入方式或优化稳定性的问题
+- 因此该模块应标记为“已放弃”，不再扩展到 `250ms / 1000ms`
+- 下一轮更值得优先尝试的方向是：
+  - 更强的 dynamics backbone（Mamba）
+  - 显式 context skip / recurrent conditioning
+  - 避免纯 autonomous rollout 在 latent space 中独立外推

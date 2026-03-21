@@ -2281,3 +2281,35 @@
 **遇到的问题与解决**：
 - 首轮实现里即使增加 pooled query，最终 dynamics hidden size 仍被压回 `dim=128`
   - 解决：把 `pool_token_dim` 和 `state_dim` 做成显式可调参数，避免出现“query 数增加但总状态容量不变”的伪扩容
+
+## 2026-03-21 16:54 CST
+
+### 任务：完成 latent dynamics state scaling 500ms gate 并归档负结果
+
+**完成内容**：
+1. 完成 `20260320_latent_dynamics_state_scaling` 的 `500ms` formal gate
+   - best epoch：`69`
+   - valid：`fp-bps=0.0048`, `R2=0.1791`, `val_loss=0.3250`
+   - test：`fp-bps=0.0049`, `R2=0.1790`, `val_loss=0.3235`
+
+2. 生成结果汇总与图表入口
+   - 新增 `collect_latent_dynamics_state_scaling_results.py`
+   - 更新 `cc_todo/1.10-latent_dynamics_decoder/results.tsv`
+   - 生成 `latent_dynamics_state_scaling_summary.json`
+   - 更新训练曲线和 `1.10` 总体趋势图
+
+3. 回填核心文档并标记模块状态
+   - 更新 `cc_core_files/results.md`
+   - 更新 `cc_core_files/plan.md`
+   - 更新 `cc_todo/1.10-latent_dynamics_decoder/model.md`
+   - 更新 `cc_todo/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling.md`
+   - 该模块状态标记为“已放弃”
+
+**当前结论**：
+- 更大 latent state 并没有改善 `500ms`，反而把上一轮的 `0.0904` 拉低到 `0.0048`
+- 这说明当前问题不只是“状态容量不够”，而更可能是 dynamics 结构、context 注入方式或优化稳定性本身的问题
+- 后续若继续推进 `1.10.x`，更合适的方向应是更强的 dynamics backbone 或显式 context skip
+
+**遇到的问题与解决**：
+- 这一轮只跑了 `500ms gate`，没有自然生成完整三窗口 summary
+  - 解决：新增模块级 collect 脚本，单独为 `500ms gate` 生成 summary JSON，并把结果补写进 `results.tsv` 和训练曲线图流程

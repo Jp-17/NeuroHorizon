@@ -1360,3 +1360,20 @@
 - **输出**：`results/logs/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling/500ms/`
 - **依赖**：poyo conda 环境
 - **备注**：作为 `1.10.x` 的 `500ms` capacity-scaling gate，不直接扩展到 `250ms / 1000ms`
+
+### collect_latent_dynamics_state_scaling_results.py（1.10 state scaling 结果汇总）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling/collect_latent_dynamics_state_scaling_results.py`
+- **功能用途**：汇总 `20260320_latent_dynamics_state_scaling` 的 `500ms` gate 结果，并回写 summary JSON 与 `results.tsv`
+- **创建时间**：2026-03-21
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling/collect_latent_dynamics_state_scaling_results.py
+  ```
+- **输出**：
+  - `results/figures/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling/latent_dynamics_state_scaling_summary.json`
+  - `cc_todo/1.10-latent_dynamics_decoder/results.tsv`
+- **依赖**：poyo conda 环境（pandas）
+- **备注**：该模块只做 `500ms gate`，不会填充 `250ms / 1000ms` 字段

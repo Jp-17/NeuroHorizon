@@ -2,7 +2,7 @@
 
 **日期**：2026-03-20
 **模块名**：`latent_dynamics_state_scaling`
-**状态**：实施中
+**状态**：已放弃
 **分支**：`dev/latent`
 
 ## 改进摘要
@@ -87,11 +87,29 @@ bash scripts/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling
 - 日志：
   - `results/logs/1.10-latent_dynamics_decoder/20260320_latent_dynamics_state_scaling/screen_run.log`
 - 当前状态：
-  - 训练已正常进入 `epoch 0`
-  - 尚未产出 best-ckpt formal `valid/test` 结果
+  - 训练与 best-ckpt formal `valid/test` 已完成
+  - best checkpoint 出现在 `epoch 69`
+  - final `epoch 299` 的 `val/fp_bps` 回落到 `0.0006`
+  - `screen` 会话已正常结束
+
+### 500ms formal 结果
+
+- valid：
+  - `fp-bps=0.0048`
+  - `R2=0.1791`
+  - `val_loss=0.3250`
+- test：
+  - `fp-bps=0.0049`
+  - `R2=0.1790`
+  - `val_loss=0.3235`
+- 对比：
+  - 相对 `baseline_v2=0.1744` 差 `-0.1696`
+  - 相对上一轮 `20260320_latent_dynamics_decoder` 的 `500ms valid fp-bps=0.0904` 差 `-0.0856`
 
 ## 当前判断
 
 - 这一轮的价值在于验证“更大 latent state”是否能明显改善 `500ms`
 - 当前功能链路已打通，新的 `state_dim / pool_token_dim` 接口没有破坏训练或推理路径
-- 如果 `500ms` 仍接近上一轮的 `0.0904`，则应优先转向更强的 dynamics backbone 或显式 context skip
+- 结果表明：更大 latent state 不但没有改善 `500ms`，反而显著退化
+- 因此该模块应标记为“已放弃”，不再扩展到 `250ms / 1000ms`
+- 下一轮若继续推进 `1.10.x`，优先方向应改为更强的 dynamics backbone 或显式 context skip，而不是继续单纯放大 GRU state
