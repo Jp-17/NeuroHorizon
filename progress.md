@@ -2176,3 +2176,30 @@
 - canonical `500/250` 在 `best ckpt + formal valid/test` 口径下仍显著为负，且 `true_past` 没有优于 rollout
 - 当前更支持 `from-scratch + token/count mismatch + session conditioning不足` 是 Neuroformer faithful 线的主因，而不是单纯的 exposure accumulation
 - 下一步优先继续跟踪 `150/50` short-window reference，看短窗口是否能显著缓解负值，并在结果生成后继续回填 benchmark 文档
+
+## 2026-03-21 04:12 CST - 1.8 benchmark 150/50 aligned 完成并补充汇总可视化
+
+**完成事项**：
+1. 确认 `Neuroformer 150/50 reference e50 aligned` 训练与 formal eval 全部完成
+   - best epoch：`26`
+   - formal valid/test rollout `fp-bps = -6.8698 / -6.8777`
+   - formal valid/test true_past `fp-bps = -8.3274 / -8.3740`
+   - formal eval 继续遵守 `skip_trial_eval = true`
+2. 刷新 benchmark compare 产物
+   - `phase1_benchmark_repro_faithful_ibl_mtm_250ms_compare_e10_e50_aligned/`
+   - `phase1_benchmark_repro_faithful_neuroformer_compare_e50_aligned/`
+3. 新增 benchmark 级汇总图脚本与产物
+   - 脚本：`scripts/phase1-autoregressive-1.8-benchmark_model/20260319_benchmark_aligned_runs/plot_aligned_benchmark_summary.py`
+   - 图表：`results/figures/phase1-autoregressive-1.8-benchmark_model/20260319_benchmark_aligned_runs/aligned_benchmark_summary.png`
+   - 同目录补充 `aligned_benchmark_summary.md / .json`
+4. 按 `1.8.3` 新规范回填 benchmark 文档
+   - 更新 `benchmark_index.md`
+   - 更新 `20260319_benchmark_aligned_runs.md`
+   - 更新 `20260312_benchmark_main_task_log.md`
+   - 更新 `20260318_benchmark_faithful_audit_detail_codex.md`
+   - 更新 `cc_core_files/results.md`
+
+**当前判断**：
+- `IBL-MtM` 仍是当前 1.8 中唯一已达到明确正值的 faithful benchmark 路线。
+- `Neuroformer 150/50` 比 canonical `500/250` 有限改善，但仍显著为负，说明短窗口不是当前失败的根本解法。
+- 当前更支持：`from-scratch + token/count mismatch + 缺少显式 session conditioning` 是 Neuroformer faithful 线的主因。

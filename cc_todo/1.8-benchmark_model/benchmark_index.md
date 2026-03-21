@@ -20,9 +20,11 @@
 ## 记录规范
 
 以后每次新的 benchmark 实现优化任务统一记录到：
+
 - `cc_todo/1.8-benchmark_model/{date}_{content}.md`
 
 每份任务记录必须至少包含：
+
 - 想法描述、动机与目的、改动点、实现方案、涉及模块、想法摘要
 - 详细实验配置（数据集、sessions、采样方式、obs/pred 窗口）
 - 关键超参数（至少 `epoch / batch_size / lr / weight_decay`）
@@ -66,13 +68,23 @@
 - `Neuroformer 150/50 reference`
 - `NDT2` 当前只保留现状记录，不继续扩展
 
-## 当前状态（2026-03-20 04:38 CST）
+## 当前状态（2026-03-21 04:10 CST）
 
-- `IBL-MtM combined_e50_aligned` 已完成，test `fp-bps = 0.1345`，相较 `combined_e10` 已从 near-zero 提升为明确正值
+- 当前这一轮 `aligned` benchmark 长跑已全部完成，相关任务记录见：`cc_todo/1.8-benchmark_model/20260319_benchmark_aligned_runs.md`
+- `IBL-MtM combined_e50_aligned` 已完成，test `fp-bps = 0.1345`，相较 `combined_e10` 的 `-0.0017` 提升 `+0.1361`
 - `Neuroformer canonical 500/250 e50 aligned` 已完成训练与 formal eval
   - best epoch = `42`
   - formal valid/test rollout `fp-bps = -7.9923 / -8.0350`
   - formal valid/test true_past `fp-bps = -8.5479 / -8.5701`
   - `skip_trial_eval = true`，formal eval 已按 `1.8.3` 新协议不再输出 `test trial-aligned`
   - 训练曲线和配置时间轴图已落盘：`train_loss_curve.png / valid_fp_bps_curve.png / valid_r2_curve.png / lr_curve.png / training_config_timeline.png`
-- `Neuroformer 150/50 reference` 已启动训练，但尚未产出首个 checkpoint / results.json
+- `Neuroformer 150/50 reference e50 aligned` 已完成训练与 formal eval
+  - best epoch = `26`
+  - formal valid/test rollout `fp-bps = -6.8698 / -6.8777`
+  - formal valid/test true_past `fp-bps = -8.3274 / -8.3740`
+  - `skip_trial_eval = true`，formal eval 已按 `1.8.3` 新协议执行
+  - 训练曲线和配置时间轴图已落盘：`train_loss_curve.png / valid_fp_bps_curve.png / valid_r2_curve.png / lr_curve.png / training_config_timeline.png`
+- `Neuroformer 150/50` 相比 canonical `500/250` 的 test rollout `fp-bps` 有所改善（`-8.0350 -> -6.8777`），但仍显著为负，尚不能支持其作为可竞争 benchmark
+- benchmark 级汇总图已补充到：
+  - `results/figures/phase1-autoregressive-1.8-benchmark_model/20260319_benchmark_aligned_runs/aligned_benchmark_summary.png`
+  - `results/figures/phase1-autoregressive-1.8-benchmark_model/20260319_benchmark_aligned_runs/aligned_benchmark_summary.md`

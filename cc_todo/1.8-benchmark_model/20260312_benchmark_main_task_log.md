@@ -944,3 +944,29 @@ cd /root/autodl-tmp/NeuroHorizon
 - **当前后台状态**：
   - `screen -S phase1_benchmark_aligned`
   - 当前在跑：`IBL-MtM combined_e50_aligned`
+
+
+## 2026-03-21 | 1.8.3 aligned 长跑完成与结果回填
+
+**完成内容**：
+
+1. `IBL-MtM combined_e50_aligned` 正式收口
+   - test `fp-bps = 0.1345`
+   - 相比 `combined_e10` 的 `-0.0017`，提升 `+0.1361`
+   - 训练曲线、配置时间轴图和 e10/e50 对比已全部落盘
+2. `Neuroformer canonical 500/250 e50 aligned` 正式收口
+   - best epoch：`42`
+   - formal test rollout / true_past `fp-bps = -8.0350 / -8.5701`
+   - formal eval 已按 `1.8.3` 新协议执行：`skip_trial_eval = true`
+3. `Neuroformer 150/50 reference e50 aligned` 完成训练与 formal eval
+   - best epoch：`26`
+   - formal test rollout / true_past `fp-bps = -6.8777 / -8.3740`
+   - 比 canonical rollout 略有改善，但仍显著为负
+4. 生成 benchmark 级汇总图
+   - `results/figures/phase1-autoregressive-1.8-benchmark_model/20260319_benchmark_aligned_runs/aligned_benchmark_summary.png`
+   - 同目录下补充 `aligned_benchmark_summary.md / aligned_benchmark_summary.json`
+
+**本轮结论**：
+- `IBL-MtM` 是当前 1.8 里唯一已经被推动到明确正值、值得继续保留的 faithful benchmark 线。
+- `Neuroformer` 在 canonical 和短窗口 reference 两条线上都仍显著为负；短窗口只带来有限改善，说明问题不只是 horizon 太长。
+- 当前更支持：`from-scratch + token/count mismatch + 缺少显式 session conditioning` 是 Neuroformer faithful 线的主因。

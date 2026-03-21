@@ -1,6 +1,6 @@
 # 20260319 Benchmark Aligned Runs
 
-> 状态：进行中
+> 状态：阶段性完成（aligned 训练与 formal eval 已全部完成）
 > 总入口：`cc_todo/1.8-benchmark_model/benchmark_index.md`
 > 相关审计：`cc_todo/1.8-benchmark_model/20260318_benchmark_faithful_audit_detail_codex.md`
 > 分支：`dev/benchmark`
@@ -159,48 +159,69 @@ python neural-benchmark/faithful_neuroformer.py \
   - 关键超参数：`epoch=50, batch_size=8, grad_accum=20, lr=1e-4, weight_decay=1.0`
 - 训练 / 正式评估命令：
 ```bash
-python neural-benchmark/faithful_neuroformer.py \
-  --mode train \
-  --obs-window 0.15 \
-  --pred-window 0.05 \
-  --epochs 50 \
-  --batch-size 8 \
-  --grad-accum-steps 20 \
-  --num-workers 0 \
-  --weight-decay 1.0 \
-  --warmup-tokens 80000000 \
-  --max-generate-steps 96 \
-  --output-dir results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned
+python neural-benchmark/faithful_neuroformer.py   --mode train   --obs-window 0.15   --pred-window 0.05   --epochs 50   --batch-size 8   --grad-accum-steps 20   --num-workers 0   --weight-decay 1.0   --warmup-tokens 80000000   --max-generate-steps 96   --output-dir results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned
 
-python neural-benchmark/faithful_neuroformer.py \
-  --mode eval \
-  --obs-window 0.15 \
-  --pred-window 0.05 \
-  --batch-size 8 \
-  --grad-accum-steps 20 \
-  --num-workers 0 \
-  --weight-decay 1.0 \
-  --warmup-tokens 80000000 \
-  --max-generate-steps 96 \
-  --checkpoint-path results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned/best_model.pt \
-  --output-dir results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned/formal_eval \
-  --eval-split both \
-  --inference-mode both
+python neural-benchmark/faithful_neuroformer.py   --mode eval   --obs-window 0.15   --pred-window 0.05   --batch-size 8   --grad-accum-steps 20   --num-workers 0   --weight-decay 1.0   --warmup-tokens 80000000   --max-generate-steps 96   --checkpoint-path results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned/best_model.pt   --output-dir results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned/formal_eval   --eval-split both   --inference-mode both
 ```
-- 当前状态（2026-03-20 04:38 CST）：已启动训练，但目录下尚未产出 `last_model.pt / results.json`
-- 正式 eval：必须同时记录 `rollout / true_past`
+
+**当前结果**（2026-03-21 04:10 CST）：
+- 训练已完成，formal eval 已完成
+- best epoch：`26`
+- 训练 loss：最终 epoch `train_loss = 1.4325`
+- 最佳 val `fp-bps`：`-6.8698`（selection metric = valid rollout fp-bps）
+- formal valid rollout / true_past `fp-bps`：`-6.8698 / -8.3274`
+- formal test rollout / true_past `fp-bps`：`-6.8777 / -8.3740`
+- formal test rollout / true_past `R²`：`-8.6220 / -2.8738`
+- formal eval 耗时：
+  - test rollout / true_past：`2119.3s / 618.0s`
+- checkpoint：
+  - best：`results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned/best_model.pt`
+  - last：`results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned/last_model.pt`
+- token stats（test）：
+  - `prev_tokens_mean = 39.10`
+  - `curr_tokens_mean = 13.05`
+  - `prev_truncation_rate = 0.0`
+  - `curr_truncation_rate = 0.0`
+- formal eval 已按新协议执行：`skip_trial_eval = true`，不再输出 `test trial-aligned`
+
+**可视化**：
+- `results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned/train_loss_curve.png`
+- `results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned/valid_fp_bps_curve.png`
+- `results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned/valid_r2_curve.png`
+- `results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned/lr_curve.png`
+- `results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned/training_config_timeline.png`
+- formal eval：`results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e50_aligned/formal_eval/eval_results.json`
+- canonical/reference 对比：`results/logs/phase1_benchmark_repro_faithful_neuroformer_compare_e50_aligned/comparison.md`
+
+## Benchmark 级可视化汇总
+
+- 汇总图目录：`results/figures/phase1-autoregressive-1.8-benchmark_model/20260319_benchmark_aligned_runs/`
+- 关键产物：
+  - `aligned_benchmark_summary.png`
+  - `aligned_benchmark_summary.md`
+  - `aligned_benchmark_summary.json`
+- 该汇总图同时展示：
+  - `IBL-MtM e10 vs e50` 的 best-valid / test `fp-bps`
+  - `Neuroformer canonical vs 150/50` 的 test `rollout / true_past fp-bps`
+  - `Neuroformer canonical vs 150/50` 的 test runtime
+  - `Neuroformer canonical vs 150/50` 的 test token 统计
 
 ## 当前结论
 
 1. `IBL-MtM combined_e50_aligned` 已经从 near-zero 提升为正值，是当前 1.8 benchmark 里最值得继续推进的一条 faithful benchmark 路线。
-2. `Neuroformer canonical e50 aligned` 在 `best ckpt + formal valid/test` 口径下依然明显失败，目前还不能支持其作为可竞争 benchmark。
-3. `Neuroformer 150/50` 仍作为 reference sanity experiment 保留；其价值在于判断短窗口是否显著缓解当前负值问题。
+2. `Neuroformer canonical e50 aligned` 在 `best ckpt + formal valid/test` 口径下仍明显失败，目前还不能支持其作为可竞争 benchmark。
+3. `Neuroformer 150/50` 的 test rollout `fp-bps` 相比 canonical 有改善（`-8.0350 -> -6.8777`），说明更短 horizon 确实有帮助；但 true_past 仍明显为负，整体仍远离可竞争水平。
+4. `150/50` 比 canonical 更慢，不是因为窗口更难，而是因为在当前 faithful 实现中：
+   - shorter window 产生了更多 continuous windows（train `33077` vs `8959`，valid `3591` vs `1027`）
+   - 每个 batch 仍使用固定 `prev_id_block_size=512 / id_block_size=256` 的 padding/truncation 张量形状
+   - 训练过程中每个 epoch 还要做一次 full valid rollout eval
+   因此 wall-clock 被窗口数和固定 block size 一起放大。
 
 ## 后续安排
 
-1. 继续跟踪 `Neuroformer 150/50 reference e50 aligned`，等待首个 checkpoint、results.json 和训练曲线生成。
-2. `150/50` 完成后执行 formal eval（`rollout / true_past`，不跑 `test trial-aligned`）。
-3. reference run 完成后，将 aligned 长跑结果继续回填到：
-   - `cc_todo/1.8-benchmark_model/benchmark_index.md`
-   - `cc_todo/1.8-benchmark_model/20260312_benchmark_main_task_log.md`
-   - `cc_todo/1.8-benchmark_model/20260318_benchmark_faithful_audit_detail_codex.md`
+1. `IBL-MtM`：若继续 1.8 benchmark 主线，优先沿 `combined` 做更长训练或更接近上游 metadata/session 生态的尝试，不再回到 exact `forward_pred` control。
+2. `Neuroformer`：当前不建议扩 `500ms / 1000ms`，也不建议继续在同一 from-scratch 配置下单纯加 epoch；若继续，应优先考虑：
+   - 更稀疏的 valid cadence
+   - reduced valid subset + final full formal eval
+   - 更合理的 block size / session conditioning / pretraining 路线
+3. `NDT2`：继续暂停，只保留现状记录。

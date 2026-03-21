@@ -665,3 +665,33 @@ benchmark 线应继续尽量向 1.3.7 靠拢，但只统一到下面这层：
   4. `Neuroformer 150/50 e50 aligned`
   5. `Neuroformer 150/50 formal dual-mode eval`
   6. canonical/reference compare
+
+
+## 14. aligned 长跑完成后的补充判断（2026-03-21）
+
+### 14.1 IBL-MtM
+
+- `combined_e50_aligned` 已经把 test `fp-bps` 推到 `0.1345`，相较 `combined_e10` 的 `-0.0017` 有明确正向提升。
+- 这进一步支持此前在 `10.4 / 11` 中的判断：当前更值得继续推进的不是 exact `forward_pred` control，而是保留 upstream-style `combined` 训练语义并继续提高训练充分性。
+
+### 14.2 Neuroformer canonical 与 150/50 aligned
+
+- canonical `500/250` aligned：formal test rollout / true_past `fp-bps = -8.0350 / -8.5701`
+- reference `150/50` aligned：formal test rollout / true_past `fp-bps = -6.8777 / -8.3740`
+- 结论上，短窗口确实带来了一定改善，但改善幅度有限，仍远远不足以把结果拉回到接近零。
+
+### 14.3 为什么 150/50 反而更慢
+
+当前这条现象已经能从代码解释清楚：
+
+1. canonical protocol 的 continuous windows 默认 `step_s = obs_window + pred_window`，因此 `150/50` 会切出远多于 `500/250` 的 no-overlap windows；
+2. 在 faithful Neuroformer 里，虽然真实 event 数更少，但 `prev_id_block_size=512 / id_block_size=256` 的 pad/truncate 机制使 batch 主张量 shape 基本不随窗口同比例缩小；
+3. 训练 loop 每个 epoch 都会跑一次 full valid rollout eval，因此 valid windows 数量的放大也会直接放大 wall-clock。
+
+因此，`150/50` 更慢并不意味着它更难，而更像是：**当前 faithful 实现里，窗口数增长压过了单样本 token 变短带来的收益。**
+
+### 14.4 当前更合适的后续优先级
+
+1. `IBL-MtM`：继续保留为 1.8 里唯一值得往前推的 benchmark 线。
+2. `Neuroformer`：当前不建议继续扩长窗口；若继续，应优先考虑更稀疏的 valid cadence、更小或更合理的 block size、以及更明确的 conditioning / pretraining 路线。
+3. `NDT2`：继续暂停。
