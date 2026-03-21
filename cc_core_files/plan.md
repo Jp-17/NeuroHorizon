@@ -1070,19 +1070,22 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 失败特征不是“只在 tail 崩塌”，而是所有预测 bin 全面为负；后续 diffusion 若继续推进，优先重做 unit-level tokenization 或 factorized time-unit attention，而不是继续沿当前 `per-bin summary` 微调
 
 ##### 20260320_factorized_unit_time_flow -- Factorized Unit-Time Flow Tokens
-> 状态: 实施中
+> 状态: 已合并
 > 分支: `dev/diffusion`
 > 文档: `cc_todo/1.11-diffusion-decoder/model.md` 中“2026-03-20 — Factorized Unit-Time Flow Tokens”
 > 任务记录: `cc_todo/1.11-diffusion-decoder/20260320_factorized_unit_time_flow.md`
 > 脚本: `scripts/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/`
 > 日志: `results/logs/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/`
 > 可视化: `results/figures/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/`
-> commit:
-> 结果: 250ms smoke val/fp-bps=`-15.2800`（offline valid=`-15.2633`） / 500ms fp-bps= / 1000ms fp-bps=
+> commit: `942b173`（实现 checkpoint）
+> 结果: 250ms fp-bps=`-4.0307` / 500ms fp-bps=`-4.5237` / 1000ms fp-bps=`-4.9099`
 
 - 设计动机：上一轮确认失败主因更可能来自 `per-bin summary` 对 unit-level 信息的压缩，而不是单纯的调参或 integration 步数
-- 本轮继续保留 `Option 2B` 和现有训练/评估入口，只替换 decoder 内部结构，先验证 factorized unit-time token 表达本身
-- 最小验收：完成 synthetic 前向与 `250ms` 真实数据 smoke，确认训练、checkpoint 与离线评估链路保持可用
+- 本轮继续保留 `Option 2B` 和现有训练/评估入口，只替换 decoder 内部结构，并完成 `250 / 500 / 1000ms` 三窗口 formal
+- 相对 `20260320_direct_count_flow_dit`，三窗口 continuous test `fp-bps` 全部提升 `+3.4643 / +3.3364 / +3.3178`，说明恢复 unit-level tokenization 是正确方向
+- 但相对 `baseline_v2` current evalfix test 仍落后 `-4.2530 / -4.6978 / -5.0447`，因此当前变体只作为 diffusion 新基线归档，不直接升级为正式主线模型
+- `250ms / 500ms` 最优 checkpoint 提前出现在 `epoch 39 / 19`，而三窗口训练都跑满 `300 epochs`，说明问题已不只是训练轮数，而是 conditioning 与 flow objective 之间仍有明显错位
+- 下一轮如果继续 1.11，优先保留 unit-level tokenization，同时增强 history conditioning；不再回退到 `per-bin summary` 路线
 
 
 ---

@@ -185,6 +185,89 @@ results/
   - 第二轮结构 smoke 已写入 `cc_todo/1.11-diffusion-decoder/results.tsv`
   - 若继续 formal，应直接沿 `250 / 500 / 1000ms` 三窗口执行，而不是继续在 smoke 级别做指标比较
 
+### factorized unit-time flow formal（第二轮结构迭代）
+
+- **存储路径**：
+  - `results/logs/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/{250ms,500ms,1000ms}/`
+  - `results/figures/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/`
+- **产生时间**：2026-03-20 ~ 2026-03-21
+- **产生方式**：
+  - 正式训练与评估：`scripts/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/run_factorized_unit_time_flow_windows.sh`
+  - 结果汇总与出图：`scripts/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/collect_factorized_unit_time_flow_results.py`
+- **实验目的**：验证恢复 `(time, unit)` 显式 token 与 factorized time/unit mixing 后，diffusion decoder 是否能显著修复上一轮 `per-bin summary` 带来的结构性失败
+- **实验配置**：
+  - 结构：`decoder_variant=diffusion_flow`，内部为 factorized unit-time token mixing
+  - 条件化：pooled time-token cross-attention to history latents
+  - 数据协议：10 sessions，continuous，obs=`500ms`，pred=`250 / 500 / 1000ms`
+  - batch：`64 / 64 / 32`，eval batch：`16 / 12 / 8`
+  - 训练轮数：三窗口配置均为 `300 epochs`，实际都跑到 `epoch 299`
+- **主要结果**：
+
+  | window | best val fp-bps | best epoch | test fp-bps | vs direct-count diffusion | vs baseline_v2 test | test R2 | test PSTH-R2 |
+  |--------|------------------|------------|-------------|----------------------------|----------------------|---------|--------------|
+  | 250ms | -3.9775 | 39 | -4.0307 | +3.4643 | -4.2530 | -0.6848 | 0.1879 |
+  | 500ms | -4.5144 | 19 | -4.5237 | +3.3364 | -4.6978 | -0.7595 | 0.2020 |
+  | 1000ms | -4.8550 | 179 | -4.9099 | +3.3178 | -5.0447 | -0.6573 | 0.4186 |
+
+- **结果分析**：
+  - 相比首轮 `20260320_direct_count_flow_dit`，三窗口 test continuous `fp-bps` 都稳定提升了 `+3.3 ~ +3.5`，这说明第二轮最关键的结构修正是有效的：**unit-level tokenization 必须保留**。
+  - 但当前变体距离 `baseline_v2` 仍有 `4.25 ~ 5.04 fp-bps` 的大差距，因此它还不能作为正式主线，只能视为 diffusion 路线内部的新基线。
+  - `250ms / 500ms` 的最优 checkpoint 提前出现在 `epoch 39 / 19`，而 `1000ms` 出现在 `epoch 179`。这表明当前瓶颈已经不只是“训练时长不够”，而是 conditioning 和最终 spike-wise 指标之间仍然存在较明显的目标错位。
+  - `trial-aligned PSTH-R2` 已恢复为正，且 `1000ms` 达到 `0.4186`，说明模型已经开始学到较粗粒度的条件时序结构；但 continuous `fp-bps` 仍显著为负，说明当前输出更像平滑趋势拟合，还没有进入高保真 spike 生成区间。
+- **备注**：
+  - 本轮 formal 结果已写入 `cc_todo/1.11-diffusion-decoder/results.tsv`
+  - 当前更合理的下一步是保留 factorized unit-time token 主干，同时增强 history conditioning，而不是回退到上一轮的 `per-bin summary` 路线
+
+#### training_curves.png
+
+- **存储路径**：`results/figures/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/training_curves.png`
+- **目的**：观察第二轮 factorized diffusion 三窗口的 `train_loss / val_loss / val/fp_bps` 演化，判断 formal 失败是数值不稳定，还是目标错位
+- **逐列解读**：
+  - **250ms 列**：最佳 `val/fp_bps` 很早停在 `epoch 39`，之后 loss 继续下降但 spike-wise 指标没有转正，说明单纯继续训练不能修复当前结构问题。
+  - **500ms 列**：最佳 `val/fp_bps` 更早出现在 `epoch 19`，再次说明当前 objective 对最终 `fp-bps` 的指向性不足。
+  - **1000ms 列**：虽然最佳点推迟到 `epoch 179`，但全程仍显著低于 baseline，说明长窗口并未从第二轮结构中获得决定性修复。
+- **交叉引用**：
+  - 脚本：`scripts/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/collect_factorized_unit_time_flow_results.py`
+  - 数据：`results/logs/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/*/lightning_logs/version_0/metrics.csv`
+
+#### fp_bps_vs_window.png
+
+- **存储路径**：`results/figures/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/fp_bps_vs_window.png`
+- **目的**：同时比较第二轮 factorized diffusion、上一轮 direct-count diffusion 和 `baseline_v2` 在三个预测窗口上的 continuous `fp-bps`
+- **逐子图解读**：
+  - **左图**：factorized 版本在 `250 / 500 / 1000ms` 三个窗口上都明显高于上一轮 diffusion，但仍然远低于 baseline_v2。
+  - **右图**：相对上一轮的提升分别为 `+3.4643 / +3.3364 / +3.3178`，而相对 baseline 的差距仍为 `-4.2530 / -4.6978 / -5.0447`。这说明第二轮修对了方向，但还没有接近可用区间。
+- **交叉引用**：
+  - 脚本：`scripts/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/collect_factorized_unit_time_flow_results.py`
+  - factorized JSON：`results/logs/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/*/eval_v2_{valid,test}_results.json`
+  - direct-count JSON：`results/logs/1.11-diffusion-decoder/20260320_direct_count_flow_dit/*/eval_v2_{valid,test}_results.json`
+  - baseline JSON：`results/logs/phase1_v2_evalfix_*_cont/lightning_logs/version_0/eval_v2_{valid,test}_results.json`
+
+#### per_bin_fp_bps.png
+
+- **存储路径**：`results/figures/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/per_bin_fp_bps.png`
+- **目的**：检查第二轮在每个预测 bin 上相对上一轮和 baseline 的改善是否一致
+- **逐子图解读**：
+  - **250ms 面板**：12 个 bin 都明显高于上一轮 direct-count 版本，但仍整体落在 `约-4` 区间，说明短窗口也尚未进入可用预测带。
+  - **500ms 面板**：25 个 bin 基本全段抬升，但曲线仍稳定低于 baseline，这说明改动解决了“全段深负”的一部分，却没有消除整体负偏。
+  - **1000ms 面板**：50 个 bin 都优于上一轮，且 trial-level 平滑结构明显变好，但 long-horizon spike-wise 信息仍不足。
+- **交叉引用**：
+  - 脚本：`scripts/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/collect_factorized_unit_time_flow_results.py`
+  - factorized JSON：`results/logs/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/*/eval_v2_test_results.json`
+  - direct-count JSON：`results/logs/1.11-diffusion-decoder/20260320_direct_count_flow_dit/*/eval_v2_test_results.json`
+  - baseline JSON：`results/logs/phase1_v2_evalfix_*_cont/lightning_logs/version_0/eval_v2_test_results.json`
+
+#### summary_table.png
+
+- **存储路径**：`results/figures/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/summary_table.png`
+- **目的**：把三窗口的 epoch、best val、test `fp-bps`、相对上一轮/相对 baseline 的差值，以及 `R2 / PSTH-R2` 压到一张总表中，便于路线讨论直接引用
+- **结果解读**：
+  - 这张表最清楚地展示了第二轮的双重结论：相对首轮 diffusion 有确定性改进，但离 baseline 仍有很大距离。
+  - 因此第二轮最合理的定位是“**diffusion 新基线**”，而不是“已经成功的 diffusion decoder 主线”。
+- **交叉引用**：
+  - 脚本：`scripts/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/collect_factorized_unit_time_flow_results.py`
+  - JSON 汇总：`results/figures/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/factorized_unit_time_flow_summary.json`
+
 ---
 
 ## 说明

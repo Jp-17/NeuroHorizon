@@ -131,7 +131,7 @@
 
 ## 2026-03-20 — Factorized Unit-Time Flow Tokens
 
-> 状态：实施中
+> 状态：formal 完成，当前变体归档为 diffusion 新基线
 > 分支：`dev/diffusion`
 > 对应任务记录：`cc_todo/1.11-diffusion-decoder/20260320_factorized_unit_time_flow.md`
 
@@ -163,7 +163,7 @@
 - pooled time-token cross-attention 仍然可能不足以提供足够强的 history conditioning
 - 如果 smoke 仍然明显不对，说明问题可能不只在 summary bottleneck，而要进一步考虑 `Option 2A` 或更强的 conditioning 路线
 
-### 当前进展（2026-03-20）
+### 当前进展（2026-03-20 ~ 2026-03-21）
 
 - factorized unit-time token 版本的 `DiffusionFlowDecoder` 已完成初版实现
 - 新增三窗口配置：
@@ -176,3 +176,26 @@
   - 新结构的训练、checkpoint、best ckpt 解析和离线评估入口都可用，说明第二轮结构替换没有破坏工程链路
   - 由于这仍然只是 `2 train steps + 1 valid batch + 1 offline eval batch` 的 smoke，当前负指标只能说明性能尚未显现，不能据此直接否定结构本身
   - 下一步应先提交实现 checkpoint，再决定是否直接启动 `250 / 500 / 1000ms` formal
+- 三窗口 formal 已完成：
+
+  | window | best val fp-bps | best epoch | test fp-bps | vs direct-count diffusion | vs baseline_v2 test | test R2 | test PSTH-R2 |
+  |--------|------------------|------------|-------------|----------------------------|----------------------|---------|--------------|
+  | 250ms | -3.9775 | 39 | -4.0307 | +3.4643 | -4.2530 | -0.6848 | 0.1879 |
+  | 500ms | -4.5144 | 19 | -4.5237 | +3.3364 | -4.6978 | -0.7595 | 0.2020 |
+  | 1000ms | -4.8550 | 179 | -4.9099 | +3.3178 | -5.0447 | -0.6573 | 0.4186 |
+
+### 第二轮 formal 结论
+
+- 这轮结果表明：**恢复 unit-level tokenization 是正确方向**。相对 `20260320_direct_count_flow_dit`，三窗口的 continuous test `fp-bps` 都稳定提升了 `+3.3 ~ +3.5`，说明上一轮最大的结构性问题确实来自 `per-bin summary` 对 unit 维信息的过早压缩。
+- 但这轮还不能视为可用主线。三窗口的 continuous `fp-bps` 仍然全部在 `-4 ~ -5` 区间，和 `baseline_v2` 仍有 `4.25 ~ 5.04 fp-bps` 的明显差距，因此当前变体只能作为 diffusion 路线中的**新基线**，不能直接推进为正式候选模型。
+- `250ms / 500ms` 的最佳 checkpoint 分别提前出现在 `epoch 39 / 19`，而训练本身都跑满了 `300 epochs`。这说明问题不再只是“训练不够久”，而是 conditioning 与 flow objective 之间仍然存在明显错位。
+- `trial-aligned PSTH-R2` 已经恢复到正值，尤其 `1000ms` 达到 `0.4186`，这说明模型开始学到较粗粒度的时序/条件结构；但 spike-wise continuous `fp-bps` 仍显著为负，说明当前生成结果更像“平滑趋势拟合”，而不是高保真 spike 预测。
+
+### 下一轮优先修正方向
+
+1. 保留 **unit-level tokenization + factorized time/unit mixing**，不再回退到 `per-bin summary` 路线。
+2. 下一轮优先增强 conditioning，而不是继续加训练轮数：
+   - 让 `(time, unit)` token 更直接地访问 history latents
+   - 减少 pooled time-token cross-attention 带来的信息瓶颈
+   - 必要时考虑更强的条件注入方式（更密的 cross-attn / FiLM / conditioner stack）
+3. 如果在保留 unit-level token 的前提下仍然无法把 continuous `fp-bps` 拉回合理区间，再考虑把 `Option 2A latent diffusion` 从备选提升为下一主线。

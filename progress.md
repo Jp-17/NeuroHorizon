@@ -2263,3 +2263,54 @@
 **遇到的问题与解决**：
 - 第二轮结构需要在不恢复 full `T x N` attention 的前提下把 unit 维重新纳入主干
   - 解决：采用 factorized mixing，把 history conditioning 放在 pooled time token 上，再分别做 time mix 和 unit mix
+
+## 2026-03-21 17:02 CST - 1.11 第二轮 factorized diffusion formal 完成与结果归档
+
+**任务**：检查 `20260320_factorized_unit_time_flow` 的 formal 三窗口运行状态，汇总正式指标，补齐图表、结果表和路线文档，并判断该变体是否值得继续作为主线
+
+**完成内容**：
+1. 确认第二轮 `250ms / 500ms / 1000ms` formal run 全部结束
+   - 三窗口配置统一为 `epochs=300`
+   - 三窗口实际都跑到 `epoch 299`
+   - best checkpoint 分别落在 `epoch 39 / 19 / 179`
+2. 新增结果汇总脚本：
+   - `scripts/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/collect_factorized_unit_time_flow_results.py`
+   - 自动读取第二轮 logs / eval JSON
+   - 自动对照上一轮 `20260320_direct_count_flow_dit` 和 `baseline_v2`
+   - 自动更新 `cc_todo/1.11-diffusion-decoder/results.tsv`
+3. 生成第二轮正式结果产物：
+   - `results/figures/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/factorized_unit_time_flow_summary.json`
+   - `training_curves.{png,pdf}`
+   - `fp_bps_vs_window.{png,pdf}`
+   - `per_bin_fp_bps.{png,pdf}`
+   - `summary_table.{png,pdf}`
+4. 回填文档：
+   - 更新 `cc_todo/1.11-diffusion-decoder/model.md`
+   - 更新 `cc_todo/1.11-diffusion-decoder/20260320_factorized_unit_time_flow.md`
+   - 更新 `cc_core_files/results.md`
+   - 更新 `cc_core_files/scripts.md`
+   - 更新 `cc_core_files/plan.md`
+
+**执行结果**：
+- 三窗口 formal test continuous `fp-bps`：
+  - `250ms = -4.0307`
+  - `500ms = -4.5237`
+  - `1000ms = -4.9099`
+- 相对上一轮 direct-count diffusion 的提升：
+  - `250ms = +3.4643`
+  - `500ms = +3.3364`
+  - `1000ms = +3.3178`
+- 相对 `baseline_v2` current evalfix test 的差值：
+  - `250ms = -4.2530`
+  - `500ms = -4.6978`
+  - `1000ms = -5.0447`
+- 当前结论已写回文档：
+  - 第二轮证明了恢复 unit-level tokenization 是有效方向
+  - 但当前 factorized 版本仍明显落后于 baseline，因此只作为 diffusion 路线内部新基线归档
+  - 下一轮若继续 1.11，应优先增强 history conditioning，而不是回退到 `per-bin summary` 路线
+
+**遇到的问题与解决**：
+- 第二轮正式结果需要同时和 `baseline_v2`、上一轮 diffusion 以及训练曲线做交叉对照，手工维护容易漏项
+  - 解决：新增专用 collector 脚本，一次性生成 summary JSON、图表和 `results.tsv`
+- 第二轮的结论不是“完全失败”也不是“已经可用”，需要在文档中准确定位
+  - 解决：统一将其标记为 diffusion 新基线，而不是继续把当前变体当作主线候选

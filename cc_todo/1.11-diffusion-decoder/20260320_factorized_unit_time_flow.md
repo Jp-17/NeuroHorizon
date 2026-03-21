@@ -2,7 +2,7 @@
 
 > 对应计划：`cc_core_files/plan.md` §1.11  
 > 分支：`dev/diffusion`  
-> 状态：实施中
+> 状态：formal 完成，当前变体归档为 diffusion 新基线
 
 ## 任务背景
 
@@ -100,3 +100,30 @@ python scripts/analysis/neurohorizon/eval_phase1_v2.py \
 - 当前结论：
   - 第二轮结构替换没有破坏训练和评估链路，说明 factorized unit-time token 版本具备继续做正式实验的工程基础
   - 由于 smoke 步数极少，当前指标只能说明“尚未学到东西”，不能拿来与上一轮 formal 或 baseline_v2 做性能结论
+- 启动并完成三窗口 formal：
+  - 正式脚本：
+    ```bash
+    conda activate poyo
+    cd /root/autodl-tmp/NeuroHorizon
+    bash scripts/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/run_factorized_unit_time_flow_windows.sh
+    ```
+  - 三窗口配置统一为 `epochs=300`
+  - 三窗口均实际跑到 `epoch 299`
+- formal 结果汇总：
+
+  | window | best val fp-bps | best epoch | test fp-bps | vs direct-count diffusion | vs baseline_v2 test | test R2 | test PSTH-R2 |
+  |--------|------------------|------------|-------------|----------------------------|----------------------|---------|--------------|
+  | 250ms | -3.9775 | 39 | -4.0307 | +3.4643 | -4.2530 | -0.6848 | 0.1879 |
+  | 500ms | -4.5144 | 19 | -4.5237 | +3.3364 | -4.6978 | -0.7595 | 0.2020 |
+  | 1000ms | -4.8550 | 179 | -4.9099 | +3.3178 | -5.0447 | -0.6573 | 0.4186 |
+- 正式结果产物：
+  - `results/logs/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/{250ms,500ms,1000ms}/`
+  - `results/figures/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/factorized_unit_time_flow_summary.json`
+  - `training_curves.{png,pdf}`
+  - `fp_bps_vs_window.{png,pdf}`
+  - `per_bin_fp_bps.{png,pdf}`
+  - `summary_table.{png,pdf}`
+- formal 结论：
+  - 这轮结果验证了第二轮结构方向本身是有效的：相对 `20260320_direct_count_flow_dit`，三个窗口都提升了 `+3.3 ~ +3.5 fp-bps`
+  - 但当前变体仍然明显落后于 `baseline_v2`，因此只能作为 diffusion 路线的内部新基线，不适合作为当前正式主线模型
+  - 最值得保留的经验不是“再多跑一些 epoch”，而是“unit-level tokenization 必须保留，下一轮优先增强 history conditioning”

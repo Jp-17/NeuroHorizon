@@ -298,6 +298,37 @@
 - **依赖**：`poyo` conda 环境；当前 `diffusion_flow` decoder 需为 factorized unit-time token 版本
 - **备注**：对应 plan.md 任务 1.11 第二轮正式实验执行
 
+### collect_factorized_unit_time_flow_results.py（1.11 第二轮 factorized diffusion 结果汇总）
+
+- **路径**：`scripts/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/collect_factorized_unit_time_flow_results.py`
+- **功能用途**：汇总第二轮 factorized unit-time diffusion 的 formal 结果，并自动生成图表与 `results.tsv`
+  - 读取 `250ms / 500ms / 1000ms` 的 `metrics.csv`
+  - 读取第二轮 `eval_v2_{valid,test}_results.json`
+  - 对照上一轮 `20260320_direct_count_flow_dit` 与 `baseline_v2 current evalfix`
+  - 自动写出 summary JSON、训练曲线图、窗口对比图、per-bin 曲线图和汇总表
+  - 自动更新 `cc_todo/1.11-diffusion-decoder/results.tsv`
+- **创建时间**：2026-03-21
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/collect_factorized_unit_time_flow_results.py
+  ```
+- **输入**：
+  - `results/logs/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/*/lightning_logs/version_0/metrics.csv`
+  - `results/logs/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/*/eval_v2_{valid,test}_results.json`
+  - `results/logs/1.11-diffusion-decoder/20260320_direct_count_flow_dit/*/eval_v2_{valid,test}_results.json`
+  - `results/logs/phase1_v2_evalfix_*_cont/lightning_logs/version_0/eval_v2_{valid,test}_results.json`
+- **输出**：
+  - `results/figures/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/factorized_unit_time_flow_summary.json`
+  - `results/figures/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/training_curves.{png,pdf}`
+  - `results/figures/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/fp_bps_vs_window.{png,pdf}`
+  - `results/figures/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/per_bin_fp_bps.{png,pdf}`
+  - `results/figures/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/summary_table.{png,pdf}`
+  - `cc_todo/1.11-diffusion-decoder/results.tsv`
+- **依赖**：`poyo` conda 环境（`matplotlib`、`numpy`）
+- **备注**：对应 plan.md 任务 1.11 第二轮正式结果收尾
+
 ### test_decoder.py（1.1.4 单元测试）
 
 - **路径**：`scripts/tests/test_decoder.py`
