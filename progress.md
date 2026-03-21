@@ -2264,3 +2264,14 @@
 - 修复 `faithful_neuroformer.py` 中 `session_to_idx` 的漏传
 - 单独重启 `Neuroformer canonical 500/250 + session conditioning`
 - 完成后再统一回填 formal valid/test、图表和 benchmark 总结
+
+## 2026-03-22 06:18 CST - 修复 Neuroformer loader 漏传并单独重启 canonical run
+
+**完成事项**：
+- 修复 `faithful_neuroformer.py` 中 `run_train()` 对 `session_to_idx` 的漏传
+- 新增 `rerun_neuroformer_only.sh`，用于在 IBL 已完成后单独重启 Neuroformer canonical `500/250 + session conditioning`
+- 已启动后台 screen：`phase1_neuroformer_20260322`
+
+**当前状态**：
+- 当前 Neuroformer 训练进程已进入正式运行，不再是入口参数缺失后的即时失败
+- 当前继续按 `1.8.3` 协议执行：训练结束后用 `best ckpt` 做 formal `valid/test × rollout/true_past`

@@ -298,3 +298,12 @@ python neural-benchmark/faithful_neuroformer.py \
   - 错误位置：`neural-benchmark/faithful_neuroformer.py`
   - 错误性质：runner wiring bug，不是模型训练稳定性问题
 - 下一步：修复该漏传后，仅重启 Neuroformer 段，不重跑已经完成的 IBL-MtM e300
+
+## Neuroformer 重启状态（2026-03-22 06:18 CST）
+
+- 已修复 `faithful_neuroformer.py` 中 `run_train()` 对 `session_to_idx` 的漏传
+- 已新增单独重启脚本：`scripts/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/rerun_neuroformer_only.sh`
+- 已用新脚本启动后台重跑：screen 会话 `phase1_neuroformer_20260322`
+- 当前运行命令：`faithful_neuroformer.py --mode train --obs-window 0.5 --pred-window 0.25 --epochs 50 ... --session-embedding-scale 1.0`
+- 当前状态：训练进程存活，CPU 持续高占用；这次已确认不是入口参数缺失导致的即时退出
+- 当前主日志仍沿用旧文件 `neuroformer_rerun.log`，其中最早一行保留了上一次错误输出；后续以当前进程存活、checkpoint 更新时间和正式结果文件为准
