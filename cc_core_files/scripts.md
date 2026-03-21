@@ -329,6 +329,79 @@
 - **依赖**：`poyo` conda 环境（`matplotlib`、`numpy`）
 - **备注**：对应 plan.md 任务 1.11 第二轮正式结果收尾
 
+### run_dense_history_cross_factorized_flow_250ms_gate.sh（1.11 第三轮 250ms gate）
+
+- **路径**：`scripts/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/run_dense_history_cross_factorized_flow_250ms_gate.sh`
+- **功能用途**：执行第三轮 dense-history-cross diffusion 的 `250ms` formal gate
+  - 运行 `250ms` 正式训练配置
+  - 训练结束后自动对 best checkpoint 做 `valid/test` 离线评估
+- **创建时间**：2026-03-21
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/run_dense_history_cross_factorized_flow_250ms_gate.sh
+  ```
+- **输入**：
+  - `examples/neurohorizon/configs/train_1p11_dense_history_cross_factorized_flow_250ms.yaml`
+  - `examples/neurohorizon/train.py`
+  - `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+- **输出**：
+  - `results/logs/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/250ms/`
+  - `eval_v2_valid_results.json`
+  - `eval_v2_test_results.json`
+- **依赖**：`poyo` conda 环境；当前 `diffusion_flow` decoder 需为 dense token-wise history cross 版本
+- **备注**：对应 plan.md 任务 1.11 第三轮 `250ms gate-first`
+
+### run_dense_history_cross_factorized_flow_windows.sh（1.11 第三轮全窗口正式实验）
+
+- **路径**：`scripts/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/run_dense_history_cross_factorized_flow_windows.sh`
+- **功能用途**：在 `250ms gate` 通过后，串行执行第三轮的 `250ms / 500ms / 1000ms` 正式实验
+- **创建时间**：2026-03-21
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/run_dense_history_cross_factorized_flow_windows.sh
+  ```
+- **输入**：
+  - `examples/neurohorizon/configs/train_1p11_dense_history_cross_factorized_flow_{250,500,1000}ms.yaml`
+  - `examples/neurohorizon/train.py`
+  - `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+- **输出**：
+  - `results/logs/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/{250ms,500ms,1000ms}/`
+- **依赖**：`poyo` conda 环境
+- **备注**：默认只在 `250ms gate` 通过后使用
+
+### collect_dense_history_cross_factorized_flow_results.py（1.11 第三轮结果汇总）
+
+- **路径**：`scripts/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/collect_dense_history_cross_factorized_flow_results.py`
+- **功能用途**：汇总第三轮 dense-history-cross diffusion 结果，并自动生成图表与 `results.tsv`
+  - 支持 `--windows 250ms` 单窗口 gate 归档
+  - 也支持三窗口完整 formal 汇总
+  - 自动对照第二轮 `20260320_factorized_unit_time_flow` 与 `baseline_v2 current evalfix`
+- **创建时间**：2026-03-21
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/collect_dense_history_cross_factorized_flow_results.py --windows 250ms
+  ```
+- **输入**：
+  - `results/logs/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/*/lightning_logs/version_0/metrics.csv`
+  - `results/logs/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/*/eval_v2_{valid,test}_results.json`
+  - `results/logs/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/*/eval_v2_{valid,test}_results.json`
+  - `results/logs/phase1_v2_evalfix_*_cont/lightning_logs/version_0/eval_v2_{valid,test}_results.json`
+- **输出**：
+  - `results/figures/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/dense_history_cross_factorized_flow_summary.json`
+  - `training_curves.{png,pdf}`
+  - `fp_bps_vs_window.{png,pdf}`
+  - `per_bin_fp_bps.{png,pdf}`
+  - `summary_table.{png,pdf}`
+  - `cc_todo/1.11-diffusion-decoder/results.tsv`
+- **依赖**：`poyo` conda 环境（`matplotlib`、`numpy`）
+- **备注**：对应 plan.md 任务 1.11 第三轮结果收尾
+
 ### test_decoder.py（1.1.4 单元测试）
 
 - **路径**：`scripts/tests/test_decoder.py`

@@ -1087,6 +1087,24 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - `250ms / 500ms` 最优 checkpoint 提前出现在 `epoch 39 / 19`，而三窗口训练都跑满 `300 epochs`，说明问题已不只是训练轮数，而是 conditioning 与 flow objective 之间仍有明显错位
 - 下一轮如果继续 1.11，优先保留 unit-level tokenization，同时增强 history conditioning；不再回退到 `per-bin summary` 路线
 
+##### 20260321_dense_history_cross_factorized_flow -- Dense History-Cross Factorized Flow
+> 状态: 实施中
+> 分支: `dev/diffusion`
+> 文档: `cc_todo/1.11-diffusion-decoder/model.md` 中“2026-03-21 — Dense History-Cross Factorized Flow”
+> 任务记录: `cc_todo/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow.md`
+> 脚本: `scripts/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/`
+> 日志: `results/logs/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/`
+> 可视化: `results/figures/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/`
+> commit:
+> 结果: 250ms smoke val/fp-bps=`-15.2576`（offline valid=`-15.2412`） / 500ms 待定 / 1000ms 待定
+
+- 设计动机：第二轮已经确认 unit-level tokenization 是正确方向，但 pooled time-token conditioning 很可能仍是当前 diffusion 主线的主要剩余瓶颈
+- 本轮继续保留 `Option 2B` 与 factorized time/unit mixing，只把 conditioning 改成 dense token-wise cross-attention，优先回答“history access 是否还能继续明显抬升 fp-bps”
+- 默认执行策略不是直接三窗口全开，而是 `250ms gate-first`
+- 默认 gate 标准：`250ms test fp-bps >= -2.5`
+- 只有 `250ms` gate 通过，才扩到 `500 / 1000ms`；否则本轮只归档 `250ms` 结果并停止扩窗
+- 当前 `250ms` smoke 已跑通，说明 dense token-wise history cross 版本具备继续做 formal gate 的工程基础
+
 
 ---
 

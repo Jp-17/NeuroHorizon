@@ -199,3 +199,54 @@
    - 减少 pooled time-token cross-attention 带来的信息瓶颈
    - 必要时考虑更强的条件注入方式（更密的 cross-attn / FiLM / conditioner stack）
 3. 如果在保留 unit-level token 的前提下仍然无法把 continuous `fp-bps` 拉回合理区间，再考虑把 `Option 2A latent diffusion` 从备选提升为下一主线。
+
+## 2026-03-21 — Dense History-Cross Factorized Flow
+
+> 状态：实施中
+> 分支：`dev/diffusion`
+> 对应任务记录：`cc_todo/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow.md`
+
+### 想法描述
+
+保留第二轮已经确认有效的 `(time bin, unit)` 显式 token 与 factorized time/unit mixing，不再让 pooled time token 代表整段未来窗口去访问 history，而是让**每个 token 直接 cross-attend 到 history latents**。本轮的核心判断是：第二轮剩余的大 gap 更可能来自 conditioning 信息瓶颈，而不是 unit-level tokenization 本身。
+
+### 相比上一轮的关键改动
+
+- 不再使用 `pooled time-token cross-attention`
+- 每个 `(time, unit)` token 直接对 `encoder_latents` 做 cross-attention
+- 保留 per-unit time self-attention、per-time unit attention 和现有 flow matching 目标
+
+### 预期优点
+
+- history 信息不再先经过 pooled summary，再分发回所有 unit token
+- 有机会提高 spike-wise continuous `fp-bps`，而不是只改善更平滑的 `PSTH-R2`
+- 仍然保持结构改动集中，不把优化器、数据协议、入口脚本同时改掉
+
+### 主要风险
+
+- dense token-wise cross-attention 的显存和时间成本高于第二轮
+- 如果结果仍然只能改善 `PSTH-R2` 而拉不动 continuous `fp-bps`，说明剩余问题不只在 conditioning 路径
+- 若 `250ms` gate 也明显不过线，则 `Option 2B` 可能接近阶段性上限
+
+### 当前执行策略
+
+1. 先完成第三轮文档、配置和脚本建档
+2. 先跑 `250ms` smoke，确认新 cross-conditioning 结构没有破坏链路
+3. 只跑 `250ms` formal gate
+4. 默认 gate 为：`250ms test fp-bps >= -2.5`
+5. 只有 gate 通过，才继续扩到 `500 / 1000ms`
+
+### 当前进展（2026-03-21）
+
+- dense token-wise history cross 版本的 `DiffusionFlowDecoder` 已完成初版实现
+- 第三轮配置与脚本已建立：
+  - `neurohorizon_dense_history_cross_factorized_flow_{250,500,1000}ms.yaml`
+  - `train_1p11_dense_history_cross_factorized_flow_{250,500,1000}ms.yaml`
+  - `run_dense_history_cross_factorized_flow_250ms_gate.sh`
+- 250ms 真实数据 smoke 已跑通：
+  - 训练 smoke：`train_loss = 1.139`，`val_loss = 1.145`，`val/fp_bps = -15.258`
+  - 离线 valid smoke（1 batch）：`fp-bps = -15.2412`，`R2 = -51.6662`，`val_loss = 1.7292`
+- 当前解读：
+  - 第三轮 dense cross-conditioning 没有破坏训练、checkpoint 和离线评估链路
+  - smoke 相对第二轮只带来了极小幅变化，当前还不能据此判断 gate 是否有希望
+  - 下一步应提交实现 checkpoint，并直接启动 `250ms formal gate`

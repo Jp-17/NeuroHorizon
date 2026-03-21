@@ -1,0 +1,27 @@
+defaults:
+  - defaults.yaml
+  - model: neurohorizon_dense_history_cross_factorized_flow_250ms.yaml
+  - dataset: perich_miller_10sessions.yaml
+  - _self_
+
+data_root: /root/autodl-tmp/NeuroHorizon/data/processed/
+log_dir: /root/autodl-tmp/NeuroHorizon/results/logs/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/250ms
+
+epochs: 300
+batch_size: 64
+eval_batch_size: 16
+eval_epochs: 10
+seed: 42
+
+precision: bf16-mixed
+
+train_transforms:
+  - _target_: torch_brain.transforms.UnitDropout
+    max_units: 200
+    min_units: 30
+    mode_units: 80
+    peak: 4
+
+wandb:
+  enable: false
+  run_name: dense_history_cross_factorized_flow_250ms_cont

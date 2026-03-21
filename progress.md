@@ -2314,3 +2314,36 @@
   - 解决：新增专用 collector 脚本，一次性生成 summary JSON、图表和 `results.tsv`
 - 第二轮的结论不是“完全失败”也不是“已经可用”，需要在文档中准确定位
   - 解决：统一将其标记为 diffusion 新基线，而不是继续把当前变体当作主线候选
+
+## 2026-03-21 22:42 CST - 1.11 第三轮 dense-history-cross diffusion 实现与 smoke
+
+**任务**：在 `20260320_factorized_unit_time_flow` 基础上启动第三轮 1.11 diffusion 迭代，将 pooled conditioning 改为 dense token-wise history cross-attention，并完成最小 smoke 验证
+
+**完成内容**：
+1. 在 `cc_todo/1.11-diffusion-decoder/model.md` 中新增第三轮设计条目 `20260321_dense_history_cross_factorized_flow`
+2. 新建任务记录：
+   - `cc_todo/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow.md`
+3. 更新 `cc_core_files/plan.md`，在 `1.11.2` 中登记第三轮迭代，并明确 `250ms gate-first`
+4. 重写 `torch_brain/nn/diffusion_decoder.py`
+   - 保留第二轮的 unit-level tokenization 与 factorized time/unit mixing
+   - 将 pooled time-token cross-attention 替换为 dense token-wise history cross-attention
+5. 新增第三轮配置与脚本：
+   - `neurohorizon_dense_history_cross_factorized_flow_{250,500,1000}ms.yaml`
+   - `train_1p11_dense_history_cross_factorized_flow_{250,500,1000}ms.yaml`
+   - `run_dense_history_cross_factorized_flow_250ms_gate.sh`
+   - `run_dense_history_cross_factorized_flow_windows.sh`
+   - `collect_dense_history_cross_factorized_flow_results.py`
+6. 完成 250ms 真实数据 smoke：
+   - 训练 smoke：`train_loss=1.139`，`val_loss=1.145`，`val/fp_bps=-15.258`
+   - 离线 valid smoke：`fp-bps=-15.2412`，`R2=-51.6662`，`val_loss=1.7292`
+
+**执行结果**：
+- 第三轮 dense cross-conditioning 结构没有破坏训练和离线评估链路，说明可以继续推进 `250ms formal gate`
+- smoke 相对第二轮只带来极小幅变化，因此目前还没有性能层面的积极信号
+- 当前更合理的下一步是先提交实现 checkpoint，再运行 `250ms formal gate`，而不是根据 smoke 直接判断路线成败
+
+**遇到的问题与解决**：
+- 直接在第二轮 block 上继续改 pooled conditioning，容易遗留旧逻辑
+  - 解决：整块替换为 dense token-wise history cross block，而不是在旧 pooled 路线上叠 patch
+- 第三轮结果收尾需要同时支持单窗口 gate 和三窗口 formal
+  - 解决：collector 脚本默认支持 `--windows 250ms` 单窗口归档

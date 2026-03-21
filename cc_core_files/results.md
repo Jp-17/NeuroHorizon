@@ -268,6 +268,34 @@ results/
   - 脚本：`scripts/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/collect_factorized_unit_time_flow_results.py`
   - JSON 汇总：`results/figures/1.11-diffusion-decoder/20260320_factorized_unit_time_flow/factorized_unit_time_flow_summary.json`
 
+### dense-history-cross factorized flow 250ms smoke（第三轮 conditioning 验证）
+
+- **存储路径**：
+  - `results/logs/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/250ms_smoke/`
+  - `results/logs/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/250ms_smoke/lightning_logs/version_0/eval_v2_valid_results.json`
+- **产生时间**：2026-03-21
+- **产生方式**：
+  - 训练：`examples/neurohorizon/train.py --config-name train_1p11_dense_history_cross_factorized_flow_250ms.yaml`
+  - smoke override：`epochs=1 eval_epochs=1 batch_size=2 eval_batch_size=2 num_workers=0 +max_steps=2 +limit_train_batches=2 +limit_val_batches=1`
+  - 评估：`scripts/analysis/neurohorizon/eval_phase1_v2.py --log-dir .../250ms_smoke --checkpoint-kind best --split valid --batch-size 2 --skip-trial --max-batches 1`
+- **实验目的**：验证第三轮 dense token-wise history cross-attention 是否已经在真实数据上完整跑通训练、checkpoint 和离线评估链路
+- **实验配置**：
+  - 模型：`decoder_variant=diffusion_flow`，内部结构改为 dense history-cross factorized flow
+  - 数据：Perich-Miller 10 sessions，continuous，obs=500ms，pred=250ms
+  - smoke 限制：2 个训练 step，1 个 validation batch，1 个离线评估 batch
+- **主要结果**：
+  - 训练 smoke：`train_loss = 1.139`，`val_loss = 1.145`，`val/fp_bps = -15.258`
+  - 离线 valid smoke（1 batch）：
+    - `fp-bps = -15.2412`
+    - `R2 = -51.6662`
+    - `val_loss = 1.7292`
+- **结果分析**：
+  - 第三轮 dense cross-conditioning 没有破坏工程链路，说明可以继续推进到 `250ms formal gate`
+  - 相对第二轮 smoke 只有极小幅变化，因此当前 smoke 的价值仍然主要是链路确认，而不是性能判断
+- **备注**：
+  - 第三轮 smoke 结果应写入 `cc_todo/1.11-diffusion-decoder/results.tsv`
+  - 下一步是提交实现 checkpoint 并启动 `250ms` formal gate，而不是在 smoke 指标上继续做结论性比较
+
 ---
 
 ## 说明

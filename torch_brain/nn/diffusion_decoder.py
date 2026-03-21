@@ -1,14 +1,15 @@
 """Diffusion-style flow matching decoder for NeuroHorizon.
 
-This revision keeps explicit ``(time bin, unit)`` tokens and avoids the
-previous summary bottleneck. The decoder mixes tokens with a factorized stack:
+This revision keeps explicit ``(time bin, unit)`` tokens and strengthens
+conditioning by letting every token directly cross-attend to history latents.
+The decoder still uses a factorized stack:
 
-1. pooled time-token cross-attention to history latents
+1. dense token-wise cross-attention to history latents
 2. per-unit time self-attention across prediction bins
 3. per-time unit attention across neurons
 
-This preserves unit-level detail while keeping the cost far below a full
-``(T * N) x (T * N)`` transformer.
+This preserves unit-level detail while removing the pooled conditioning
+bottleneck of the previous factorized baseline.
 """
 
 from __future__ import annotations
@@ -22,8 +23,8 @@ from .position_embeddings import SinusoidalTimeEmbedding
 from .rotary_attention import RotaryCrossAttention, RotarySelfAttention
 
 
-class FactorizedUnitTimeBlock(nn.Module):
-    """Factorized token block with pooled cross-conditioning."""
+class DenseHistoryCrossBlock(nn.Module):
+    """Factorized token block with dense token-wise cross-conditioning."""
 
     def __init__(
         self,
@@ -78,16 +79,28 @@ class FactorizedUnitTimeBlock(nn.Module):
             return x
         return x * unit_mask[:, None, :, None].to(x.dtype)
 
-    @staticmethod
-    def _masked_mean(
+    def _token_cross_mix(
+        self,
         x: torch.Tensor,
-        unit_mask: torch.Tensor | None,
+        *,
+        bin_time_emb: torch.Tensor,
+        encoder_latents: torch.Tensor,
+        latent_time_emb: torch.Tensor,
     ) -> torch.Tensor:
-        if unit_mask is None:
-            return x.mean(dim=2)
-        weights = unit_mask[:, None, :, None].to(x.dtype)
-        denom = weights.sum(dim=2).clamp_min(1.0)
-        return (x * weights).sum(dim=2) / denom
+        batch_size, num_bins, num_units, dim = x.shape
+        token_queries = x.reshape(batch_size, num_bins * num_units, dim)
+        token_query_pos = (
+            bin_time_emb[:, :, None, :]
+            .expand(batch_size, num_bins, num_units, -1)
+            .reshape(batch_size, num_bins * num_units, -1)
+        )
+        mixed = self.cross_attn(
+            token_queries,
+            encoder_latents,
+            token_query_pos,
+            latent_time_emb,
+        )
+        return mixed.reshape(batch_size, num_bins, num_units, dim)
 
     def _time_mix(
         self,
@@ -139,15 +152,14 @@ class FactorizedUnitTimeBlock(nn.Module):
     ) -> torch.Tensor:
         cross_bias, time_bias, unit_bias, ffn_bias = self.flow_mod(flow_cond).chunk(4, dim=-1)
 
-        pooled = self._masked_mean(self.cross_norm(x), unit_mask)
-        pooled = pooled + cross_bias[:, None, :]
-        time_context = self.cross_attn(
-            pooled,
-            encoder_latents,
-            bin_time_emb,
-            latent_time_emb,
+        cross_input = self._apply_unit_mask(self.cross_norm(x) + cross_bias[:, None, None, :], unit_mask)
+        cross_context = self._token_cross_mix(
+            cross_input,
+            bin_time_emb=bin_time_emb,
+            encoder_latents=encoder_latents,
+            latent_time_emb=latent_time_emb,
         )
-        x = self._apply_unit_mask(x + time_context[:, :, None, :], unit_mask)
+        x = self._apply_unit_mask(x + cross_context, unit_mask)
 
         time_input = self.time_norm(x) + time_bias[:, None, None, :]
         x = self._apply_unit_mask(x + self._time_mix(time_input, bin_time_emb), unit_mask)
@@ -214,7 +226,7 @@ class DiffusionFlowDecoder(nn.Module):
         self.input_norm = nn.LayerNorm(dim)
         self.layers = nn.ModuleList(
             [
-                FactorizedUnitTimeBlock(
+                DenseHistoryCrossBlock(
                     dim=dim,
                     dim_head=dim_head,
                     cross_heads=cross_heads,
