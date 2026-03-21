@@ -233,3 +233,13 @@ python neural-benchmark/faithful_neuroformer.py \
 2. 再跑 `Neuroformer canonical 500/250 + session conditioning`
 3. 训练结束后用 `best ckpt` 做 formal `valid/test`
 4. 按 `1.8.3` 规范补齐图表、对比和结论
+
+## 执行进展（2026-03-21 22:10 CST）
+
+- 已完成 runner / 协议更新的中间提交并推送：2761a8b 补充1.8 benchmark后续runner与诊断指标
+- 后台正式 run 已启动：screen 会话 phase1_benchmark_20260321
+- 主日志路径：results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/main.log
+- 当前阶段：IBL-MtM combined_e300_aligned
+- 已确认第一轮训练正常进入 epoch 1，当前可见指标：train_loss=0.8346, valid_fp_bps=-2.9818, valid_poisson_nll=0.5902
+- 当前输出目录：results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/ibl_mtm_combined_e300_aligned
+- best_model.pt 与 last_model.pt 已开始更新，说明训练未卡死

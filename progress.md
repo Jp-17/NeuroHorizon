@@ -2228,3 +2228,15 @@
 - `IBL-MtM` 目前最值得继续推进，`e300` 长跑能直接回答“继续堆 epoch 是否仍有效”。
 - `Neuroformer` 当前更像“训练目标/生成尺度/session 条件不足”的问题，而不是 exposure bias 主导。
 - `session-constrained decoding` 只是在解码时限制非法 neuron ID，不等价于训练期显式 session conditioning；因此这轮新增 session embedding 是必要补充。
+
+## 2026-03-21 22:10 CST - 1.8 benchmark e300 与 session-conditioning 长跑已启动
+
+**启动情况**：
+- 已推送中间提交：`2761a8b`（补充1.8 benchmark后续runner与诊断指标）
+- 后台 screen：`phase1_benchmark_20260321`
+- 主日志：`results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/main.log`
+- 当前阶段：`IBL-MtM combined_e300_aligned`
+
+**当前观测**：
+- epoch 1 已进入并写出首轮指标：`train_loss=0.8346`, `valid_fp_bps=-2.9818`, `valid_poisson_nll=0.5902`
+- `best_model.pt / last_model.pt` 已开始更新，训练进程正常推进
