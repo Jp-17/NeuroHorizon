@@ -258,3 +258,67 @@ history spikes
   - 更强的 dynamics backbone（Mamba）
   - 显式 context skip / recurrent conditioning
   - 避免纯 autonomous rollout 在 latent space 中独立外推
+
+---
+
+## 2026-03-21 — Latent Dynamics Context Skip (500ms Gate)
+
+> 状态：实施中
+> 分支：`dev/latent`
+> 任务记录：`cc_todo/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip.md`
+
+### 动机
+
+- `20260320_latent_dynamics_state_scaling` 已确认：当前瓶颈不只是 latent state 太小
+- 当前 GRU latent dynamics 的 rollout 虽然会把 pooled state 重复送入每一步，但它缺少一条显式、可单独调节的 persistent context 路径
+- 因此下一轮优先验证“持续条件注入”是否能明显改善 `500ms`，再决定是否升级到 Mamba
+
+### 本轮方案
+
+1. 在 `LatentDynamicsDecoder` 中新增两个可选参数：
+   - `context_conditioning`
+   - `context_dim`
+2. 保持原有 `init_state` 路径不变，同时从 pooled tokens 中额外构建 `context_vector`
+3. 将 `context_vector` 投影后注入：
+   - 每一步 GRU 输入
+   - rollout 输出到 readout 前的 residual
+4. 保持训练入口、评估入口、数据协议不变，只做 `500ms gate`
+
+### 初始配置
+
+- `num_pool_tokens = 4`
+- `pool_token_dim = 32`
+- `state_dim = 128`
+- `context_conditioning = True`
+- `context_dim = 128`
+- `pred_window = 500ms`
+
+### 本轮成功标准
+
+- 代码层面：
+  - 新接口可正常实例化、训练、保存、加载
+  - `requires_target_counts=False`
+  - `forward()` 与 `generate()` 仍保持一致
+- 实验层面：
+  - 跑通 `500ms` smoke 与 formal gate
+  - 明显优于 `20260320_latent_dynamics_state_scaling` 的 `0.0048`
+  - 若能回到或超过 `20260320_latent_dynamics_decoder` 的 `0.0904`，则说明该方向值得继续扩展
+
+### 当前执行进展
+
+- 已完成代码实现：
+  - `LatentDynamicsDecoder` 新增可选 `context_conditioning / context_dim`
+  - `NeuroHorizon` 新增对应配置入口
+- 已建立本轮配置、脚本与任务文档：
+  - `examples/neurohorizon/configs/model/neurohorizon_latent_dynamics_context_skip_500ms.yaml`
+  - `examples/neurohorizon/configs/train_1p10_latent_dynamics_context_skip_500ms.yaml`
+  - `scripts/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip/`
+- 功能验证已通过：
+  - `output_shape=(2, 25, 6)`
+  - `tf_vs_rollout_max_delta=0.000000`
+- `500ms` smoke run 已通过训练和离线 continuous valid eval：
+  - train loss：`0.412`
+  - val loss：`0.392`
+  - train-end `val/fp_bps=-0.830`
+  - 离线 continuous valid：`fp-bps=-0.8301`, `R2=-0.0002`, `val_loss=0.3958`
+- `500ms` formal gate 已于 `2026-03-21 21:25 CST` 在 `screen` 会话 `latent_dyn_ctx_500` 中启动

@@ -1091,6 +1091,26 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 若 `500ms` gate 仍无明显改善，则优先转向更强的 dynamics backbone（Mamba）或 context skip，而不是继续在当前 GRU 主线做小幅调参
 - 实际结果显示该变体明显退化：best valid `fp-bps` 仅 `0.0048`，远低于上一轮 `0.0904` 和 `baseline_v2=0.1744`，因此本模块不再继续扩展到 `250ms / 1000ms`
 
+##### 20260321_latent_dynamics_context_skip -- Context-Conditioned Latent Dynamics 500ms Gate
+> 状态: 验证中
+> 分支: `dev/latent`
+> 文档: `cc_todo/1.10-latent_dynamics_decoder/model.md` 中“2026-03-21 — Latent Dynamics Context Skip (500ms Gate)”
+> 任务记录: `cc_todo/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip.md`
+> 脚本: `scripts/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip/`
+> 日志: `results/logs/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip/`
+> 可视化: `results/figures/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip/`
+> commit: 待本轮实现提交后填写
+> 结果: 500ms gate 运行中（smoke valid fp-bps=`-0.8301`）
+
+- 核心改动：在 latent rollout 中显式持续注入 encoder context，而不再只依赖一次性 pooled init state
+- 具体实现：保留 GRU backbone，将 pooled tokens 分成两路用途
+  - flatten 后得到 `init_state`
+  - mean pool 后得到 `context_vector`，并投影到每一步的 GRU 输入与输出残差
+- gate 设计：仍只做 `500ms`，用于判断“持续条件注入”是否能恢复上一轮 `500ms` 指标
+- 训练入口与离线正式评估入口保持不变：`examples/neurohorizon/train.py` / `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+- 当前进展：功能验证与 `500ms` smoke 已通过，formal gate 已于 `2026-03-21 21:25 CST` 在 `screen` 会话 `latent_dyn_ctx_500` 中启动
+- 若该 gate 仍明显低于 `20260320_latent_dynamics_decoder` 的 `500ms fp-bps=0.0904`，则下一优先级直接转向更强的 dynamics backbone（优先 Mamba）
+
 
 ---
 

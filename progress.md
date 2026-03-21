@@ -2313,3 +2313,35 @@
 **遇到的问题与解决**：
 - 这一轮只跑了 `500ms gate`，没有自然生成完整三窗口 summary
   - 解决：新增模块级 collect 脚本，单独为 `500ms gate` 生成 summary JSON，并把结果补写进 `results.tsv` 和训练曲线图流程
+
+## 2026-03-21 21:25 CST
+
+### 任务：启动 1.10.x 的 latent dynamics context skip 500ms gate
+
+**完成内容**：
+1. 实现显式 context-conditioned latent dynamics 接口
+   - `LatentDynamicsDecoder` 新增 `context_conditioning / context_dim`
+   - `NeuroHorizon` 新增对应配置入口
+
+2. 新建 `500ms` gate 的配置、脚本与任务文档
+   - `cc_todo/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip.md`
+   - `examples/neurohorizon/configs/model/neurohorizon_latent_dynamics_context_skip_500ms.yaml`
+   - `examples/neurohorizon/configs/train_1p10_latent_dynamics_context_skip_500ms.yaml`
+   - `scripts/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip/`
+
+3. 完成功能验证与 smoke 验证
+   - verify 输出：`output_shape=(2, 25, 6)`, `tf_vs_rollout_max_delta=0.000000`
+   - `500ms` smoke：train loss `0.412`, val loss `0.392`, continuous valid `fp-bps=-0.8301`
+
+4. 启动正式 `500ms` gate run
+   - 后台会话：`screen -S latent_dyn_ctx_500`
+   - 日志：`results/logs/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip/screen_run.log`
+   - 启动后健康检查：日志已进入 `epoch 0`，暂未出现 OOM 或配置错误
+
+**当前判断**：
+- 这一轮先不更换 GRU backbone，而是优先验证“持续 context 注入”本身是否有价值
+- 当前训练、checkpoint、离线评估链路已打通，正式 `500ms` gate 已经开始训练
+
+**遇到的问题与解决**：
+- 远端非交互 shell 里 `conda activate` 未初始化，且 verify 脚本在默认 `sys.path` 下无法直接导入仓库包
+  - 解决：显式加载 `/root/miniconda3/etc/profile.d/conda.sh`，并在执行命令时设置 `PYTHONPATH=/root/autodl-tmp/NeuroHorizon`

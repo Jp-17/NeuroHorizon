@@ -1377,3 +1377,56 @@
   - `cc_todo/1.10-latent_dynamics_decoder/results.tsv`
 - **依赖**：poyo conda 环境（pandas）
 - **备注**：该模块只做 `500ms gate`，不会填充 `250ms / 1000ms` 字段
+
+### verify_latent_dynamics_context_skip.py（1.10 context skip 功能验证）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip/verify_latent_dynamics_context_skip.py`
+- **功能用途**：验证显式 context-conditioned latent dynamics 的基础功能
+  - 检查实例化与输出 shape
+  - 检查 `requires_target_counts=False`
+  - 检查 `forward()` 与 `generate()` 数值一致
+- **创建时间**：2026-03-21
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip/verify_latent_dynamics_context_skip.py
+  ```
+- **输出**：stdout 验证信息
+- **依赖**：poyo conda 环境（PyTorch）
+- **备注**：对应 `20260321_latent_dynamics_context_skip` 的最小功能回归
+
+### run_latent_dynamics_context_skip_500ms.sh（1.10 500ms context skip gate）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip/run_latent_dynamics_context_skip_500ms.sh`
+- **功能用途**：执行显式 context-conditioned latent dynamics 的 `500ms` gate
+  - 先跑功能验证
+  - 再执行 `500ms` 正式训练
+  - 最后执行 best-ckpt continuous `valid/test` 离线评估
+- **创建时间**：2026-03-21
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip/run_latent_dynamics_context_skip_500ms.sh
+  ```
+- **输出**：`results/logs/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip/500ms/`
+- **依赖**：poyo conda 环境
+- **备注**：作为 `1.10.x` 的 `500ms` context-conditioning gate，不直接扩展到 `250ms / 1000ms`
+
+### collect_latent_dynamics_context_skip_results.py（1.10 context skip 结果汇总）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip/collect_latent_dynamics_context_skip_results.py`
+- **功能用途**：汇总 `20260321_latent_dynamics_context_skip` 的 `500ms` gate 结果，并回写 summary JSON 与 `results.tsv`
+- **创建时间**：2026-03-21
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip/collect_latent_dynamics_context_skip_results.py
+  ```
+- **输出**：
+  - `results/figures/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip/latent_dynamics_context_skip_summary.json`
+  - `cc_todo/1.10-latent_dynamics_decoder/results.tsv`
+- **依赖**：poyo conda 环境（pandas）
+- **备注**：该模块只做 `500ms gate`，不会填充 `250ms / 1000ms` 字段

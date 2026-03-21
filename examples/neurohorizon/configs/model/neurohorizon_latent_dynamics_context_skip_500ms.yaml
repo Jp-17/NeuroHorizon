@@ -1,0 +1,24 @@
+# NeuroHorizon latent-dynamics context-skip model config - 500ms prediction window
+_target_: torch_brain.models.NeuroHorizon
+sequence_length: 1.0
+pred_window: 0.500
+bin_size: 0.020
+latent_step: 0.05
+num_latents_per_step: 32
+dim: 128
+enc_depth: 6
+dec_depth: 2
+dim_head: 64
+cross_heads: 2
+self_heads: 8
+ffn_dropout: 0.2
+lin_dropout: 0.4
+atn_dropout: 0.2
+max_pred_bins: 50
+feedback_method: none
+decoder_variant: latent_dynamics
+latent_dynamics_num_queries: 4
+latent_dynamics_pool_token_dim: 32
+latent_dynamics_state_dim: 128
+latent_dynamics_context_conditioning: true
+latent_dynamics_context_dim: 128

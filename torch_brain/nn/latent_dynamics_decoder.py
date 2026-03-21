@@ -23,6 +23,8 @@ class LatentDynamicsDecoder(nn.Module):
         num_pool_tokens: int = 4,
         pool_token_dim: int | None = None,
         state_dim: int | None = None,
+        context_conditioning: bool = False,
+        context_dim: int | None = None,
         num_layers: int = 2,
         num_heads: int = 2,
         atn_dropout: float = 0.0,
@@ -47,9 +49,14 @@ class LatentDynamicsDecoder(nn.Module):
             state_dim = dim
         if state_dim < 1:
             raise ValueError("state_dim must be >= 1")
+        if context_dim is None:
+            context_dim = state_dim
+        if context_dim < 1:
+            raise ValueError("context_dim must be >= 1")
 
         flattened_dim = num_pool_tokens * pool_token_dim
 
+        self.context_conditioning = context_conditioning
         self.pool_queries = nn.Parameter(torch.randn(1, num_pool_tokens, dim) * init_scale)
         self.pool_attn = nn.MultiheadAttention(
             embed_dim=dim,
@@ -68,6 +75,18 @@ class LatentDynamicsDecoder(nn.Module):
         self.init_proj = nn.Linear(flattened_dim, state_dim)
         self.context_norm = nn.LayerNorm(state_dim)
         self.step_emb = nn.Parameter(torch.randn(1, max_steps, state_dim) * init_scale)
+        if context_conditioning:
+            self.context_token_norm = nn.LayerNorm(dim)
+            self.context_token_proj = nn.Linear(dim, context_dim)
+            self.context_vector_norm = nn.LayerNorm(context_dim)
+            self.context_input_proj = nn.Linear(context_dim, state_dim)
+            self.context_output_proj = nn.Linear(context_dim, state_dim)
+        else:
+            self.context_token_norm = None
+            self.context_token_proj = None
+            self.context_vector_norm = None
+            self.context_input_proj = None
+            self.context_output_proj = None
         self.gru = nn.GRU(
             input_size=state_dim,
             hidden_size=state_dim,
@@ -96,6 +115,21 @@ class LatentDynamicsDecoder(nn.Module):
 
         step_inputs = context.unsqueeze(1).expand(batch_size, num_steps, -1)
         step_inputs = step_inputs + self.step_emb[:, :num_steps, :]
+        context_vector = None
+        if self.context_conditioning:
+            assert self.context_token_norm is not None
+            assert self.context_token_proj is not None
+            assert self.context_vector_norm is not None
+            assert self.context_input_proj is not None
+            assert self.context_output_proj is not None
+            pooled_context = pooled.mean(dim=1)
+            context_vector = self.context_vector_norm(
+                self.context_token_proj(self.context_token_norm(pooled_context))
+            )
+            step_inputs = step_inputs + self.context_input_proj(context_vector).unsqueeze(1)
+
         hidden0 = context.unsqueeze(0).expand(self.gru.num_layers, -1, -1).contiguous()
         rollout, _ = self.gru(step_inputs, hidden0)
+        if context_vector is not None:
+            rollout = rollout + self.context_output_proj(context_vector).unsqueeze(1)
         return self.output_norm(self.output_proj(rollout))

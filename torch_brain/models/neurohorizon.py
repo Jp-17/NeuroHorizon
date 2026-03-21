@@ -67,6 +67,8 @@ class NeuroHorizon(nn.Module):
         latent_dynamics_num_queries: int = 4,
         latent_dynamics_pool_token_dim: Optional[int] = None,
         latent_dynamics_state_dim: Optional[int] = None,
+        latent_dynamics_context_conditioning: bool = False,
+        latent_dynamics_context_dim: Optional[int] = None,
     ):
         super().__init__()
 
@@ -158,6 +160,8 @@ class NeuroHorizon(nn.Module):
                 num_pool_tokens=latent_dynamics_num_queries,
                 pool_token_dim=latent_dynamics_pool_token_dim,
                 state_dim=latent_dynamics_state_dim,
+                context_conditioning=latent_dynamics_context_conditioning,
+                context_dim=latent_dynamics_context_dim,
                 num_layers=dec_depth,
                 num_heads=cross_heads,
                 atn_dropout=atn_dropout,
