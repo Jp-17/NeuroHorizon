@@ -2,7 +2,7 @@
 
 **日期**：2026-03-21
 **模块名**：`latent_dynamics_context_skip`
-**状态**：实施中
+**状态**：已放弃
 **分支**：`dev/latent`
 
 ## 改进摘要
@@ -88,13 +88,31 @@ bash scripts/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip/
 - 日志：
   - `results/logs/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip/screen_run.log`
 - 当前状态：
-  - `screen` 会话存在且处于 detached 状态
-  - 日志已通过 verify 并进入 `epoch 0`
-  - 暂未出现 OOM 或配置错误
+  - 训练与 best-ckpt formal `valid/test` 已完成
+  - best checkpoint 出现在 `epoch 69`
+  - final `epoch 299` 的 `val/fp_bps` 回落到 `0.0009`
+  - `screen` 会话已正常结束
+
+### 500ms formal 结果
+
+- valid：
+  - `fp-bps=0.0047`
+  - `R2=0.1791`
+  - `val_loss=0.3250`
+- test：
+  - `fp-bps=0.0048`
+  - `R2=0.1790`
+  - `val_loss=0.3235`
+- 对比：
+  - 相对 `baseline_v2=0.1744` 差 `-0.1697`
+  - 相对上一轮 `20260320_latent_dynamics_state_scaling` 的 `500ms valid fp-bps=0.0048` 差 `-0.0001`
+  - 相对首轮 `20260320_latent_dynamics_decoder` 的 `500ms valid fp-bps=0.0904` 差 `-0.0857`
 
 ## 当前判断
 
 - 这一轮的价值不在于“把状态做得更大”，而在于分离 `init_state` 和 persistent `context`
 - 当前 smoke 数值与前两轮 `1 epoch` smoke 处于同一量级，说明新路径至少没有立刻破坏训练链路
-- 如果 `500ms` 结果能显著回升，说明前两轮的主要问题确实来自条件信息注入不足
-- 如果仍明显低于 `20260320_latent_dynamics_decoder` 的 `0.0904`，则下一轮应直接转向更强的 dynamics backbone，而不是继续在当前 GRU 主线细调
+- 正式结果表明：显式 persistent context 注入并没有解决 `500ms` 问题
+- 它几乎复现了上一轮 `state scaling` 的负结果，没有把指标从失败区间拉回到首轮 `0.0904`
+- 因此该模块应标记为“已放弃”，不再扩展到 `250ms / 1000ms`
+- 下一轮若继续推进 `1.10.x`，应直接转向更强的 dynamics backbone，而不是继续在当前 GRU 主线细调

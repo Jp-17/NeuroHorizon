@@ -263,7 +263,7 @@ history spikes
 
 ## 2026-03-21 — Latent Dynamics Context Skip (500ms Gate)
 
-> 状态：实施中
+> 状态：已放弃
 > 分支：`dev/latent`
 > 任务记录：`cc_todo/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip.md`
 
@@ -321,4 +321,29 @@ history spikes
   - val loss：`0.392`
   - train-end `val/fp_bps=-0.830`
   - 离线 continuous valid：`fp-bps=-0.8301`, `R2=-0.0002`, `val_loss=0.3958`
-- `500ms` formal gate 已于 `2026-03-21 21:25 CST` 在 `screen` 会话 `latent_dyn_ctx_500` 中启动
+- `500ms` formal gate 已完成：
+  - best checkpoint 出现在 `epoch 69`
+  - final `epoch 299` 的 `val/fp_bps=0.0009`
+
+### 正式结果
+
+- `500ms` formal valid：
+  - `fp-bps=0.0047`
+  - `R2=0.1791`
+  - `val_loss=0.3250`
+- `500ms` formal test：
+  - `fp-bps=0.0048`
+  - `R2=0.1790`
+  - `val_loss=0.3235`
+- 对比：
+  - 相对 `baseline_v2=0.1744`，valid 差 `-0.1697`
+  - 相对上一轮 `20260320_latent_dynamics_state_scaling` 的 `500ms valid fp-bps=0.0048`，本轮差 `-0.0001`
+  - 相对首轮 `20260320_latent_dynamics_decoder` 的 `500ms valid fp-bps=0.0904`，本轮差 `-0.0857`
+
+### 当前结论
+
+- 这轮结果表明：显式 persistent context 注入并没有把 `500ms` 从失败区间里拉回来
+- 它几乎复制了上一轮 `state scaling` 的负结果，说明当前瓶颈并不只是“缺少持续条件输入”
+- 在当前 GRU latent dynamics 主线下，继续做局部结构微调的价值已经很低
+- 因此该模块应标记为“已放弃”，不再扩展到 `250ms / 1000ms`
+- 下一轮若继续推进 `1.10.x`，应直接转向更强的 dynamics backbone（优先 Mamba），而不是继续围绕当前 GRU 变体做小修补

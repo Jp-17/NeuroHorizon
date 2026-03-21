@@ -2345,3 +2345,35 @@
 **遇到的问题与解决**：
 - 远端非交互 shell 里 `conda activate` 未初始化，且 verify 脚本在默认 `sys.path` 下无法直接导入仓库包
   - 解决：显式加载 `/root/miniconda3/etc/profile.d/conda.sh`，并在执行命令时设置 `PYTHONPATH=/root/autodl-tmp/NeuroHorizon`
+
+## 2026-03-22 05:26 CST
+
+### 任务：完成 latent dynamics context skip 500ms gate 并归档负结果
+
+**完成内容**：
+1. 完成 `20260321_latent_dynamics_context_skip` 的 `500ms` formal gate
+   - best epoch：`69`
+   - valid：`fp-bps=0.0047`, `R2=0.1791`, `val_loss=0.3250`
+   - test：`fp-bps=0.0048`, `R2=0.1790`, `val_loss=0.3235`
+
+2. 生成结果汇总与图表入口
+   - 运行 `collect_latent_dynamics_context_skip_results.py`
+   - 更新 `cc_todo/1.10-latent_dynamics_decoder/results.tsv`
+   - 生成 `latent_dynamics_context_skip_summary.json`
+   - 更新训练曲线和 `1.10` 总体趋势图
+
+3. 回填核心文档并标记模块状态
+   - 更新 `cc_core_files/results.md`
+   - 更新 `cc_core_files/plan.md`
+   - 更新 `cc_todo/1.10-latent_dynamics_decoder/model.md`
+   - 更新 `cc_todo/1.10-latent_dynamics_decoder/20260321_latent_dynamics_context_skip.md`
+   - 该模块状态标记为“已放弃”
+
+**当前结论**：
+- 显式 persistent context 注入并没有改善 `500ms`，结果几乎和上一轮 `state scaling` 相同
+- 这说明当前问题不只是“缺少持续条件输入”，而更可能是当前 GRU latent dynamics 主线整体表达能力不足
+- 后续若继续推进 `1.10.x`，更合适的方向应直接转向更强的 dynamics backbone，而不是继续在当前 GRU 变体上做局部修补
+
+**遇到的问题与解决**：
+- 这轮结果要同时回写 `results.tsv`、summary、training curves 和总趋势图，否则 `1.10` 目录内的记录会再次失配
+  - 解决：先运行 collect 和绘图脚本，再统一回填文档，保证路径、数值和结论同步
