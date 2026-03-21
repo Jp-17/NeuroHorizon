@@ -16,6 +16,7 @@
 - faithful 审计总文档：`cc_todo/1.8-benchmark_model/20260318_benchmark_faithful_audit_detail_codex.md`
 - faithful 审计执行记录：`cc_todo/1.8-benchmark_model/20260318_benchmark_faithful_audit_task_log.md`
 - 当前 aligned 长跑记录：`cc_todo/1.8-benchmark_model/20260319_benchmark_aligned_runs.md`
+- 当前后续优化任务：`cc_todo/1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning.md`
 
 ## 记录规范
 
@@ -44,6 +45,9 @@
 - `best` checkpoint 默认按 `valid fp-bps` 选择，并在训练结束后用该 checkpoint 重新计算正式 `valid / test` continuous 指标
 - `IBL-MtM` 和 `Neuroformer` 当前 benchmark 主流程不要求 `test trial-aligned`
 - `Neuroformer` 当前默认按 `valid rollout fp-bps` 选择 `best_model.pt`，`teacher-forced / true_past` 只作诊断和补充报告
+- `Neuroformer` 训练期默认同时监控 `rollout` 与 `true_past`，但 best ckpt 仍按 `valid rollout fp-bps` 选择
+- `Neuroformer` 训练期不再把 `R²` 作为主监控项；优先跟踪 `fp-bps / teacher-forced loss / rollout-true_past gap`
+- `Neuroformer` 当前保留 `session-constrained decoding` 作为解码安全约束，但这不等于显式 session conditioning；若任务记录写到 session 改造，需明确二者区别
 
 ## 当前建议脚本入口
 
@@ -51,6 +55,7 @@
 - `neural-benchmark/faithful_neuroformer.py`
 - `neural-benchmark/plot_benchmark_history.py`
 - `neural-benchmark/run_faithful_1p8_aligned.sh`
+- `scripts/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/run_benchmark.sh`
 
 ## 路径规范
 
@@ -66,6 +71,8 @@
 - `IBL-MtM combined aligned`
 - `Neuroformer canonical 500/250`
 - `Neuroformer 150/50 reference`
+- `IBL-MtM combined_e300_aligned`
+- `Neuroformer canonical 500/250 + session conditioning`
 - `NDT2` 当前只保留现状记录，不继续扩展
 
 ## 当前状态（2026-03-21 04:10 CST）
@@ -88,3 +95,7 @@
 - benchmark 级汇总图已补充到：
   - `results/figures/phase1-autoregressive-1.8-benchmark_model/20260319_benchmark_aligned_runs/aligned_benchmark_summary.png`
   - `results/figures/phase1-autoregressive-1.8-benchmark_model/20260319_benchmark_aligned_runs/aligned_benchmark_summary.md`
+- 下一阶段默认执行：
+  - `IBL-MtM combined_e300_aligned`
+  - `Neuroformer canonical 500/250 + 显式 session conditioning`
+  - `Neuroformer` 训练期同步监控 `rollout / true_past / teacher-forced loss`

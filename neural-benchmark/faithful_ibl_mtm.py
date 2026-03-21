@@ -474,6 +474,7 @@ def evaluate_faithful_ibl_loader(
     all_targets = []
     all_unit_ids = []
     all_unit_masks = []
+    all_session_ids: List[str] = []
     total_loss = 0.0
     total_examples = 0.0
 
@@ -521,14 +522,28 @@ def evaluate_faithful_ibl_loader(
             all_targets.append(padded_target.cpu())
             all_unit_ids.append(padded_unit_ids.cpu())
             all_unit_masks.append(padded_unit_mask.cpu())
+            all_session_ids.extend([str(x) for x in batch["session_id"]])
             total_loss += float(outputs.loss.detach().cpu().item())
             total_examples += float(outputs.n_examples.detach().cpu().item())
 
+    log_rates = torch.cat(all_logrates, dim=0)
+    targets = torch.cat(all_targets, dim=0)
+    unit_ids = torch.cat(all_unit_ids, dim=0)
+    unit_mask = torch.cat(all_unit_masks, dim=0)
     metrics = evaluate_prediction_tensors(
-        log_rates=torch.cat(all_logrates, dim=0),
-        targets=torch.cat(all_targets, dim=0),
-        unit_ids=torch.cat(all_unit_ids, dim=0),
-        unit_mask=torch.cat(all_unit_masks, dim=0),
+        log_rates=log_rates,
+        targets=targets,
+        unit_ids=unit_ids,
+        unit_mask=unit_mask,
+        null_lookup=null_lookup.cpu(),
+    )
+    metrics.update(summarize_event_count_statistics(log_rates, targets))
+    metrics["per_session_metrics"] = compute_per_session_metrics(
+        log_rates=log_rates,
+        targets=targets,
+        unit_ids=unit_ids,
+        unit_mask=unit_mask,
+        session_ids=all_session_ids,
         null_lookup=null_lookup.cpu(),
     )
     metrics["n_samples"] = int(sum(x.shape[0] for x in all_logrates))
@@ -568,6 +583,48 @@ def get_current_lr(optimizer: torch.optim.Optimizer) -> float:
     if not optimizer.param_groups:
         return float("nan")
     return float(optimizer.param_groups[0]["lr"])
+
+
+def summarize_event_count_statistics(log_rates: torch.Tensor, targets: torch.Tensor) -> Dict[str, float]:
+    pred_counts = torch.exp(log_rates.clamp(-10, 10)).sum(dim=(1, 2))
+    true_counts = targets.sum(dim=(1, 2))
+    ratios = pred_counts / true_counts.clamp_min(1e-6)
+    return {
+        "predicted_event_count_mean": float(pred_counts.mean().item()),
+        "predicted_event_count_p95": float(torch.quantile(pred_counts, 0.95).item()),
+        "ground_truth_event_count_mean": float(true_counts.mean().item()),
+        "ground_truth_event_count_p95": float(torch.quantile(true_counts, 0.95).item()),
+        "predicted_to_true_event_ratio_mean": float(ratios.mean().item()),
+    }
+
+
+def compute_per_session_metrics(
+    *,
+    log_rates: torch.Tensor,
+    targets: torch.Tensor,
+    unit_ids: torch.Tensor,
+    unit_mask: torch.Tensor,
+    session_ids: Sequence[str],
+    null_lookup: torch.Tensor,
+) -> Dict[str, Dict[str, float]]:
+    metrics: Dict[str, Dict[str, float]] = {}
+    for session_id in sorted(set(session_ids)):
+        idx = [i for i, current in enumerate(session_ids) if current == session_id]
+        if not idx:
+            continue
+        sub_metrics = evaluate_prediction_tensors(
+            log_rates=log_rates[idx],
+            targets=targets[idx],
+            unit_ids=unit_ids[idx],
+            unit_mask=unit_mask[idx],
+            null_lookup=null_lookup,
+        )
+        metrics[str(session_id)] = {
+            "fp_bps": float(sub_metrics["fp_bps"]),
+            "poisson_nll": float(sub_metrics["poisson_nll"]),
+            "n_samples": int(len(idx)),
+        }
+    return metrics
 
 
 def compute_warmup_progress(*, optimizer_steps: int, total_optimizer_steps: int, warmup_pct: float) -> float:
@@ -904,12 +961,18 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         )
         mean_train_loss = float(train_loss_sum / max(train_examples, 1.0))
         final_epoch_metrics = dict(valid_metrics)
+        total_mask_batches = max(sum(train_mask_counts.values()), 1)
+        train_mask_ratio_observed = {
+            key: float(value / total_mask_batches) for key, value in sorted(train_mask_counts.items())
+        }
         history.append(
             {
                 "epoch": int(epoch),
                 "train_loss": mean_train_loss,
                 "valid_fp_bps": float(valid_metrics["fp_bps"]),
                 "valid_r2": float(valid_metrics["r2"]),
+                "valid_poisson_nll": float(valid_metrics["poisson_nll"]),
+                "predicted_to_true_event_ratio_mean": float(valid_metrics["predicted_to_true_event_ratio_mean"]),
                 "lr": get_current_lr(optimizer),
                 "weight_decay": float(bridge_cfg.weight_decay),
                 "grad_accum_steps": int(grad_accum_steps),
@@ -921,6 +984,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
                     warmup_pct=bridge_cfg.warmup_pct,
                 ),
                 "train_mask_counts": dict(train_mask_counts),
+                "train_mask_ratio_observed": train_mask_ratio_observed,
             }
         )
         save_checkpoint(
@@ -952,6 +1016,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
                     "train_loss": mean_train_loss,
                     "valid_fp_bps": float(valid_metrics["fp_bps"]),
                     "valid_r2": float(valid_metrics["r2"]),
+                    "valid_poisson_nll": float(valid_metrics["poisson_nll"]),
                 }
             )
         )

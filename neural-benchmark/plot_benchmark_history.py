@@ -9,6 +9,7 @@ from typing import Dict, List
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import math
 
 
 def load_json(path: Path) -> Dict[str, object]:
@@ -24,6 +25,9 @@ def series(history: List[Dict[str, object]], key: str) -> List[float]:
 
 
 def save_lineplot(epochs, values, *, ylabel: str, title: str, path: Path) -> None:
+    finite = [v for v in values if not math.isnan(v)]
+    if not finite:
+        return
     fig, ax = plt.subplots(figsize=(6.5, 4.0))
     ax.plot(epochs, values, marker='o', linewidth=2)
     ax.set_xlabel('epoch')
@@ -86,7 +90,6 @@ def write_summary(payload: Dict[str, object], history: List[Dict[str, object]], 
         'epochs': len(history),
         'best_epoch': payload.get('best_epoch'),
         'best_valid_fp_bps': best_valid.get('fp_bps'),
-        'best_valid_r2': best_valid.get('r2'),
         'history_keys': sorted(history[0].keys()) if history else [],
     }
     (output_dir / 'history_summary.json').write_text(json.dumps(summary, indent=2) + '\n', encoding='utf-8')
@@ -96,7 +99,6 @@ def write_summary(payload: Dict[str, object], history: List[Dict[str, object]], 
         f"- epochs: {summary['epochs']}",
         f"- best_epoch: {summary['best_epoch']}",
         f"- best_valid_fp_bps: {summary['best_valid_fp_bps']}",
-        f"- best_valid_r2: {summary['best_valid_r2']}",
         f"- history_keys: {', '.join(summary['history_keys'])}",
     ]
     (output_dir / 'history_summary.md').write_text('\n'.join(md) + '\n', encoding='utf-8')
@@ -118,7 +120,56 @@ def main() -> None:
     epochs = series(history, 'epoch')
     save_lineplot(epochs, series(history, 'train_loss'), ylabel='train_loss', title='Train loss by epoch', path=output_dir / 'train_loss_curve.png')
     save_lineplot(epochs, series(history, 'valid_fp_bps'), ylabel='valid_fp_bps', title='Valid fp-bps by epoch', path=output_dir / 'valid_fp_bps_curve.png')
-    save_lineplot(epochs, series(history, 'valid_r2'), ylabel='valid_r2', title='Valid r2 by epoch', path=output_dir / 'valid_r2_curve.png')
+    if any('valid_rollout_fp_bps' in row for row in history):
+        save_lineplot(
+            epochs,
+            series(history, 'valid_rollout_fp_bps'),
+            ylabel='valid_rollout_fp_bps',
+            title='Valid rollout fp-bps by epoch',
+            path=output_dir / 'valid_rollout_fp_bps_curve.png',
+        )
+    if any('valid_true_past_fp_bps' in row for row in history):
+        save_lineplot(
+            epochs,
+            series(history, 'valid_true_past_fp_bps'),
+            ylabel='valid_true_past_fp_bps',
+            title='Valid true_past fp-bps by epoch',
+            path=output_dir / 'valid_true_past_fp_bps_curve.png',
+        )
+    if any('valid_rollout_true_past_gap_fp_bps' in row for row in history):
+        save_lineplot(
+            epochs,
+            series(history, 'valid_rollout_true_past_gap_fp_bps'),
+            ylabel='rollout - true_past',
+            title='Valid rollout vs true_past gap by epoch',
+            path=output_dir / 'valid_rollout_vs_true_past_gap_curve.png',
+        )
+    if any('valid_teacher_forced_loss' in row for row in history):
+        save_lineplot(
+            epochs,
+            series(history, 'valid_teacher_forced_loss'),
+            ylabel='valid_teacher_forced_loss',
+            title='Valid teacher-forced loss by epoch',
+            path=output_dir / 'valid_teacher_forced_loss_curve.png',
+        )
+    if any('valid_poisson_nll' in row for row in history):
+        save_lineplot(
+            epochs,
+            series(history, 'valid_poisson_nll'),
+            ylabel='valid_poisson_nll',
+            title='Valid poisson NLL by epoch',
+            path=output_dir / 'valid_poisson_nll_curve.png',
+        )
+    if any('predicted_to_true_event_ratio_mean' in row for row in history):
+        save_lineplot(
+            epochs,
+            series(history, 'predicted_to_true_event_ratio_mean'),
+            ylabel='pred/true event ratio',
+            title='Predicted-to-true event ratio by epoch',
+            path=output_dir / 'predicted_to_true_event_ratio_curve.png',
+        )
+    if any('valid_r2' in row for row in history):
+        save_lineplot(epochs, series(history, 'valid_r2'), ylabel='valid_r2', title='Valid r2 by epoch', path=output_dir / 'valid_r2_curve.png')
     if any('lr' in row for row in history):
         save_lineplot(epochs, series(history, 'lr'), ylabel='lr', title='Learning rate by epoch', path=output_dir / 'lr_curve.png')
     save_config_timeline(history, output_dir)

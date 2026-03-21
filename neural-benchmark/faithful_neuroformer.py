@@ -86,6 +86,8 @@ class FaithfulNeuroformerConfig:
     lr_decay: bool = True
     warmup_tokens: int = 50000
     grad_accum_steps: int = 1
+    session_conditioning: bool = True
+    session_embedding_scale: float = 1.0
 
 
 class FaithfulNeuroformerDataset(TorchDataset):
@@ -97,6 +99,7 @@ class FaithfulNeuroformerDataset(TorchDataset):
         records,
         spec: BenchmarkProtocolSpec,
         global_unit_index: Mapping[Tuple[str, int], int],
+        session_to_idx: Mapping[str, int],
         tokenizer: Tokenizer,
         prev_id_block_size: int,
         id_block_size: int,
@@ -106,6 +109,7 @@ class FaithfulNeuroformerDataset(TorchDataset):
         self.records = list(records)
         self.spec = spec
         self.global_unit_index = global_unit_index
+        self.session_to_idx = dict(session_to_idx)
         self.tokenizer = tokenizer
         self.prev_id_block_size = int(prev_id_block_size)
         self.id_block_size = int(id_block_size)
@@ -205,6 +209,7 @@ class FaithfulNeuroformerDataset(TorchDataset):
             "unit_ids": torch.from_numpy(unit_ids),
             "unit_mask": torch.from_numpy(unit_mask),
             "session_id": record.recording_id,
+            "session_idx": torch.tensor(self.session_to_idx[record.recording_id], dtype=torch.long),
             "split": record.split,
             "target_id": torch.tensor(
                 -1 if getattr(record, "target_id", None) is None else int(record.target_id),
@@ -234,6 +239,7 @@ def collate_neuroformer_batch(batch: Sequence[Mapping[str, object]]) -> Dict[str
         "unit_ids": torch.stack([item["unit_ids"] for item in batch]),
         "unit_mask": torch.stack([item["unit_mask"] for item in batch]),
         "session_id": [item["session_id"] for item in batch],
+        "session_idx": torch.stack([item["session_idx"] for item in batch]),
         "split": [item["split"] for item in batch],
         "target_id": torch.stack([item["target_id"] for item in batch]),
         "go_cue_time_s": torch.stack([item["go_cue_time_s"] for item in batch]),
@@ -321,6 +327,7 @@ def build_window_loader(
     records,
     spec: BenchmarkProtocolSpec,
     global_unit_index: Mapping[Tuple[str, int], int],
+    session_to_idx: Mapping[str, int],
     tokenizer: Tokenizer,
     prev_id_block_size: int,
     id_block_size: int,
@@ -334,6 +341,7 @@ def build_window_loader(
         records=records,
         spec=spec,
         global_unit_index=global_unit_index,
+        session_to_idx=session_to_idx,
         tokenizer=tokenizer,
         prev_id_block_size=prev_id_block_size,
         id_block_size=id_block_size,
@@ -372,6 +380,7 @@ def create_faithful_neuroformer_model(
     tokenizer: Tokenizer,
     spec: BenchmarkProtocolSpec,
     bridge_cfg: FaithfulNeuroformerConfig,
+    session_ids: Sequence[str],
     config_path: str,
 ):
     config = load_config(config_path)
@@ -392,6 +401,26 @@ def create_faithful_neuroformer_model(
         setattr(config.dropout, key, bridge_cfg.dropout)
     config.id_vocab_size = tokenizer.ID_vocab_size
     model = Neuroformer(config, tokenizer)
+    session_to_idx = {str(session_id): idx for idx, session_id in enumerate(sorted(session_ids))}
+    model.session_to_idx = session_to_idx
+    if bridge_cfg.session_conditioning:
+        model.session_emb = torch.nn.Embedding(len(session_to_idx), config.n_embd)
+        model.session_embedding_scale = float(bridge_cfg.session_embedding_scale)
+
+        original_process_features = model.process_features
+
+        def _process_features_with_session(self, x):
+            features, pad = original_process_features(x)
+            if hasattr(self, "session_emb") and "session_idx" in x:
+                session_idx = x["session_idx"].long()
+                session_bias = self.session_emb(session_idx).unsqueeze(1) * float(
+                    getattr(self, "session_embedding_scale", 1.0)
+                )
+                features["id_prev"] = features["id_prev"] + session_bias
+                features["id"] = features["id"] + session_bias
+            return features, pad
+
+        model.process_features = MethodType(_process_features_with_session, model)
 
     def _feature_encoder_forward(self, neural, visual):
         for mod in self.neural_state_blocks:
@@ -539,6 +568,49 @@ def collect_predicted_counts(
     return torch.log(torch.from_numpy(pred_counts))
 
 
+def summarize_event_count_statistics(log_rates: torch.Tensor, targets: torch.Tensor) -> Dict[str, float]:
+    pred_counts = torch.exp(log_rates.clamp(-10, 10)).sum(dim=(1, 2))
+    true_counts = targets.sum(dim=(1, 2))
+    ratios = pred_counts / true_counts.clamp_min(1e-6)
+    return {
+        "predicted_event_count_mean": float(pred_counts.mean().item()),
+        "predicted_event_count_p95": float(torch.quantile(pred_counts, 0.95).item()),
+        "ground_truth_event_count_mean": float(true_counts.mean().item()),
+        "ground_truth_event_count_p95": float(torch.quantile(true_counts, 0.95).item()),
+        "predicted_to_true_event_ratio_mean": float(ratios.mean().item()),
+    }
+
+
+def compute_per_session_metrics(
+    *,
+    log_rates: torch.Tensor,
+    targets: torch.Tensor,
+    unit_ids: torch.Tensor,
+    unit_mask: torch.Tensor,
+    session_ids: Sequence[str],
+    null_lookup: torch.Tensor,
+) -> Dict[str, Dict[str, float]]:
+    metrics: Dict[str, Dict[str, float]] = {}
+    unique_session_ids = sorted(set(session_ids))
+    for session_id in unique_session_ids:
+        idx = [i for i, current in enumerate(session_ids) if current == session_id]
+        if not idx:
+            continue
+        sub_metrics = evaluate_prediction_tensors(
+            log_rates=log_rates[idx],
+            targets=targets[idx],
+            unit_ids=unit_ids[idx],
+            unit_mask=unit_mask[idx],
+            null_lookup=null_lookup,
+        )
+        metrics[str(session_id)] = {
+            "fp_bps": float(sub_metrics["fp_bps"]),
+            "poisson_nll": float(sub_metrics["poisson_nll"]),
+            "n_samples": int(len(idx)),
+        }
+    return metrics
+
+
 def decode_teacher_forced_logrates(
     preds: Mapping[str, torch.Tensor],
     tokenizer: Tokenizer,
@@ -552,6 +624,7 @@ def decode_teacher_forced_logrates(
     eos_dt_token = tokenizer.stoi["dt"].get("EOS", max(tokenizer.stoi["dt"].values()))
     pad_dt_token = tokenizer.stoi["dt"]["PAD"]
     outputs = []
+    meta = []
 
     for i in range(batch["unit_ids"].shape[0]):
         valid_unit_ids = [int(x) for x in batch["unit_ids"][i][batch["unit_mask"][i]].detach().cpu().tolist() if int(x) >= 0]
@@ -585,7 +658,14 @@ def decode_teacher_forced_logrates(
                 channel_capacity=channel_capacity,
             )
         )
-    return torch.stack(outputs, dim=0)
+        meta.append(
+            {
+                "predicted_event_count": int(len(predicted_events)),
+                "hit_max_generate_steps": None,
+                "terminated_by_eos": None,
+            }
+        )
+    return torch.stack(outputs, dim=0), meta
 
 
 def generate_true_past_logrates(
@@ -595,17 +675,18 @@ def generate_true_past_logrates(
     *,
     spec: BenchmarkProtocolSpec,
     channel_capacity: int,
-) -> torch.Tensor:
+) -> Tuple[torch.Tensor, List[Dict[str, Optional[bool]]]]:
     model_device = next(iter(model.parameters())).device
     batch = move_batch_to_device(batch, model_device)
     preds, _, _ = model(batch["x"], batch["y"])
-    return decode_teacher_forced_logrates(
+    teacher_forced_logrates, meta = decode_teacher_forced_logrates(
         preds,
         tokenizer,
         batch,
         spec=spec,
         channel_capacity=channel_capacity,
-    ).to(model_device)
+    )
+    return teacher_forced_logrates.to(model_device), meta
 
 
 def generate_sample_counts(
@@ -620,7 +701,7 @@ def generate_sample_counts(
     max_generate_steps: int,
     device: torch.device,
     true_past: bool,
-) -> torch.Tensor:
+) -> Tuple[torch.Tensor, Dict[str, Optional[bool]]]:
     model.eval()
     valid_unit_ids = [int(x) for x in valid_unit_ids.detach().cpu().tolist() if int(x) >= 0]
     valid_id_tokens = [int(x) for x in tokenizer.encode(valid_unit_ids, "ID")] if valid_unit_ids else []
@@ -631,6 +712,8 @@ def generate_sample_counts(
     pad_dt_token = tokenizer.stoi["dt"]["PAD"]
     block_size = int(model.config.block_size.id)
     predicted_events: List[Tuple[int, int]] = []
+    terminated_by_eos = False
+    hit_max_generate_steps = False
 
     with torch.no_grad():
         if true_past:
@@ -686,19 +769,28 @@ def generate_sample_counts(
                     device=device,
                 )
                 if next_id == eos_id_token or next_dt == eos_dt_token:
+                    terminated_by_eos = True
                     break
                 predicted_events.append((next_id, next_dt))
                 current_ids.append(next_id)
                 current_dts.append(next_dt)
                 if step + 1 >= max_generate_steps:
+                    hit_max_generate_steps = True
                     break
 
-    return collect_predicted_counts(
-        predicted_events,
-        tokenizer=tokenizer,
-        valid_unit_ids=valid_unit_ids,
-        spec=spec,
-        channel_capacity=channel_capacity,
+    return (
+        collect_predicted_counts(
+            predicted_events,
+            tokenizer=tokenizer,
+            valid_unit_ids=valid_unit_ids,
+            spec=spec,
+            channel_capacity=channel_capacity,
+        ),
+        {
+            "predicted_event_count": int(len(predicted_events)),
+            "hit_max_generate_steps": bool(hit_max_generate_steps) if not true_past else None,
+            "terminated_by_eos": bool(terminated_by_eos) if not true_past else None,
+        },
     )
 
 
@@ -712,7 +804,7 @@ def generate_neuroformer_logrates(
     max_generate_steps: int,
     device: torch.device,
     true_past: bool,
-) -> torch.Tensor:
+) -> Tuple[torch.Tensor, List[Dict[str, Optional[bool]]]]:
     if true_past:
         return generate_true_past_logrates(
             model,
@@ -722,14 +814,14 @@ def generate_neuroformer_logrates(
             channel_capacity=channel_capacity,
         )
     outputs = []
+    meta = []
     unit_ids = batch["unit_ids"]
     unit_mask = batch["unit_mask"]
     for i in range(unit_ids.shape[0]):
         valid_unit_ids = unit_ids[i][unit_mask[i]]
         sample_x = {key: value[i].to(device) for key, value in batch["x"].items()}
         sample_y = {key: value[i].to(device) for key, value in batch["y"].items()}
-        outputs.append(
-            generate_sample_counts(
+        sample_counts, sample_meta = generate_sample_counts(
                 model,
                 tokenizer,
                 sample_x,
@@ -741,8 +833,9 @@ def generate_neuroformer_logrates(
                 device=device,
                 true_past=true_past,
             )
-        )
-    return torch.stack(outputs, dim=0).to(device)
+        outputs.append(sample_counts)
+        meta.append(sample_meta)
+    return torch.stack(outputs, dim=0).to(device), meta
 
 
 def evaluate_faithful_neuroformer_loader(
@@ -764,6 +857,8 @@ def evaluate_faithful_neuroformer_loader(
     all_targets = []
     all_unit_ids = []
     all_unit_masks = []
+    all_session_ids: List[str] = []
+    generation_meta: List[Dict[str, Optional[bool]]] = []
     teacher_forced_loss = 0.0
     teacher_forced_batches = 0
     started = time.time()
@@ -782,15 +877,16 @@ def evaluate_faithful_neuroformer_loader(
             if true_past:
                 if preds is None:
                     raise RuntimeError("true_past evaluation requires teacher-forced forward outputs.")
-                logrates = decode_teacher_forced_logrates(
+                teacher_forced_logrates, batch_meta = decode_teacher_forced_logrates(
                     preds,
                     tokenizer,
                     batch,
                     spec=spec,
                     channel_capacity=channel_capacity,
-                ).to(device)
+                )
+                logrates = teacher_forced_logrates.to(device)
             else:
-                logrates = generate_neuroformer_logrates(
+                logrates, batch_meta = generate_neuroformer_logrates(
                     model,
                     tokenizer,
                     batch,
@@ -804,6 +900,8 @@ def evaluate_faithful_neuroformer_loader(
             all_targets.append(batch["target_counts"].cpu())
             all_unit_ids.append(batch["unit_ids"].cpu())
             all_unit_masks.append(batch["unit_mask"].cpu())
+            all_session_ids.extend([str(x) for x in batch["session_id"]])
+            generation_meta.extend(batch_meta)
             if progress_prefix and (batch_idx == 1 or batch_idx % max(progress_every, 1) == 0 or batch_idx == total_batches):
                 print(json.dumps({
                     "progress": progress_prefix,
@@ -812,12 +910,33 @@ def evaluate_faithful_neuroformer_loader(
                     "elapsed_s": round(time.time() - started, 2),
                 }))
 
+    log_rates = torch.cat(all_logrates, dim=0)
+    targets = torch.cat(all_targets, dim=0)
+    unit_ids = torch.cat(all_unit_ids, dim=0)
+    unit_mask = torch.cat(all_unit_masks, dim=0)
     metrics = evaluate_prediction_tensors(
-        log_rates=torch.cat(all_logrates, dim=0),
-        targets=torch.cat(all_targets, dim=0),
-        unit_ids=torch.cat(all_unit_ids, dim=0),
-        unit_mask=torch.cat(all_unit_masks, dim=0),
+        log_rates=log_rates,
+        targets=targets,
+        unit_ids=unit_ids,
+        unit_mask=unit_mask,
         null_lookup=null_lookup.cpu(),
+    )
+    metrics.update(summarize_event_count_statistics(log_rates, targets))
+    metrics["per_session_metrics"] = compute_per_session_metrics(
+        log_rates=log_rates,
+        targets=targets,
+        unit_ids=unit_ids,
+        unit_mask=unit_mask,
+        session_ids=all_session_ids,
+        null_lookup=null_lookup.cpu(),
+    )
+    hit_flags = [item["hit_max_generate_steps"] for item in generation_meta if item["hit_max_generate_steps"] is not None]
+    eos_flags = [item["terminated_by_eos"] for item in generation_meta if item["terminated_by_eos"] is not None]
+    metrics["max_generate_steps_hit_rate"] = (
+        float(sum(1 for flag in hit_flags if flag) / max(len(hit_flags), 1)) if hit_flags else None
+    )
+    metrics["eos_termination_rate"] = (
+        float(sum(1 for flag in eos_flags if flag) / max(len(eos_flags), 1)) if eos_flags else None
     )
     metrics["n_samples"] = int(sum(x.shape[0] for x in all_logrates))
     metrics["teacher_forced_loss"] = (
@@ -841,7 +960,7 @@ def build_trial_model_fn(
     true_past: bool,
 ):
     def predict(batch: Mapping[str, object]) -> torch.Tensor:
-        return generate_neuroformer_logrates(
+        logrates, _ = generate_neuroformer_logrates(
             model,
             tokenizer,
             batch,
@@ -851,6 +970,7 @@ def build_trial_model_fn(
             device=device,
             true_past=true_past,
         )
+        return logrates
 
     return predict
 
@@ -897,9 +1017,13 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
         prev_id_block_size=args.prev_id_block_size,
         id_block_size=args.id_block_size,
         max_generate_steps=args.max_generate_steps,
+        session_conditioning=not args.no_session_conditioning,
+        session_embedding_scale=args.session_embedding_scale,
     )
     datasets = load_split_datasets(dataset_config=args.dataset_config)
     global_unit_index = build_global_unit_index(datasets)
+    session_ids = sorted({recording_id for recording_id, _ in global_unit_index.keys()})
+    session_to_idx = {session_id: idx for idx, session_id in enumerate(session_ids)}
     channel_capacity = compute_max_units(datasets)
     tokenizer = build_tokenizer(
         global_unit_index=global_unit_index,
@@ -916,6 +1040,7 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
         records=train_records,
         spec=spec,
         global_unit_index=global_unit_index,
+        session_to_idx=session_to_idx,
         tokenizer=tokenizer,
         prev_id_block_size=bridge_cfg.prev_id_block_size,
         id_block_size=bridge_cfg.id_block_size,
@@ -929,6 +1054,7 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
         records=valid_records,
         spec=spec,
         global_unit_index=global_unit_index,
+        session_to_idx=session_to_idx,
         tokenizer=tokenizer,
         prev_id_block_size=bridge_cfg.prev_id_block_size,
         id_block_size=bridge_cfg.id_block_size,
@@ -942,6 +1068,7 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
         records=trial_records,
         spec=spec,
         global_unit_index=global_unit_index,
+        session_to_idx=session_to_idx,
         tokenizer=tokenizer,
         prev_id_block_size=bridge_cfg.prev_id_block_size,
         id_block_size=bridge_cfg.id_block_size,
@@ -955,6 +1082,7 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, object]:
         tokenizer=tokenizer,
         spec=spec,
         bridge_cfg=bridge_cfg,
+        session_ids=session_ids,
         config_path=args.neuroformer_config,
     ).to(device)
     train_cfg = build_train_config(bridge_cfg=bridge_cfg, train_dataset_len=len(train_loader.dataset), epochs=1)
@@ -1071,6 +1199,8 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         lr_decay=not args.no_lr_decay,
         warmup_tokens=args.warmup_tokens,
         grad_accum_steps=args.grad_accum_steps,
+        session_conditioning=not args.no_session_conditioning,
+        session_embedding_scale=args.session_embedding_scale,
     )
     output_dir = (
         Path(args.output_dir)
@@ -1083,6 +1213,8 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
 
     datasets = load_split_datasets(dataset_config=args.dataset_config)
     global_unit_index = build_global_unit_index(datasets)
+    session_ids = sorted({recording_id for recording_id, _ in global_unit_index.keys()})
+    session_to_idx = {session_id: idx for idx, session_id in enumerate(session_ids)}
     channel_capacity = compute_max_units(datasets)
     tokenizer = build_tokenizer(
         global_unit_index=global_unit_index,
@@ -1140,6 +1272,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         records=test_records,
         spec=spec,
         global_unit_index=global_unit_index,
+        session_to_idx=session_to_idx,
         tokenizer=tokenizer,
         prev_id_block_size=bridge_cfg.prev_id_block_size,
         id_block_size=bridge_cfg.id_block_size,
@@ -1152,6 +1285,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         tokenizer=tokenizer,
         spec=spec,
         bridge_cfg=bridge_cfg,
+        session_ids=session_ids,
         config_path=args.neuroformer_config,
     ).to(device)
     train_cfg = build_train_config(
@@ -1203,7 +1337,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
             loss_total += float(total_loss.detach().cpu().item())
             loss_steps += 1
 
-        valid_metrics = evaluate_faithful_neuroformer_loader(
+        valid_metrics_rollout = evaluate_faithful_neuroformer_loader(
             model,
             tokenizer,
             valid_loader,
@@ -1215,14 +1349,34 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
             true_past=False,
             compute_teacher_forced_loss=False,
         )
+        valid_metrics_true_past = evaluate_faithful_neuroformer_loader(
+            model,
+            tokenizer,
+            valid_loader,
+            spec=spec,
+            channel_capacity=channel_capacity,
+            null_lookup=null_lookup,
+            device=device,
+            max_generate_steps=bridge_cfg.max_generate_steps,
+            true_past=True,
+            compute_teacher_forced_loss=True,
+        )
         mean_train_loss = float(loss_total / max(loss_steps, 1))
-        final_epoch_metrics = dict(valid_metrics)
+        final_epoch_metrics = {
+            "rollout": dict(valid_metrics_rollout),
+            "true_past": dict(valid_metrics_true_past),
+        }
         history.append(
             {
                 "epoch": int(epoch),
                 "train_loss": mean_train_loss,
-                "valid_fp_bps": float(valid_metrics["fp_bps"]),
-                "valid_r2": float(valid_metrics["r2"]),
+                "valid_fp_bps": float(valid_metrics_rollout["fp_bps"]),
+                "valid_rollout_fp_bps": float(valid_metrics_rollout["fp_bps"]),
+                "valid_true_past_fp_bps": float(valid_metrics_true_past["fp_bps"]),
+                "valid_teacher_forced_loss": float(valid_metrics_true_past["teacher_forced_loss"]),
+                "valid_rollout_true_past_gap_fp_bps": float(
+                    valid_metrics_rollout["fp_bps"] - valid_metrics_true_past["fp_bps"]
+                ),
                 "lr": current_lr,
                 "weight_decay": float(bridge_cfg.weight_decay),
                 "grad_accum_steps": int(grad_accum_steps),
@@ -1240,20 +1394,20 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
             epoch=epoch,
             model=model,
             optimizer=optimizer,
-            valid_metrics=valid_metrics,
+            valid_metrics=valid_metrics_rollout,
             train_loss=mean_train_loss,
             tokens_seen=tokens_seen,
         )
-        if float(valid_metrics["fp_bps"]) > best_valid_fp_bps:
-            best_valid_fp_bps = float(valid_metrics["fp_bps"])
+        if float(valid_metrics_rollout["fp_bps"]) > best_valid_fp_bps:
+            best_valid_fp_bps = float(valid_metrics_rollout["fp_bps"])
             best_epoch = int(epoch)
-            best_valid_metrics = dict(valid_metrics)
+            best_valid_metrics = dict(valid_metrics_rollout)
             save_checkpoint(
                 best_checkpoint_path,
                 epoch=epoch,
                 model=model,
                 optimizer=optimizer,
-                valid_metrics=valid_metrics,
+                valid_metrics=valid_metrics_rollout,
                 train_loss=mean_train_loss,
                 tokens_seen=tokens_seen,
             )
@@ -1262,8 +1416,9 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
                 {
                     "epoch": epoch,
                     "train_loss": mean_train_loss,
-                    "valid_fp_bps": float(valid_metrics["fp_bps"]),
-                    "valid_r2": float(valid_metrics["r2"]),
+                    "valid_rollout_fp_bps": float(valid_metrics_rollout["fp_bps"]),
+                    "valid_true_past_fp_bps": float(valid_metrics_true_past["fp_bps"]),
+                    "valid_teacher_forced_loss": float(valid_metrics_true_past["teacher_forced_loss"]),
                 }
             )
         )
@@ -1334,6 +1489,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
             "Evaluation uses autoregressive generation and 20 ms count re-binning.",
             "Held-out test reports both rollout (true_past=False) and oracle-history (true_past=True) modes.",
             "Visual and behavior branches are disabled because Perich-Miller has no matching inputs.",
+            "Recording-level session conditioning is injected through a learnable additive embedding on id/id_prev token features.",
             "Formal benchmark reports best-ckpt continuous valid/test metrics; test trial-aligned is no longer part of the default 1.8.3 protocol.",
         ],
     )
@@ -1361,6 +1517,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
         "Upstream Tokenizer and Neuroformer core retained.",
         "Compatibility layer maps Perich-Miller raw spike events into ID/dt token streams.",
         "Generation is session-constrained at decode time so predictions stay within the current recording vocabulary.",
+        "Session conditioning during training/eval is explicit and additive; it does not alter the ID/dt vocabulary.",
         "Both rollout and true_past inference modes are evaluated on the same held-out windows.",
     ]
     write_json(output_dir / "results.json", payload)
@@ -1445,6 +1602,8 @@ def run_eval(args: argparse.Namespace) -> Dict[str, object]:
         lr_decay=not args.no_lr_decay,
         warmup_tokens=args.warmup_tokens,
         grad_accum_steps=args.grad_accum_steps,
+        session_conditioning=not args.no_session_conditioning,
+        session_embedding_scale=args.session_embedding_scale,
     )
     checkpoint_path = Path(args.checkpoint_path) if args.checkpoint_path else None
     if checkpoint_path is None:
@@ -1468,6 +1627,7 @@ def run_eval(args: argparse.Namespace) -> Dict[str, object]:
         tokenizer=tokenizer,
         spec=spec,
         bridge_cfg=bridge_cfg,
+        session_ids=session_ids,
         config_path=args.neuroformer_config,
     ).to(device)
     state = torch.load(checkpoint_path, map_location=device)
@@ -1512,6 +1672,7 @@ def run_eval(args: argparse.Namespace) -> Dict[str, object]:
             records=records,
             spec=spec,
             global_unit_index=global_unit_index,
+            session_to_idx=session_to_idx,
             tokenizer=tokenizer,
             prev_id_block_size=bridge_cfg.prev_id_block_size,
             id_block_size=bridge_cfg.id_block_size,
@@ -1532,6 +1693,7 @@ def run_eval(args: argparse.Namespace) -> Dict[str, object]:
                     records=trial_records,
                     spec=spec,
                     global_unit_index=global_unit_index,
+                    session_to_idx=session_to_idx,
                     tokenizer=tokenizer,
                     prev_id_block_size=bridge_cfg.prev_id_block_size,
                     id_block_size=bridge_cfg.id_block_size,
@@ -1605,6 +1767,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--id-block-size", type=int, default=256)
     parser.add_argument("--max-generate-steps", type=int, default=256)
     parser.add_argument("--warmup-tokens", type=int, default=50000)
+    parser.add_argument("--session-embedding-scale", type=float, default=1.0)
+    parser.add_argument("--no-session-conditioning", action="store_true")
     parser.add_argument("--no-lr-decay", action="store_true")
     parser.set_defaults(skip_trial_eval=True)
     return parser.parse_args()

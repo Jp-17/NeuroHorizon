@@ -2203,3 +2203,28 @@
 - `IBL-MtM` 仍是当前 1.8 中唯一已达到明确正值的 faithful benchmark 路线。
 - `Neuroformer 150/50` 比 canonical `500/250` 有限改善，但仍显著为负，说明短窗口不是当前失败的根本解法。
 - 当前更支持：`from-scratch + token/count mismatch + 缺少显式 session conditioning` 是 Neuroformer faithful 线的主因。
+
+## 2026-03-21 16:25 CST - 1.8 benchmark 后续 runner 与诊断指标补充
+
+**完成事项**：
+1. 为 `IBL-MtM combined_e300_aligned` 补充训练期与 formal eval 诊断指标
+   - 训练期新增：`valid_poisson_nll`、`predicted_to_true_event_ratio_mean`、`train_mask_ratio_observed`
+   - formal valid/test 新增：`predicted/ground_truth event count summary`、`per_session_metrics`
+2. 为 `Neuroformer canonical 500/250` 接入显式 session conditioning
+   - 新增 learnable `session embedding`
+   - 加性注入到 `id_prev / id` token embeddings
+   - 保留既有 `session-constrained decoding` 作为解码安全约束
+3. 扩展 `Neuroformer` 训练期监控
+   - 新增并行记录 `valid rollout fp-bps / valid true_past fp-bps / valid teacher_forced_loss / rollout-true_past gap`
+   - 不再把 `R-squared` 作为 Neuroformer 训练期主监控项
+4. 补充本轮 benchmark 任务文档与脚本
+   - 新建：`cc_todo/1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning.md`
+   - 新建：`scripts/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/run_benchmark.sh`
+5. 完成远程 smoke 验证
+   - `IBL-MtM` smoke 已输出新增诊断指标，当前 `predicted_to_true_event_ratio_mean = 8.1558`
+   - `Neuroformer` smoke 已验证 session conditioning 路径、rollout/true_past 并行监控与新增 generation diagnostics 均可用
+
+**当前判断**：
+- `IBL-MtM` 目前最值得继续推进，`e300` 长跑能直接回答“继续堆 epoch 是否仍有效”。
+- `Neuroformer` 当前更像“训练目标/生成尺度/session 条件不足”的问题，而不是 exposure bias 主导。
+- `session-constrained decoding` 只是在解码时限制非法 neuron ID，不等价于训练期显式 session conditioning；因此这轮新增 session embedding 是必要补充。

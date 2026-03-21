@@ -763,7 +763,9 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
   - continuous valid/test 默认使用 `SequentialFixedWindowSampler`
   - faithful runner 若不直接调用上述 sampler 类，也必须在任务记录中说明其 train / valid / test 窗口构造在语义上与之等价
 - 默认优先跑最小必要验证，再做正式 benchmark 条件；正式条件可按任务内容裁剪，例如 Neuroformer 除 canonical `500/250` 外，可增加 `150/50` reference sanity run
-- 训练过程中必须按 eval epoch 持续记录 `train loss` 和 `valid fp-bps` 曲线，并显式保存 `last` checkpoint
+- 训练过程中必须按 eval epoch 持续记录训练曲线，并显式保存 `last` checkpoint
+  - IBL-MtM：至少记录 `train loss / valid fp-bps / valid poisson_nll / predicted_to_true_event_ratio`
+  - Neuroformer：至少记录 `train loss / valid rollout fp-bps / valid true_past fp-bps / valid teacher-forced loss / rollout-true_past gap`
 - `best` checkpoint 默认以 `max(valid fp-bps)` 为主进行选择；`loss curve` 用作稳定性审计和异常剔除依据。若 `best fp-bps` 对应 checkpoint 出现明显训练崩坏、数值异常或不合理抖动，必须在任务记录中说明最终采用的 checkpoint 及其理由
 - 正式结果必须在训练结束后使用 `best` checkpoint 重新计算 continuous `valid` 和 `test` 的 `fp-bps` 等指标，不允许直接用训练过程中某个 epoch 的即时验证值代替正式结果
 - benchmark 主指标为 continuous `fp-bps`，`per-bin fp-bps` 用于窗口衰减分析；其他 comparison metric 按需要补充
@@ -771,6 +773,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 若模型支持多 inference 模式，正式 eval 必须在同一任务记录中并排报告 `rollout` 与 `teacher-forced / true_past`
 - Neuroformer 默认按 `valid rollout fp-bps` 选择 `best_model.pt`
   - 在当前 benchmark 目标是 held-out forward prediction 的前提下，`rollout fp-bps` 更接近正式测试语义，因此默认用作 model selection；`teacher-forced / true_past` 仅作为 oracle-history 诊断指标
+- Neuroformer 训练期不再把 `R²` 作为主监控项；如需保留，仅能作为 formal result 的附加参考，不进入主训练曲线和 best-ckpt 判断
 
 **实验记录规范**：
 - 任务记录：`cc_todo/1.8-benchmark_model/{date}_{content}.md`
@@ -788,6 +791,8 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - `IBL-MtM combined aligned`：见 `cc_todo/1.8-benchmark_model/20260319_benchmark_aligned_runs.md`
 - `Neuroformer canonical 500/250`：见 `cc_todo/1.8-benchmark_model/20260319_benchmark_aligned_runs.md`
 - `Neuroformer 150/50 reference`：见 `cc_todo/1.8-benchmark_model/20260319_benchmark_aligned_runs.md`
+- `IBL-MtM combined_e300_aligned`：见 `cc_todo/1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning.md`
+- `Neuroformer canonical 500/250 + session conditioning`：见 `cc_todo/1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning.md`
 - `NDT2` 当前仅保留现状记录，不进入新的 benchmark 扩展
 
 - [x] benchmark 文档入口统一到 `cc_todo/1.8-benchmark_model/`

@@ -1176,6 +1176,20 @@
   - dual-mode smoke 已稳定，但 250ms formal full-data dual-mode eval 仍被运行成本卡住
   - 当前最大问题是 formal eval 可执行性，而不是继续盲目扩 500ms / 1000ms
 
+### run_benchmark.sh（20260321 benchmark 后续长跑入口）
+
+- **路径**：`scripts/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/run_benchmark.sh`
+- **功能用途**：
+  - 顺序执行 `IBL-MtM combined_e300_aligned`
+  - 执行 `Neuroformer canonical 500/250 + session conditioning`
+  - 训练后自动补 `plot_benchmark_history.py` 和 Neuroformer formal `valid/test × rollout/true_past`
+- **使用方式**：
+  ```bash
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/run_benchmark.sh
+  ```
+- **输出**：`results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/`
+
 
 ### compare_faithful_ibl_mtm.py（1.8.3 IBL-MtM 250ms 对比汇总）
 
