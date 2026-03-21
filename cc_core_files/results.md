@@ -296,6 +296,38 @@ results/
   - 第三轮 smoke 结果应写入 `cc_todo/1.11-diffusion-decoder/results.tsv`
   - 下一步是提交实现 checkpoint 并启动 `250ms` formal gate，而不是在 smoke 指标上继续做结论性比较
 
+
+
+### dense-history-cross factorized flow 250ms formal gate（第三轮 gate 失败归档）
+
+- **存储路径**：
+  - `results/logs/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/250ms/`
+  - `results/logs/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/250ms/eval_v2_{valid,test}_results.json`
+  - `results/figures/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/`
+- **产生时间**：2026-03-22
+- **实验目的**：以 `250ms gate-first` 规则验证 dense token-wise history cross-attention 是否足以让第三轮 diffusion 路线继续扩到 `500 / 1000ms`
+- **实验配置**：
+  - 模型：第三轮 `dense_history_cross_factorized_flow`
+  - 数据：Perich-Miller 10 sessions，continuous，obs=`500ms`，pred=`250ms`
+  - 训练：`300 epochs`，实际训练到 `epoch 299`
+  - 最优 checkpoint：`epoch 239`
+- **主要结果**：
+  - formal valid `fp-bps = -4.5587`
+  - formal test `fp-bps = -4.5658`
+  - formal test `R2 = -0.5021`
+  - formal trial `fp-bps = -4.4743`
+  - `PSTH-R2 = 0.4590`
+  - 相比第二轮 `250ms test` 下降 `-0.5351`
+  - 相比 `baseline_v2 250ms test` 落后 `-4.7881`
+- **结果分析**：
+  - 预设 gate 是 `250ms test fp-bps >= -2.5`，当前 `-4.5658` 明确未通过，因此第三轮按计划停止扩到 `500 / 1000ms`
+  - 这不是“略无提升”，而是相对第二轮 `factorized_unit_time_flow` 还进一步退化，说明 dense history cross 在当前实现下没有带来预期中的 spike-wise 改善
+  - `PSTH-R2` 仍为正，说明较平滑的 trial-level 条件结构还在；但 continuous `fp-bps` 深负且更差，说明 `Option 2B` 的剩余 gap 不能简单归因于 pooled conditioning
+- **备注**：
+  - 本轮只保留 `250ms` 单窗口归档，不继续执行 `500 / 1000ms`
+  - 已运行 `collect_dense_history_cross_factorized_flow_results.py --windows 250ms`，并写回 `cc_todo/1.11-diffusion-decoder/results.tsv`
+
+
 ---
 
 ## 说明

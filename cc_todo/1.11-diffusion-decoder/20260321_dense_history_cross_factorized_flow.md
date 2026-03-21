@@ -2,7 +2,7 @@
 
 > 对应计划：`cc_core_files/plan.md` §1.11  
 > 分支：`dev/diffusion`  
-> 状态：实施中
+> 状态：250ms gate 未通过（停止扩窗）
 
 ## 任务背景
 
@@ -110,3 +110,30 @@ bash scripts/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow
   - 第三轮 dense history cross 结构没有破坏训练与离线评估链路
   - smoke 结果相对第二轮只出现极小幅变化，现阶段不能据此判断 formal gate 是否会通过
   - 下一步应提交实现 checkpoint，并直接运行 `250ms formal gate`
+
+### 2026-03-22
+
+- 完成 `250ms` formal gate（配置 `300 epochs`，实际训练到 `epoch 299`）
+- 最佳 checkpoint：
+  - `best val/fp_bps = -4.5783`
+  - `best epoch = 239`
+  - checkpoint: `results/logs/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow/250ms/lightning_logs/version_0/checkpoints/best.ckpt`
+- 正式离线评估结果：
+  - valid `fp-bps = -4.5587`
+  - test `fp-bps = -4.5658`
+  - test `R2 = -0.5021`
+  - trial `fp-bps = -4.4743`
+  - `PSTH-R2 = 0.4590`
+- gate 结论：
+  - 默认门槛为 `250ms test fp-bps >= -2.5`
+  - 当前 `-4.5658 < -2.5`，因此第三轮 gate 未通过，不继续扩到 `500 / 1000ms`
+- 相对第二轮 `20260320_factorized_unit_time_flow`：
+  - 第二轮 `250ms test fp-bps = -4.0307`
+  - 第三轮下降 `-0.5351`
+- 收尾动作：
+  - 运行 `collect_dense_history_cross_factorized_flow_results.py --windows 250ms`
+  - 生成单窗口 summary json 与图表，并更新 `cc_todo/1.11-diffusion-decoder/results.tsv`
+- 附加问题：
+  - 后台 watcher 在训练结束后调用了系统 `python` 读取结果，但该上下文里没有这个命令，导致没有自动执行 gate 判断与后续收尾
+  - 已手动读取正式结果并执行单窗口 collector；后续如复用 watcher，应改为 `python3` 或 `conda run -n poyo python`
+

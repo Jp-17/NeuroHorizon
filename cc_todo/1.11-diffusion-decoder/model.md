@@ -43,7 +43,7 @@
 
 ## 2026-03-20 — Direct Count-Space Flow Matching with DiT
 
-> 状态：首轮 formal 完成，当前变体建议放弃
+> 状态：250ms gate 未通过（停止扩窗）
 > 分支：`dev/diffusion`
 > 对应任务记录：`cc_todo/1.11-diffusion-decoder/20260320_direct_count_flow_dit.md`
 
@@ -202,7 +202,7 @@
 
 ## 2026-03-21 — Dense History-Cross Factorized Flow
 
-> 状态：实施中
+> 状态：250ms gate 未通过（停止扩窗）
 > 分支：`dev/diffusion`
 > 对应任务记录：`cc_todo/1.11-diffusion-decoder/20260321_dense_history_cross_factorized_flow.md`
 
@@ -250,3 +250,23 @@
   - 第三轮 dense cross-conditioning 没有破坏训练、checkpoint 和离线评估链路
   - smoke 相对第二轮只带来了极小幅变化，当前还不能据此判断 gate 是否有希望
   - 下一步应提交实现 checkpoint，并直接启动 `250ms formal gate`
+
+### 正式 gate 结果（2026-03-22）
+
+- 250ms formal gate 已完成：
+  - best `val/fp_bps = -4.5783`，对应 `epoch 239`
+  - formal valid `fp-bps = -4.5587`
+  - formal test `fp-bps = -4.5658`
+  - formal test `R2 = -0.5021`
+  - formal trial `fp-bps = -4.4743`
+  - formal `PSTH-R2 = 0.4590`
+- gate 结论：
+  - 默认阈值是 `250ms test fp-bps >= -2.5`
+  - 当前 `-4.5658 < -2.5`，因此第三轮 gate 明确未通过，按计划停止扩到 `500 / 1000ms`
+- 相对比较：
+  - 相比第二轮 `20260320_factorized_unit_time_flow` 的 `250ms test fp-bps = -4.0307`，第三轮反而下降 `-0.5351`
+  - 相比 `baseline_v2` 当前 `250ms test`，仍落后 `-4.7881`
+- 当前判断：
+  - dense token-wise history cross 并没有在当前实现下带来预期中的 spike-wise 提升
+  - `Option 2B` 的剩余 gap 不能再简单归因于 pooled conditioning，本轮不建议继续沿这条局部改动方向做默认扩展
+

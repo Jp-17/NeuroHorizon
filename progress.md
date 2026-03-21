@@ -2347,3 +2347,29 @@
   - 解决：整块替换为 dense token-wise history cross block，而不是在旧 pooled 路线上叠 patch
 - 第三轮结果收尾需要同时支持单窗口 gate 和三窗口 formal
   - 解决：collector 脚本默认支持 `--windows 250ms` 单窗口归档
+
+## 2026-03-22 05:27 CST - 1.11 第三轮 dense-history-cross 250ms formal gate 归档
+
+**任务**：检查第三轮 `250ms formal gate` 状态，按 gate 规则决定是否扩到 `500 / 1000ms`，并完成单窗口结果归档
+
+**完成内容**：
+1. 确认 `250ms formal` 已完成，训练实际跑到 `epoch 299`，最佳 checkpoint 在 `epoch 239`
+2. 读取正式评估结果：
+   - valid `fp-bps = -4.5587`
+   - test `fp-bps = -4.5658`
+   - test `R2 = -0.5021`
+   - trial `fp-bps = -4.4743`
+   - `PSTH-R2 = 0.4590`
+3. 按 gate 规则判断：`-4.5658 < -2.5`，因此停止扩到 `500 / 1000ms`
+4. 运行 `collect_dense_history_cross_factorized_flow_results.py --windows 250ms`，生成单窗口 summary json 与图表，并更新 `cc_todo/1.11-diffusion-decoder/results.tsv`
+5. 回填第三轮文档：`model.md`、任务记录、`plan.md`、`results.md`
+
+**执行结果**：
+- 第三轮相对第二轮 `250ms test fp-bps = -4.0307` 反而下降 `-0.5351`，说明 dense history cross 在当前实现下没有带来实质改善
+- 按 `250ms gate-first` 规则，本轮在 `250ms` 处终止，不再继续扩窗
+- 这轮最合理的定位是一次失败验证，而不是可继续主推的 diffusion 变体
+
+**遇到的问题与解决**：
+- 后台 watcher 在训练结束后调用了系统 `python` 读取 JSON，但该上下文没有 `python` 命令
+  - 解决：手动读取正式结果并执行单窗口 collector；后续若复用 watcher，应改用 `python3` 或 `conda run -n poyo python`
+
