@@ -56,6 +56,7 @@
 - `neural-benchmark/plot_benchmark_history.py`
 - `neural-benchmark/run_faithful_1p8_aligned.sh`
 - `scripts/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/run_benchmark.sh`
+- `scripts/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/rerun_neuroformer_only.sh`
 
 ## 路径规范
 
@@ -99,3 +100,18 @@
   - `IBL-MtM combined_e300_aligned`
   - `Neuroformer canonical 500/250 + 显式 session conditioning`
   - `Neuroformer` 训练期同步监控 `rollout / true_past / teacher-forced loss`
+
+## 当前状态补充（2026-03-22 00:15 CST）
+
+- `IBL-MtM combined_e300_aligned` 已完成并达到当前 1.8 faithful benchmark 的最好结果：
+  - best epoch = `282`
+  - formal valid `fp-bps = 0.1938`
+  - formal test `fp-bps = 0.1938`
+  - 结果目录：`results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/ibl_mtm_combined_e300_aligned/`
+- `IBL-MtM` 继续训练仍有效，但新增诊断显示 `predicted_to_true_event_ratio_mean` 仍约 `11x`，后续需重点查看输出尺度/校准问题
+- `Neuroformer canonical 500/250 + session conditioning` 首次正式 run 未完成
+  - 失败原因已定位为 runner wiring bug：`run_train()` 中 `build_window_loader()` 漏传 `session_to_idx`
+  - 该问题与模型收敛性无关，修复后应单独重启 Neuroformer 段
+- 当前建议：
+  - 保留 `IBL-MtM e300` 结果并继续回填总结
+  - 仅重启 `Neuroformer canonical 500/250 + session conditioning`

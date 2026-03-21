@@ -2240,3 +2240,27 @@
 **当前观测**：
 - epoch 1 已进入并写出首轮指标：`train_loss=0.8346`, `valid_fp_bps=-2.9818`, `valid_poisson_nll=0.5902`
 - `best_model.pt / last_model.pt` 已开始更新，训练进程正常推进
+
+## 2026-03-22 00:15 CST - IBL-MtM e300 完成，Neuroformer 首次正式 run 因 wiring bug 中止
+
+**完成事项**：
+1. `IBL-MtM combined_e300_aligned` 已完整结束并写出正式结果
+   - best epoch：`282`
+   - formal valid `fp-bps = 0.1938`
+   - formal test `fp-bps = 0.1938`
+   - formal test `poisson_nll = 0.3046`
+   - formal test `predicted_to_true_event_ratio_mean = 11.1438`
+   - 图表已落盘到同目录：`train_loss / valid_fp_bps / valid_poisson_nll / lr / training_config_timeline / train_mask_counts / predicted_to_true_event_ratio`
+2. 确认 `Neuroformer canonical 500/250 + session conditioning` 首次正式 run 未形成有效结果
+   - 原因：`run_train()` 中 `build_window_loader()` 对 `train_loader / valid_loader` 漏传 `session_to_idx`
+   - 报错类型：runner wiring bug
+
+**当前判断**：
+- `IBL-MtM` 继续训练仍然有效，`e50 -> e300` 进一步提升了 `fp-bps`
+- 但 IBL-MtM 当前仍有明显的事件总量尺度偏差，后续需要把输出尺度/校准作为重要优化方向
+- `Neuroformer` 当前这次失败不能用于判断 session conditioning 思路是否有效；应先修复 wiring bug 后仅重启 Neuroformer 段
+
+**后续动作**：
+- 修复 `faithful_neuroformer.py` 中 `session_to_idx` 的漏传
+- 单独重启 `Neuroformer canonical 500/250 + session conditioning`
+- 完成后再统一回填 formal valid/test、图表和 benchmark 总结

@@ -1,6 +1,6 @@
 # 20260321 Benchmark IBL e300 + Neuroformer Session Conditioning
 
-> 状态：实施中
+> 状态：进行中（IBL-MtM e300 已完成，Neuroformer canonical 正在修复后重启）
 > 总入口：`cc_todo/1.8-benchmark_model/benchmark_index.md`
 > 分支：`dev/benchmark`
 
@@ -113,6 +113,12 @@
 bash scripts/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/run_benchmark.sh
 ```
 
+Neuroformer 单独重启入口：
+
+```bash
+bash scripts/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/rerun_neuroformer_only.sh
+```
+
 单项命令：
 
 ```bash
@@ -183,23 +189,46 @@ python neural-benchmark/faithful_neuroformer.py \
 
 ## 训练 loss 结果
 
-- 正式 run 待回填
+- `IBL-MtM combined_e300_aligned`
+  - history 长度：`300 epochs`
+  - 训练 loss：`0.8346 -> 0.3037`
+  - 对应图：`train_loss_curve.png`
+- `Neuroformer canonical 500/250 + session conditioning`
+  - 首次正式 run 尚未进入有效训练；在 loader 构造阶段因 `session_to_idx` 漏传直接退出
+  - 当前已定位为 runner wiring bug，修复后将单独重启 Neuroformer 段
 
 ## train 期间最佳 val fp-bps
 
-- 待回填
+- `IBL-MtM combined_e300_aligned`
+  - best epoch：`282`
+  - best valid `fp-bps = 0.1938`
+- `Neuroformer canonical 500/250 + session conditioning`
+  - 首次正式 run 未产生有效 best checkpoint，待重启后回填
 
 ## test fp-bps
 
-- 待回填
+- `IBL-MtM combined_e300_aligned`
+  - formal test `fp-bps = 0.1938`
+- `Neuroformer canonical 500/250 + session conditioning`
+  - 首次正式 run 未完成，待重启后回填
 
 ## test 使用的 checkpoint 标识 / 时间
 
-- 待回填
+- `IBL-MtM combined_e300_aligned`
+  - checkpoint：`best_model.pt`（epoch `282`）
+  - 文件时间：`2026-03-21 22:59`
+- `Neuroformer canonical 500/250 + session conditioning`
+  - 首次正式 run 未产生可用 checkpoint，待重启后回填
 
 ## 各条件指标结果
 
-- `IBL-MtM`：至少回填 `fp-bps / per-bin fp-bps / poisson_nll / predicted_to_true_event_ratio / per_session_metrics`
+- `IBL-MtM combined_e300_aligned`
+  - formal valid `fp-bps = 0.1938`
+  - formal test `fp-bps = 0.1938`
+  - formal test `poisson_nll = 0.3046`
+  - formal test `predicted_to_true_event_ratio_mean = 11.1438`
+  - 训练末轮 `predicted_to_true_event_ratio_mean = 11.2865`
+  - `per-bin fp-bps / per_session_metrics` 已写入 `results.json`
 - `Neuroformer`：至少回填 `rollout / true_past fp-bps / per-bin fp-bps / teacher_forced_loss / predicted_to_true_event_ratio / per_session_metrics`
 
 ## 与 baseline 的对比
@@ -207,32 +236,43 @@ python neural-benchmark/faithful_neuroformer.py \
 - `IBL-MtM` 对比 `combined_e10 / combined_e50_aligned`
 - `Neuroformer` 对比 `canonical e50 aligned`
 
+### 当前已知对比（IBL-MtM）
+
+- `combined_e10` test `fp-bps = -0.0017`
+- `combined_e50_aligned` test `fp-bps = 0.1345`
+- `combined_e300_aligned` test `fp-bps = 0.1938`
+- 当前判断：
+  - `IBL-MtM` 继续训练仍然有效，尚未完全平台化
+  - 但 `predicted_to_true_event_ratio_mean` 长期维持在 `~11x`，说明后续优化不能只盯 `fp-bps`，还要看输出尺度校准 / objective mismatch
+
 ## 可视化索引
 
-- 待生成后回填：
-  - `train_loss_curve.png`
-  - `valid_fp_bps_curve.png`
-  - `valid_poisson_nll_curve.png`（IBL-MtM）
-  - `valid_rollout_fp_bps_curve.png`（Neuroformer）
-  - `valid_true_past_fp_bps_curve.png`（Neuroformer）
-  - `valid_teacher_forced_loss_curve.png`（Neuroformer）
-  - `valid_rollout_vs_true_past_gap_curve.png`（Neuroformer）
-  - `lr_curve.png`
-  - `training_config_timeline.png`
-  - `train_mask_counts_curve.png`（IBL-MtM）
-  - `predicted_to_true_event_ratio_curve.png`
+- `IBL-MtM combined_e300_aligned`
+  - `results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/ibl_mtm_combined_e300_aligned/train_loss_curve.png`
+  - `results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/ibl_mtm_combined_e300_aligned/valid_fp_bps_curve.png`
+  - `results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/ibl_mtm_combined_e300_aligned/valid_poisson_nll_curve.png`
+  - `results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/ibl_mtm_combined_e300_aligned/lr_curve.png`
+  - `results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/ibl_mtm_combined_e300_aligned/training_config_timeline.png`
+  - `results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/ibl_mtm_combined_e300_aligned/train_mask_counts_curve.png`
+  - `results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/ibl_mtm_combined_e300_aligned/predicted_to_true_event_ratio_curve.png`
+- `Neuroformer canonical 500/250 + session conditioning`
+  - 首次正式 run 尚未产出有效训练曲线；修复 loader 漏传后重启
 
 ## 当前结论
 
 - 当前已完成 runner / 协议 / 记录体系更新，并通过了 IBL-MtM / Neuroformer 的 smoke 验证。
 - Neuroformer smoke 已经提供了一个明确线索：在当前 very-short smoke 下，rollout 明显 over-generate，而 true_past 的 count ratio 已接近 1，说明“生成路径尺度失配”值得继续关注。
+- `IBL-MtM combined_e300_aligned` 已经把 test `fp-bps` 推到 `0.1938`，说明这条 faithful benchmark 线继续训练仍然有明显收益。
+- 但 IBL-MtM 当前新增诊断也显示：`predicted_to_true_event_ratio_mean` 仍然在 `~11x`，后续应重点判断 `fp-bps` 提升是否主要来自相对排序改善，而不是 count-scale 已经校准。
+- `Neuroformer canonical 500/250 + session conditioning` 首次正式 run 没有形成有效结果；当前失败原因已定位为 `run_train()` 中 `build_window_loader(... session_to_idx=...)` 的漏传，而不是训练发散或 session conditioning 思路本身无效。
 
 ## 后续安排
 
-1. 先跑 `IBL-MtM combined_e300_aligned`
-2. 再跑 `Neuroformer canonical 500/250 + session conditioning`
-3. 训练结束后用 `best ckpt` 做 formal `valid/test`
-4. 按 `1.8.3` 规范补齐图表、对比和结论
+1. 保留 `IBL-MtM combined_e300_aligned` 当前结果，后续仅补 compare / summary，不重跑
+2. 修复 `faithful_neuroformer.py` 中 `session_to_idx` 的漏传
+3. 单独重启 `Neuroformer canonical 500/250 + session conditioning`
+4. 用 `best ckpt` 做 formal `valid/test × rollout/true_past`
+5. 按 `1.8.3` 规范补齐图表、对比和结论
 
 ## 执行进展（2026-03-21 22:10 CST）
 
@@ -243,3 +283,18 @@ python neural-benchmark/faithful_neuroformer.py \
 - 已确认第一轮训练正常进入 epoch 1，当前可见指标：train_loss=0.8346, valid_fp_bps=-2.9818, valid_poisson_nll=0.5902
 - 当前输出目录：results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/ibl_mtm_combined_e300_aligned
 - best_model.pt 与 last_model.pt 已开始更新，说明训练未卡死
+
+## 当前状态（2026-03-22 00:15 CST）
+
+- `IBL-MtM combined_e300_aligned` 已完整完成并写出正式结果
+  - `best_epoch = 282`
+  - formal valid `fp-bps = 0.1938`
+  - formal test `fp-bps = 0.1938`
+  - formal test `poisson_nll = 0.3046`
+  - formal test `predicted_to_true_event_ratio_mean = 11.1438`
+  - 结果文件：`results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/ibl_mtm_combined_e300_aligned/results.json`
+- `Neuroformer canonical 500/250 + session conditioning` 首次正式 run 已中止
+  - 原因：`run_train()` 中 `train_loader / valid_loader` 调用 `build_window_loader()` 时漏传 `session_to_idx`
+  - 错误位置：`neural-benchmark/faithful_neuroformer.py`
+  - 错误性质：runner wiring bug，不是模型训练稳定性问题
+- 下一步：修复该漏传后，仅重启 Neuroformer 段，不重跑已经完成的 IBL-MtM e300

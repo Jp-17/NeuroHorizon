@@ -1190,6 +1190,20 @@
   ```
 - **输出**：`results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/`
 
+### rerun_neuroformer_only.sh（20260321 Neuroformer 单独重启入口）
+
+- **路径**：`scripts/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/rerun_neuroformer_only.sh`
+- **功能用途**：
+  - 在 `IBL-MtM combined_e300_aligned` 已完成的前提下，单独重启 `Neuroformer canonical 500/250 + session conditioning`
+  - 训练后自动补 `plot_benchmark_history.py` 和 formal `valid/test × rollout/true_past`
+  - 用于修复首次正式 run 因 `session_to_idx` 漏传而中止后的定向重跑
+- **使用方式**：
+  ```bash
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/rerun_neuroformer_only.sh
+  ```
+- **输出**：`results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/neuroformer_250ms_session_conditioning_e50/`
+
 
 ### compare_faithful_ibl_mtm.py（1.8.3 IBL-MtM 250ms 对比汇总）
 
