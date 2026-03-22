@@ -2373,3 +2373,39 @@
 - 后台 watcher 在训练结束后调用了系统 `python` 读取 JSON，但该上下文没有 `python` 命令
   - 解决：手动读取正式结果并执行单窗口 collector；后续若复用 watcher，应改用 `python3` 或 `conda run -n poyo python`
 
+## 2026-03-22 08:35 CST - 1.11 正式转向 Option 2A latent diffusion 并完成 250ms smoke
+
+**任务**：将 1.11 diffusion 主线从 `Option 2B` 正式切换为 `Option 2A latent diffusion`，实现第一版 `time x factorized latent units`，并完成最小功能验证与 `250ms` 真实数据 smoke
+
+**完成内容**：
+1. 在 `torch_brain/nn/latent_diffusion_decoder.py` 中新增：
+   - `FactorizedCountAutoencoder`
+   - `LatentDiffusionDecoder`
+2. 在 `torch_brain/models/neurohorizon.py` 中新增 `decoder_variant='latent_diffusion'`
+3. 扩展训练与评估入口：
+   - `examples/neurohorizon/train.py`
+   - `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+4. 新增三窗口配置：
+   - `neurohorizon_latent_diffusion_factorized_latent_{250,500,1000}ms.yaml`
+   - `train_1p11_latent_diffusion_factorized_latent_{250,500,1000}ms.yaml`
+5. 新增脚本：
+   - `verify_latent_diffusion_factorized_latent.py`
+   - `run_latent_diffusion_factorized_latent_250ms_gate.sh`
+6. 更新 1.11 文档：
+   - `cc_todo/1.11-diffusion-decoder/model.md`
+   - `cc_core_files/plan.md`
+   - 新建 `cc_todo/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent.md`
+7. 完成最小功能验证与 `250ms` smoke：
+   - verify：通过
+   - 训练 smoke：`train_loss=1.402`，`val_loss=1.401`，`val/fp_bps=-1.440`
+   - 离线 valid smoke：`fp-bps=-1.4368`，`R2=-0.1217`
+   - 离线 test smoke：`fp-bps=-1.3657`，`R2=-0.1072`
+
+**执行结果**：
+- `Option 2A` 首版链路已经完整打通，说明正式转向 latent diffusion 在工程上可行
+- smoke 数值相对前三轮 `Option 2B` 更接近可用区间，因此当前最合理的下一步是执行 `250ms formal gate`
+- 当前文档已将 1.11 主线正式切换为 `Option 2A latent diffusion`，`Option 2B` 改为历史对照路线
+
+**遇到的问题与解决**：
+- 远端非交互 shell 中没有 `python` / `conda`
+  - 解决：编译检查改用 `python3`，训练与评估统一改用 `/root/miniconda3/bin/conda run -n poyo python`

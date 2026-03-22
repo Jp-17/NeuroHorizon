@@ -159,7 +159,7 @@ class TrainWrapper(L.LightningModule):
         self.register_buffer('null_rate_lookup', torch.zeros(1))
         self._val_metrics = None
         self._test_metrics = None
-        self._is_diffusion = model.decoder_variant == "diffusion_flow"
+        self._is_diffusion = model.decoder_variant in {"diffusion_flow", "latent_diffusion"}
 
     def set_null_rates(self, null_rate_lookup: torch.Tensor):
         """Set null rate lookup tensor for fp-bps computation."""

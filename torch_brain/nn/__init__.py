@@ -8,6 +8,7 @@ from .rotary_attention import RotaryCrossAttention, RotarySelfAttention, create_
 from .feedforward import FeedForward
 from .autoregressive_decoder import AutoregressiveDecoder, PerNeuronMLPHead
 from .diffusion_decoder import DiffusionFlowDecoder
+from .latent_diffusion_decoder import LatentDiffusionDecoder
 
 # readout layers
 from . import loss

@@ -16,17 +16,18 @@
 
 ### 主线
 
-- **方案**：`Option 2B`
-- **任务形式**：direct count-space flow matching
-- **去噪网络**：DiT 风格时间主干
+- **方案**：`Option 2A latent diffusion`
+- **latent 形态**：`time x factorized latent units`
+- **第一版实现**：deterministic factorized count autoencoder + latent rectified flow matching
+- **默认实验策略**：`250ms gate-first`
 - **默认实施分支**：`dev/diffusion`
 
-### 暂缓方案
+### 历史对照路线
 
-- `Option 2A latent diffusion`
-  - 保留为备选
-  - 不进入本轮第一次任务
-  - 只有在 2B 无法稳定训练、效果明显不佳、或 count-space 方案暴露出结构性瓶颈时才切换评估
+- `Option 2B direct count-space flow matching`
+  - 保留为历史 baseline / failure case 对照
+  - 三轮迭代后不再作为默认继续修正的主线
+  - 后续只有在 2A 暴露出更强的实现或表征瓶颈时，才重新评估是否回到 count-space 路线
 
 ## 与现有代码的结合原则
 
@@ -270,3 +271,93 @@
   - dense token-wise history cross 并没有在当前实现下带来预期中的 spike-wise 提升
   - `Option 2B` 的剩余 gap 不能再简单归因于 pooled conditioning，本轮不建议继续沿这条局部改动方向做默认扩展
 
+## 2026-03-22 — Latent Diffusion with Factorized Time-Unit Latents
+
+> 状态：验证中（`250ms` smoke 已通过，formal gate 待执行）
+> 分支：`dev/diffusion`
+> 对应任务记录：`cc_todo/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent.md`
+
+### 转向动机
+
+前面三轮 `Option 2B` 已经回答了两个关键问题：
+
+1. 直接在 count-space 上做 rectified flow matching 的工程链路是可行的
+2. `per-bin summary` 的确是首轮重大瓶颈，恢复 unit-level tokenization 后有稳定提升
+
+但第三轮 `dense_history_cross_factorized_flow` 又说明：剩余 gap 不能再简单归因于 conditioning 过弱。继续在 count-space 主干上叠局部 attention 改动，已经很难回答更本质的问题。当前更合理的下一步是正式切到 `Option 2A latent diffusion`，把“future count field 的高维建模难度”与“history-conditioned generation”拆开：
+
+- 先把 future `log1p(count)` 压缩到更易建模的 latent 空间
+- 再在 latent 空间中做 diffusion / flow matching
+- 最后由 latent decoder 重建每个 `(time bin, unit)` 的未来发放率
+
+### 第一版设计选择
+
+- latent 形态：`time x factorized latent units`
+- autoencoder：deterministic，不加 KL，不做 VAE
+- target 空间：`log1p(count)`
+- diffusion objective：继续复用当前分支已经跑通的 rectified flow matching
+- 训练方式：autoencoder + latent diffusion 联合训练
+- 协议：继续遵循 `1.3.7` 默认协议（10 sessions、continuous、obs=`500ms`）
+- 验证策略：`250ms gate-first`
+
+### 为什么这样做
+
+- 相比 full-field global latent，这个 latent 仍保留时间轴，不会把整个 future window 过度压成单个向量
+- 相比继续在 raw `(time, unit)` count field 上 diffusion，latent denoising 的任务更平滑、更低维，可能更容易优化
+- deterministic AE 是首版最小实现，不引入 KL / posterior collapse 等额外不确定性
+- `250ms gate-first` 可以先回答“切到 2A 是否值得”，避免一开始就把 `500 / 1000ms` 训练成本全部压上去
+
+### 当前实现（2026-03-22）
+
+- 已新增 `decoder_variant='latent_diffusion'`
+- 已实现 `torch_brain/nn/latent_diffusion_decoder.py`
+  - `FactorizedCountAutoencoder`
+  - `LatentDiffusionDecoder`
+- 已扩展：
+  - `torch_brain/models/neurohorizon.py`
+  - `examples/neurohorizon/train.py`
+  - `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+- 已新增三窗口配置：
+  - `neurohorizon_latent_diffusion_factorized_latent_{250,500,1000}ms.yaml`
+  - `train_1p11_latent_diffusion_factorized_latent_{250,500,1000}ms.yaml`
+- 已新增脚本：
+  - `verify_latent_diffusion_factorized_latent.py`
+  - `run_latent_diffusion_factorized_latent_250ms_gate.sh`
+
+### 当前进展（2026-03-22）
+
+- 最小功能验证已通过：
+  - `compute_training_loss()` 可返回总 loss、`ae_recon_loss` 与 `diffusion_latent_loss`
+  - `generate()` 可输出 `[B, T, N]` 形状的有限 log-rate
+- `250ms` 真实数据 smoke 已跑通：
+  - 训练 smoke：
+    - `train_loss = 1.402`
+    - `val_loss = 1.401`
+    - `val/fp_bps = -1.440`
+  - 离线 valid smoke（1 batch）：
+    - `fp-bps = -1.4368`
+    - `R2 = -0.1217`
+    - `val_loss = 0.4433`
+  - 离线 test smoke（1 batch）：
+    - `fp-bps = -1.3657`
+    - `R2 = -0.1072`
+    - `val_loss = 0.4403`
+
+### 当前解读
+
+- 第一版 2A 已经完整跑通：模型实例化、训练、checkpoint、best ckpt 选择、离线 valid/test smoke 全部可用
+- 这轮 smoke 的最重要意义仍然是链路确认，而不是 formal 结论；当前只跑了 `2 train steps + 1 valid batch + 1 offline eval batch`
+- 但从 smoke 数值看，`Option 2A` 明显比前面几轮 `Option 2B` 的 smoke 更接近可用区间，说明“先压到 latent 再生成”至少值得继续做正式 gate
+
+### 主要风险
+
+- joint training 可能让 autoencoder reconstruction 和 diffusion latent denoising 相互牵制
+- `time x factorized latent units` 仍可能不足以保住精细 spike-wise information
+- 如果 formal 结果明显回落，问题可能来自 latent bottleneck，而不只是训练轮数或超参
+
+### 下一步
+
+1. 提交实现 checkpoint（代码、配置、文档、smoke 结果）
+2. 运行 `250ms formal gate`
+3. 默认 gate 标准仍为：`250ms test fp-bps >= -2.5`
+4. 只有 gate 通过，才继续扩到 `500 / 1000ms`

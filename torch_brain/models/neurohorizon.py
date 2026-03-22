@@ -18,6 +18,7 @@ from torch_brain.nn import (
     Embedding,
     FeedForward,
     InfiniteVocabEmbedding,
+    LatentDiffusionDecoder,
     PerNeuronMLPHead,
     RotaryCrossAttention,
     RotarySelfAttention,
@@ -61,6 +62,10 @@ class NeuroHorizon(nn.Module):
         flow_solver: str = "euler",
         conditioning_dropout: float = 0.0,
         flow_eval_seed: int = 42,
+        latent_ae_depth: int = 2,
+        latent_factor_units: int = 16,
+        latent_recon_weight: float = 1.0,
+        latent_diffusion_weight: float = 1.0,
     ):
         super().__init__()
 
@@ -68,16 +73,17 @@ class NeuroHorizon(nn.Module):
             raise ValueError(
                 f"sequence_length ({sequence_length}) must be > pred_window ({pred_window})"
             )
-        if decoder_variant not in {"query_aug", "diffusion_flow"}:
+        if decoder_variant not in {"query_aug", "diffusion_flow", "latent_diffusion"}:
             raise ValueError(
-                f"Unsupported decoder_variant={decoder_variant!r}; use 'query_aug' or 'diffusion_flow'"
+                "Unsupported decoder_variant="
+                f"{decoder_variant!r}; use 'query_aug', 'diffusion_flow', or 'latent_diffusion'"
             )
         if decoder_variant == "query_aug" and feedback_method != "none":
             raise ValueError(
                 "The dev/diffusion branch keeps only the no-feedback baseline AR path. "
                 "Set feedback_method='none'."
             )
-        if decoder_variant == "diffusion_flow" and flow_match_mode != "rectified":
+        if decoder_variant in {"diffusion_flow", "latent_diffusion"} and flow_match_mode != "rectified":
             raise ValueError("Only rectified flow matching is implemented in this branch")
 
         self.sequence_length = sequence_length
@@ -91,7 +97,7 @@ class NeuroHorizon(nn.Module):
         self.decoder_variant = decoder_variant
         self.feedback_method = feedback_method
         self.flow_target_space = flow_target_space
-        self.requires_target_counts = decoder_variant == "diffusion_flow"
+        self.requires_target_counts = decoder_variant in {"diffusion_flow", "latent_diffusion"}
 
         self.unit_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
         self.session_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
@@ -148,24 +154,47 @@ class NeuroHorizon(nn.Module):
             )
             self.head = PerNeuronMLPHead(dim)
             self.diffusion_decoder = None
+            self.latent_diffusion_decoder = None
         else:
             self.bin_emb = None
             self.ar_decoder = None
             self.head = None
-            self.diffusion_decoder = DiffusionFlowDecoder(
-                dim=dim,
-                depth=dec_depth,
-                dim_head=dim_head,
-                cross_heads=cross_heads,
-                self_heads=self_heads,
-                ffn_dropout=ffn_dropout,
-                atn_dropout=atn_dropout,
-                condition_dropout=conditioning_dropout,
-                eval_steps=flow_steps_eval,
-                eval_seed=flow_eval_seed,
-                target_space=flow_target_space,
-                solver=flow_solver,
-            )
+            if decoder_variant == "diffusion_flow":
+                self.diffusion_decoder = DiffusionFlowDecoder(
+                    dim=dim,
+                    depth=dec_depth,
+                    dim_head=dim_head,
+                    cross_heads=cross_heads,
+                    self_heads=self_heads,
+                    ffn_dropout=ffn_dropout,
+                    atn_dropout=atn_dropout,
+                    condition_dropout=conditioning_dropout,
+                    eval_steps=flow_steps_eval,
+                    eval_seed=flow_eval_seed,
+                    target_space=flow_target_space,
+                    solver=flow_solver,
+                )
+                self.latent_diffusion_decoder = None
+            else:
+                self.diffusion_decoder = None
+                self.latent_diffusion_decoder = LatentDiffusionDecoder(
+                    dim=dim,
+                    depth=dec_depth,
+                    autoencoder_depth=latent_ae_depth,
+                    num_latent_units=latent_factor_units,
+                    dim_head=dim_head,
+                    cross_heads=cross_heads,
+                    self_heads=self_heads,
+                    ffn_dropout=ffn_dropout,
+                    atn_dropout=atn_dropout,
+                    condition_dropout=conditioning_dropout,
+                    eval_steps=flow_steps_eval,
+                    eval_seed=flow_eval_seed,
+                    target_space=flow_target_space,
+                    solver=flow_solver,
+                    latent_loss_weight=latent_diffusion_weight,
+                    recon_loss_weight=latent_recon_weight,
+                )
 
     def _encode_history(
         self,
@@ -211,10 +240,10 @@ class NeuroHorizon(nn.Module):
         target_unit_mask: Optional[TensorType["batch", "n_units", bool]] = None,
         target_counts: Optional[TensorType["batch", "n_bins", "n_units"]] = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        if self.decoder_variant != "diffusion_flow":
-            raise RuntimeError("compute_training_loss is only used by diffusion_flow")
+        if self.decoder_variant not in {"diffusion_flow", "latent_diffusion"}:
+            raise RuntimeError("compute_training_loss is only used by diffusion-style decoders")
         if target_counts is None:
-            raise ValueError("target_counts is required for diffusion_flow training")
+            raise ValueError("target_counts is required for diffusion-style training")
 
         latents, latent_time_emb = self._encode_history(
             input_unit_index,
@@ -226,7 +255,16 @@ class NeuroHorizon(nn.Module):
         )
         bin_time_emb = self.rotary_emb(bin_timestamps)
         unit_embs = self.unit_emb(target_unit_index)
-        return self.diffusion_decoder.compute_flow_matching_loss(
+        if self.decoder_variant == "diffusion_flow":
+            return self.diffusion_decoder.compute_flow_matching_loss(
+                target_counts=target_counts,
+                bin_time_emb=bin_time_emb,
+                encoder_latents=latents,
+                latent_time_emb=latent_time_emb,
+                unit_embs=unit_embs,
+                unit_mask=target_unit_mask,
+            )
+        return self.latent_diffusion_decoder.compute_loss(
             target_counts=target_counts,
             bin_time_emb=bin_time_emb,
             encoder_latents=latents,
@@ -253,7 +291,7 @@ class NeuroHorizon(nn.Module):
             raise ValueError(
                 "Unit vocabulary not initialized. Call model.unit_emb.initialize_vocab(unit_ids)"
             )
-        if self.decoder_variant == "diffusion_flow":
+        if self.decoder_variant in {"diffusion_flow", "latent_diffusion"}:
             return self.generate(
                 input_unit_index=input_unit_index,
                 input_timestamps=input_timestamps,
@@ -322,6 +360,17 @@ class NeuroHorizon(nn.Module):
         if self.decoder_variant == "diffusion_flow":
             bin_time_emb = self.rotary_emb(bin_timestamps)
             return self.diffusion_decoder.sample_log_rate(
+                bin_time_emb=bin_time_emb,
+                encoder_latents=latents,
+                latent_time_emb=latent_time_emb,
+                unit_embs=unit_embs,
+                unit_mask=target_unit_mask,
+                device=latents.device,
+                dtype=latents.dtype,
+            )
+        if self.decoder_variant == "latent_diffusion":
+            bin_time_emb = self.rotary_emb(bin_timestamps)
+            return self.latent_diffusion_decoder.sample_log_rate(
                 bin_time_emb=bin_time_emb,
                 encoder_latents=latents,
                 latent_time_emb=latent_time_emb,

@@ -402,6 +402,48 @@
 - **依赖**：`poyo` conda 环境（`matplotlib`、`numpy`）
 - **备注**：对应 plan.md 任务 1.11 第三轮结果收尾
 
+### verify_latent_diffusion_factorized_latent.py（1.11 Option 2A 最小功能验证）
+
+- **路径**：`scripts/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/verify_latent_diffusion_factorized_latent.py`
+- **功能用途**：验证第一版 `Option 2A latent diffusion` 的核心接口可用
+  - 实例化 `decoder_variant='latent_diffusion'`
+  - 检查 `compute_training_loss()` 返回总 loss 与分项 loss
+  - 检查 `generate()` 输出 shape 与数值有效性
+- **创建时间**：2026-03-22
+- **使用方式**：
+  ```bash
+  cd /root/autodl-tmp/NeuroHorizon
+  /root/miniconda3/bin/conda run -n poyo python \
+  scripts/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/verify_latent_diffusion_factorized_latent.py
+  ```
+- **输入**：无外部数据依赖，脚本内部构造最小 mock batch
+- **输出**：stdout 中打印 `latent diffusion verify: ok` 与 loss 数值
+- **依赖**：`poyo` conda 环境；`torch_brain/models/neurohorizon.py` 与 `torch_brain/nn/latent_diffusion_decoder.py`
+- **备注**：对应 plan.md 任务 1.11 第四轮 Option 2A 实现阶段
+
+### run_latent_diffusion_factorized_latent_250ms_gate.sh（1.11 Option 2A 250ms gate）
+
+- **路径**：`scripts/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/run_latent_diffusion_factorized_latent_250ms_gate.sh`
+- **功能用途**：执行第一版 `Option 2A latent diffusion` 的 `250ms` formal gate
+  - 运行 `250ms` 正式训练配置
+  - 训练结束后自动对 best checkpoint 做 `valid/test` 离线评估
+- **创建时间**：2026-03-22
+- **使用方式**：
+  ```bash
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/run_latent_diffusion_factorized_latent_250ms_gate.sh
+  ```
+- **输入**：
+  - `examples/neurohorizon/configs/train_1p11_latent_diffusion_factorized_latent_250ms.yaml`
+  - `examples/neurohorizon/train.py`
+  - `scripts/analysis/neurohorizon/eval_phase1_v2.py`
+- **输出**：
+  - `results/logs/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/250ms/`
+  - `eval_v2_valid_results.json`
+  - `eval_v2_test_results.json`
+- **依赖**：`/root/miniconda3/bin/conda`；`poyo` 环境；当前 `latent_diffusion` decoder 实现
+- **备注**：对应 plan.md 任务 1.11 第四轮 Option 2A `250ms gate-first`
+
 ### test_decoder.py（1.1.4 单元测试）
 
 - **路径**：`scripts/tests/test_decoder.py`

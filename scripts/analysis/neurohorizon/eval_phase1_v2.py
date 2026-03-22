@@ -169,7 +169,7 @@ def run_model(model, batch, device, rollout: bool = False):
         k: v.to(device) if isinstance(v, torch.Tensor) else v
         for k, v in batch["model_inputs"].items()
     }
-    if rollout or getattr(model, "decoder_variant", None) == "diffusion_flow":
+    if rollout or getattr(model, "decoder_variant", None) in {"diffusion_flow", "latent_diffusion"}:
         return model.generate(**inputs)
     if getattr(model, "requires_target_counts", False):
         inputs["target_counts"] = batch["target_spike_counts"].to(device)

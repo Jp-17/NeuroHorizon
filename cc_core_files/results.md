@@ -327,6 +327,44 @@ results/
   - 本轮只保留 `250ms` 单窗口归档，不继续执行 `500 / 1000ms`
   - 已运行 `collect_dense_history_cross_factorized_flow_results.py --windows 250ms`，并写回 `cc_todo/1.11-diffusion-decoder/results.tsv`
 
+### latent diffusion factorized latent 250ms smoke（Option 2A 首轮链路验证）
+
+- **存储路径**：
+  - `results/logs/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/250ms_smoke/`
+  - `results/logs/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/250ms_smoke/lightning_logs/version_0/eval_v2_valid_results.json`
+  - `results/logs/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/250ms_smoke/lightning_logs/version_0/eval_v2_test_results.json`
+- **产生时间**：2026-03-22
+- **产生方式**：
+  - 功能验证：`scripts/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/verify_latent_diffusion_factorized_latent.py`
+  - 训练：`examples/neurohorizon/train.py --config-name train_1p11_latent_diffusion_factorized_latent_250ms.yaml`
+  - smoke override：`epochs=1 eval_epochs=1 batch_size=2 eval_batch_size=2 num_workers=0 +max_steps=2 +limit_train_batches=2 +limit_val_batches=1`
+  - 离线评估：
+    - `scripts/analysis/neurohorizon/eval_phase1_v2.py --log-dir .../250ms_smoke --checkpoint-kind best --split valid --batch-size 2 --skip-trial --max-batches 1`
+    - `scripts/analysis/neurohorizon/eval_phase1_v2.py --log-dir .../250ms_smoke --checkpoint-kind best --split test --batch-size 2 --skip-trial --max-batches 1`
+- **实验目的**：验证 `Option 2A latent diffusion + factorized latent` 是否已经在真实数据上完整跑通训练、checkpoint 和离线评估链路
+- **实验配置**：
+  - 模型：`decoder_variant=latent_diffusion`
+  - 结构：deterministic factorized count autoencoder + latent rectified flow matching
+  - 数据：Perich-Miller 10 sessions，continuous，obs=500ms，pred=250ms
+  - smoke 限制：2 个训练 step，1 个 validation batch，1 个离线 valid batch，1 个离线 test batch
+- **主要结果**：
+  - 训练 smoke：`train_loss = 1.402`，`val_loss = 1.401`，`val/fp_bps = -1.440`
+  - 离线 valid smoke（1 batch）：
+    - `fp-bps = -1.4368`
+    - `R2 = -0.1217`
+    - `val_loss = 0.4433`
+  - 离线 test smoke（1 batch）：
+    - `fp-bps = -1.3657`
+    - `R2 = -0.1072`
+    - `val_loss = 0.4403`
+- **结果分析**：
+  - 第一版 `Option 2A` 已经完整跑通：模型实例化、训练、checkpoint、best ckpt 选择、离线 valid/test smoke 全部可用
+  - 这轮 smoke 的最重要意义仍然是链路确认，而不是 formal 结论；当前只跑了极小训练步数与单 batch 离线评估
+  - 但从 smoke 数值看，`Option 2A` 相比前三轮 `Option 2B` 的 smoke 更接近可用区间，说明 latent-space generation 值得继续推进 `250ms formal gate`
+- **备注**：
+  - 当前未写入 `cc_todo/1.11-diffusion-decoder/results.tsv`，等待 formal gate 后再追加正式窗口结果
+  - 下一步是执行 `run_latent_diffusion_factorized_latent_250ms_gate.sh`
+
 
 ---
 

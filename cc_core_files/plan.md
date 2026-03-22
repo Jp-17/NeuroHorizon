@@ -968,7 +968,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 > 效果追踪：`cc_todo/1.11-diffusion-decoder/results.tsv`
 
 **目标**：
-建立独立于 1.9 AR 优化线的 diffusion decoder 主线管理机制，围绕 `Option 2B + flow matching + DiT` 持续推进模型实现、验证与结果汇总，同时保留 `Option 2A` 作为后续备选。
+建立独立于 1.9 AR 优化线的 diffusion decoder 主线管理机制；当前正式主线为 `Option 2A latent diffusion + factorized latent`，`Option 2B` 保留为历史 baseline / failure case 对照。
 
 #### 1.11.0 执行规范
 
@@ -976,7 +976,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 在 `cc_todo/1.11-diffusion-decoder/model.md` 中新增一节，标注日期和改进名称
 - 记录：前因后果、想法描述、动机与目的、相比现有方案的改动点、涉及改动模块、与当前仓库实现的结合方式
 - 必须显式说明与 `1.9` / `cc_core_files/model.md` 中 AR 路线的关系，包括：哪些失败结论促使转向 diffusion、哪些经验仍可复用
-- 进行充分的批判性分析：优缺点、风险、替代方案；若保留 `Option 2A latent diffusion` 作为备选，也需说明与当前主线的取舍
+- 进行充分的批判性分析：优缺点、风险、替代方案；若与当前主线不同，也需说明与当前主线的取舍
 - 基于当前仓库代码实现，给出可落地的修改方案和基本功能验证方案
 - 标记状态为“提出”
 
@@ -1105,6 +1105,25 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - `250ms` formal gate 已完成，best `val/fp_bps = -4.5783`（epoch `239`），formal valid/test `fp-bps = -4.5587 / -4.5658`
 - `250ms test fp-bps = -4.5658 < -2.5`，未通过 gate，按计划停止扩到 `500 / 1000ms`
 - 相比第二轮 `20260320_factorized_unit_time_flow` 的 `250ms test fp-bps = -4.0307` 反而下降 `-0.5351`，因此 dense history cross 不建议继续作为下一轮默认方向
+
+##### 20260322_latent_diffusion_factorized_latent -- Option 2A Latent Diffusion with Factorized Time-Unit Latents
+> 状态: 验证中（250ms smoke 已通过）
+> 分支: `dev/diffusion`
+> 文档: `cc_todo/1.11-diffusion-decoder/model.md` 中“2026-03-22 — Latent Diffusion with Factorized Time-Unit Latents”
+> 任务记录: `cc_todo/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent.md`
+> 脚本: `scripts/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/`
+> 日志: `results/logs/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/`
+> 可视化: `results/figures/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/`
+> commit: （待填写）
+> 结果: 250ms smoke valid/test fp-bps=`-1.4368 / -1.3657` / 500ms 未执行 / 1000ms 未执行
+
+- 设计动机：第三轮已经说明 `Option 2B` 的剩余 gap 不能再简单归因于 conditioning，继续在 raw count-space 上做局部 attention 微调的价值下降，因此正式切到 `Option 2A latent diffusion`
+- 第一版 latent 形态固定为 `time x factorized latent units`，不做 global full-field latent，也不在首版引入 VAE / KL
+- 代码实现已新增 `decoder_variant='latent_diffusion'`、`FactorizedCountAutoencoder`、`LatentDiffusionDecoder`，并扩展训练/评估入口支持 2A 路线
+- 已完成最小功能验证与 `250ms` 真实数据 smoke：
+  - 训练 smoke：`train_loss=1.402`，`val_loss=1.401`，`val/fp_bps=-1.440`
+  - 离线 valid/test smoke：`fp-bps=-1.4368 / -1.3657`
+- 当前最合理的下一步是提交实现 checkpoint，并执行 `250ms formal gate`；默认 gate 仍为 `250ms test fp-bps >= -2.5`
 
 
 ---
