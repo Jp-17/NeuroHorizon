@@ -307,3 +307,30 @@ python neural-benchmark/faithful_neuroformer.py \
 - 当前运行命令：`faithful_neuroformer.py --mode train --obs-window 0.5 --pred-window 0.25 --epochs 50 ... --session-embedding-scale 1.0`
 - 当前状态：训练进程存活，CPU 持续高占用；这次已确认不是入口参数缺失导致的即时退出
 - 当前主日志仍沿用旧文件 `neuroformer_rerun.log`，其中最早一行保留了上一次错误输出；后续以当前进程存活、checkpoint 更新时间和正式结果文件为准
+
+
+## Neuroformer 单验证重跑状态（2026-03-22 17:12 CST）
+
+- 背景：在对比 `session conditioning` 重跑与旧 canonical run 的墙钟速度后，发现当前训练期较旧版明显变慢；为隔离“训练期双验证 + 新增诊断”对速度的影响，先把训练期监控回退到旧口径再重跑。
+- 本次代码调整：
+  - `run_train()` 每个 epoch 只保留一次 `valid rollout`，不再在训练期额外执行 `valid true_past`
+  - 训练期 `history` / stdout 回退到旧字段：`valid_fp_bps + valid_r2`
+  - `evaluate_faithful_neuroformer_loader()` 新增 `include_diagnostics` 开关；训练期设为 `False`，跳过 `predicted_to_true_event_ratio / per_session_metrics / max_generate_steps_hit_rate / eos_termination_rate`
+  - formal eval 与 `session conditioning` 本身保持不变
+- 归档情况：
+  - 原慢速双验证 run 目录已备份到：`results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/neuroformer_250ms_session_conditioning_e50_dualval_backup_20260322_171136`
+  - 原日志已备份到：`results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/neuroformer_rerun_dualval_backup_20260322_171136.log`
+- 新重跑入口：
+  - screen：`phase1_neuroformer_20260322_singleval`
+  - 日志：`results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/neuroformer_rerun_singleval.log`
+  - 输出目录：`results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/neuroformer_250ms_session_conditioning_e50`
+- 启动命令：
+  - `bash scripts/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/rerun_neuroformer_only.sh`
+- 当前早期观测（2026-03-22 17:23 CST）：
+  - 新单验证 run 已运行约 `11 min`
+  - 训练进程存活，CPU 持续高占用
+  - 当前尚未写出首个 `last_model.pt / best_model.pt`
+  - 同卡仍有另一个 decoder screening 训练在跑，但当前 GPU `pmon` 显示 Neuroformer 占用约 `54%` SM，高于先前慢速 run 下午观测到的约 `27%` SM
+- 当前判断：
+  - 训练期双验证与新增诊断至少会带来额外开销，本次重跑用于验证它们是否是主要 slowdown 来源
+  - 但本次重跑仍存在 GPU 共享干扰，因此即便速度改善，也只能说明“训练期配置回退后节奏变轻”，不能单独把全部提速归因到代码改动

@@ -852,6 +852,7 @@ def evaluate_faithful_neuroformer_loader(
     compute_teacher_forced_loss: bool = True,
     progress_prefix: Optional[str] = None,
     progress_every: int = 25,
+    include_diagnostics: bool = True,
 ) -> Dict[str, object]:
     all_logrates = []
     all_targets = []
@@ -900,8 +901,9 @@ def evaluate_faithful_neuroformer_loader(
             all_targets.append(batch["target_counts"].cpu())
             all_unit_ids.append(batch["unit_ids"].cpu())
             all_unit_masks.append(batch["unit_mask"].cpu())
-            all_session_ids.extend([str(x) for x in batch["session_id"]])
-            generation_meta.extend(batch_meta)
+            if include_diagnostics:
+                all_session_ids.extend([str(x) for x in batch["session_id"]])
+                generation_meta.extend(batch_meta)
             if progress_prefix and (batch_idx == 1 or batch_idx % max(progress_every, 1) == 0 or batch_idx == total_batches):
                 print(json.dumps({
                     "progress": progress_prefix,
@@ -921,23 +923,24 @@ def evaluate_faithful_neuroformer_loader(
         unit_mask=unit_mask,
         null_lookup=null_lookup.cpu(),
     )
-    metrics.update(summarize_event_count_statistics(log_rates, targets))
-    metrics["per_session_metrics"] = compute_per_session_metrics(
-        log_rates=log_rates,
-        targets=targets,
-        unit_ids=unit_ids,
-        unit_mask=unit_mask,
-        session_ids=all_session_ids,
-        null_lookup=null_lookup.cpu(),
-    )
-    hit_flags = [item["hit_max_generate_steps"] for item in generation_meta if item["hit_max_generate_steps"] is not None]
-    eos_flags = [item["terminated_by_eos"] for item in generation_meta if item["terminated_by_eos"] is not None]
-    metrics["max_generate_steps_hit_rate"] = (
-        float(sum(1 for flag in hit_flags if flag) / max(len(hit_flags), 1)) if hit_flags else None
-    )
-    metrics["eos_termination_rate"] = (
-        float(sum(1 for flag in eos_flags if flag) / max(len(eos_flags), 1)) if eos_flags else None
-    )
+    if include_diagnostics:
+        metrics.update(summarize_event_count_statistics(log_rates, targets))
+        metrics["per_session_metrics"] = compute_per_session_metrics(
+            log_rates=log_rates,
+            targets=targets,
+            unit_ids=unit_ids,
+            unit_mask=unit_mask,
+            session_ids=all_session_ids,
+            null_lookup=null_lookup.cpu(),
+        )
+        hit_flags = [item["hit_max_generate_steps"] for item in generation_meta if item["hit_max_generate_steps"] is not None]
+        eos_flags = [item["terminated_by_eos"] for item in generation_meta if item["terminated_by_eos"] is not None]
+        metrics["max_generate_steps_hit_rate"] = (
+            float(sum(1 for flag in hit_flags if flag) / max(len(hit_flags), 1)) if hit_flags else None
+        )
+        metrics["eos_termination_rate"] = (
+            float(sum(1 for flag in eos_flags if flag) / max(len(eos_flags), 1)) if eos_flags else None
+        )
     metrics["n_samples"] = int(sum(x.shape[0] for x in all_logrates))
     metrics["teacher_forced_loss"] = (
         float(teacher_forced_loss / max(teacher_forced_batches, 1))
@@ -1339,7 +1342,7 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
             loss_total += float(total_loss.detach().cpu().item())
             loss_steps += 1
 
-        valid_metrics_rollout = evaluate_faithful_neuroformer_loader(
+        valid_metrics = evaluate_faithful_neuroformer_loader(
             model,
             tokenizer,
             valid_loader,
@@ -1350,35 +1353,16 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
             max_generate_steps=bridge_cfg.max_generate_steps,
             true_past=False,
             compute_teacher_forced_loss=False,
-        )
-        valid_metrics_true_past = evaluate_faithful_neuroformer_loader(
-            model,
-            tokenizer,
-            valid_loader,
-            spec=spec,
-            channel_capacity=channel_capacity,
-            null_lookup=null_lookup,
-            device=device,
-            max_generate_steps=bridge_cfg.max_generate_steps,
-            true_past=True,
-            compute_teacher_forced_loss=True,
+            include_diagnostics=False,
         )
         mean_train_loss = float(loss_total / max(loss_steps, 1))
-        final_epoch_metrics = {
-            "rollout": dict(valid_metrics_rollout),
-            "true_past": dict(valid_metrics_true_past),
-        }
+        final_epoch_metrics = dict(valid_metrics)
         history.append(
             {
                 "epoch": int(epoch),
                 "train_loss": mean_train_loss,
-                "valid_fp_bps": float(valid_metrics_rollout["fp_bps"]),
-                "valid_rollout_fp_bps": float(valid_metrics_rollout["fp_bps"]),
-                "valid_true_past_fp_bps": float(valid_metrics_true_past["fp_bps"]),
-                "valid_teacher_forced_loss": float(valid_metrics_true_past["teacher_forced_loss"]),
-                "valid_rollout_true_past_gap_fp_bps": float(
-                    valid_metrics_rollout["fp_bps"] - valid_metrics_true_past["fp_bps"]
-                ),
+                "valid_fp_bps": float(valid_metrics["fp_bps"]),
+                "valid_r2": float(valid_metrics["r2"]),
                 "lr": current_lr,
                 "weight_decay": float(bridge_cfg.weight_decay),
                 "grad_accum_steps": int(grad_accum_steps),
@@ -1396,20 +1380,20 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
             epoch=epoch,
             model=model,
             optimizer=optimizer,
-            valid_metrics=valid_metrics_rollout,
+            valid_metrics=valid_metrics,
             train_loss=mean_train_loss,
             tokens_seen=tokens_seen,
         )
-        if float(valid_metrics_rollout["fp_bps"]) > best_valid_fp_bps:
-            best_valid_fp_bps = float(valid_metrics_rollout["fp_bps"])
+        if float(valid_metrics["fp_bps"]) > best_valid_fp_bps:
+            best_valid_fp_bps = float(valid_metrics["fp_bps"])
             best_epoch = int(epoch)
-            best_valid_metrics = dict(valid_metrics_rollout)
+            best_valid_metrics = dict(valid_metrics)
             save_checkpoint(
                 best_checkpoint_path,
                 epoch=epoch,
                 model=model,
                 optimizer=optimizer,
-                valid_metrics=valid_metrics_rollout,
+                valid_metrics=valid_metrics,
                 train_loss=mean_train_loss,
                 tokens_seen=tokens_seen,
             )
@@ -1418,9 +1402,8 @@ def run_train(args: argparse.Namespace) -> Dict[str, object]:
                 {
                     "epoch": epoch,
                     "train_loss": mean_train_loss,
-                    "valid_rollout_fp_bps": float(valid_metrics_rollout["fp_bps"]),
-                    "valid_true_past_fp_bps": float(valid_metrics_true_past["fp_bps"]),
-                    "valid_teacher_forced_loss": float(valid_metrics_true_past["teacher_forced_loss"]),
+                    "valid_fp_bps": float(valid_metrics["fp_bps"]),
+                    "valid_r2": float(valid_metrics["r2"]),
                 }
             )
         )

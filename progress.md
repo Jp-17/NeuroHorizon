@@ -2275,3 +2275,28 @@
 **当前状态**：
 - 当前 Neuroformer 训练进程已进入正式运行，不再是入口参数缺失后的即时失败
 - 当前继续按 `1.8.3` 协议执行：训练结束后用 `best ckpt` 做 formal `valid/test × rollout/true_past`
+
+
+## 2026-03-22 17:12 CST - 回退 Neuroformer 训练期双验证/新增监控并重跑
+
+**完成事项**：
+1. 在 `neural-benchmark/faithful_neuroformer.py` 中将训练期监控回退到旧 benchmark 口径
+   - 每个 epoch 只跑一次 `valid rollout`
+   - 训练期 `history/stdout` 只保留 `valid_fp_bps` 与 `valid_r2`
+   - 新增 `include_diagnostics` 开关，训练期关闭 `predicted_to_true_event_ratio / per_session_metrics / hit/eos rate` 等附加诊断
+   - formal eval 与 `session conditioning` 保持不变
+2. 停止上一轮慢速双验证重跑，并归档其产物
+   - 备份目录：`results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/neuroformer_250ms_session_conditioning_e50_dualval_backup_20260322_171136`
+   - 备份日志：`results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/neuroformer_rerun_dualval_backup_20260322_171136.log`
+3. 启动新的单验证版重跑
+   - screen：`phase1_neuroformer_20260322_singleval`
+   - 日志：`results/logs/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/neuroformer_rerun_singleval.log`
+
+**当前状态**：
+- 截至 `2026-03-22 17:23 CST`，新 run 已运行约 `11 min`，进程仍在正常推进
+- 当前尚未写出首个 checkpoint，因此还不能直接给出与旧 run 的首轮落盘时间对比
+- 当前 GPU `pmon` 显示 Neuroformer 占用约 `54%` SM；同卡仍有 decoder screening 任务并行运行，是当前速度判断的残留干扰因素
+
+**当前判断**：
+- 这次重跑已经把“训练期双验证 + 新增监控”这一变量单独拿掉
+- 下一步继续观察首个 `last_model.pt` 的落盘时间，再与先前双验证 run 的首轮落盘时间对比
