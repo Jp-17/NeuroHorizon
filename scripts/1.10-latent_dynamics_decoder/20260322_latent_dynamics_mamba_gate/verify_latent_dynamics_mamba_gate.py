@@ -10,6 +10,9 @@ from torch_brain.models import NeuroHorizon
 
 def main() -> None:
     torch.manual_seed(0)
+    if not torch.cuda.is_available():
+        raise RuntimeError("official mamba_ssm verification requires a CUDA device")
+    device = torch.device("cuda")
 
     model = NeuroHorizon(
         sequence_length=1.0,
@@ -35,17 +38,21 @@ def main() -> None:
             "output_residual": True,
         },
     )
+    model.to(device)
     model.eval()
 
     unit_ids = [f"unit_{i}" for i in range(6)]
     model.unit_emb.initialize_vocab(unit_ids)
     model.session_emb.initialize_vocab(["session_0"])
-    global_unit_indices = torch.tensor(model.unit_emb.tokenizer(unit_ids), dtype=torch.long)
+    global_unit_indices = torch.tensor(
+        model.unit_emb.tokenizer(unit_ids),
+        dtype=torch.long,
+        device=device,
+    )
 
     batch_size = 2
     n_inputs = 24
     n_latent_steps = 10
-    n_latents = n_latent_steps * model.num_latents_per_step
     n_bins = model.T_pred_bins
 
     latent_index = (
@@ -81,11 +88,16 @@ def main() -> None:
         "target_unit_index": global_unit_indices.unsqueeze(0).repeat(batch_size, 1),
         "target_unit_mask": torch.ones(batch_size, len(unit_ids), dtype=torch.bool),
     }
+    inputs = {
+        key: value.to(device) if torch.is_tensor(value) else value for key, value in inputs.items()
+    }
 
     assert model.requires_target_counts is False
     decoder = model.latent_dynamics_decoder
     assert decoder is not None
     backend = decoder.mamba_blocks[0].backend if decoder.mamba_blocks is not None else "unknown"
+    if backend != "mamba_ssm":
+        raise AssertionError(f"Expected official mamba_ssm backend, got {backend}")
     forward_out = model(**inputs)
     generate_out = model.generate(**inputs)
 

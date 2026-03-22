@@ -411,18 +411,21 @@ history spikes
   - `pyproject.toml` 中新增 `mamba` / `mamba-kernels` optional dependency
   - 新增本轮 `500ms gate` 的配置、验证脚本、smoke 脚本、formal 脚本与 collect 脚本
   - `gru` 路径已完成最小构造回归验证
-  - `mamba` 路径已支持两级后端：
-    - 优先 `mamba-ssm`
-    - 缺失时回退到 `transformers + mambapy`
+  - `mamba` 路径已锁定为官方 `mamba-ssm` backend，不再回退到其他实现
+  - 在当前 `poyo` 环境中完成官方 backend 安装：
+    - `causal-conv1d==1.6.1`
+    - `mamba-ssm==2.3.1`
+    - 安装方式：基于当前 `torch 2.10.0+cu128` 环境做 `sm_89` 定向源码编译
   - verify 已通过：
-    - `mamba_backend=transformers_mambapy`
+    - `mamba_backend=mamba_ssm`
     - `output_shape=(2, 25, 6)`
     - `tf_vs_rollout_max_delta=0.000000`
-  - `500ms` smoke 已在 fallback backend 下跑通：
-    - `batch_size=16`
-    - train loss：`0.415`
-    - val loss：`0.395`
-    - continuous valid：`fp-bps=-0.8285`, `R2=0.0001`, `val_loss=0.3956`
+  - `500ms` smoke 已在官方 backend 下跑通：
+    - `batch_size=64`
+    - train loss：`0.419`
+    - val loss：`0.396`
+    - continuous valid：`fp-bps=-0.8290`, `R2=-0.0001`, `val_loss=0.3958`
+  - `500ms` formal gate 已启动，正在后台运行
 - 当前 blocker：
-  - `mamba-ssm` / `causal-conv1d` kernel backend 仍未安装完成
-  - `transformers + mambapy` fallback 虽然能跑通 verify 和 smoke，但在 `batch_size=128` 会 OOM，吞吐也不足以直接进入 formal gate
+  - 环境 blocker 已清除
+  - 当前仅等待正式 `500ms` gate 训练完成并产出 valid/test 指标

@@ -25,19 +25,12 @@ def _resolve_mamba_backend() -> tuple[str, Any]:
             from mamba_ssm.modules.mamba_simple import Mamba  # type: ignore
 
             return "mamba_ssm", Mamba
-        except Exception:
-            try:
-                import mambapy  # noqa: F401
-                from transformers.models.mamba.configuration_mamba import MambaConfig
-                from transformers.models.mamba.modeling_mamba import MambaBlock
-
-                return "transformers_mambapy", (MambaBlock, MambaConfig)
-            except Exception as exc:  # pragma: no cover - exercised only when dependency missing
-                raise ImportError(
-                    "latent_dynamics_backbone='mamba' requires either "
-                    "'mamba-ssm>=2.2,<2.3' or the lighter fallback "
-                    "'transformers' + 'mambapy>=1.2.0'."
-                ) from exc
+        except Exception as exc:  # pragma: no cover - exercised only when dependency missing
+            raise ImportError(
+                "latent_dynamics_backbone='mamba' requires the official "
+                "'mamba-ssm>=2.3.1' package together with matching "
+                "'causal-conv1d>=1.6.1' CUDA kernels."
+            ) from exc
 
 
 class LatentDynamicsMambaBlock(nn.Module):
@@ -56,38 +49,22 @@ class LatentDynamicsMambaBlock(nn.Module):
 
         backend, payload = _resolve_mamba_backend()
         self.backend = backend
-        if backend == "mamba_ssm":
-            mamba_cls = payload
-            self.mixer_norm = nn.LayerNorm(d_model)
-            self.mixer = mamba_cls(
-                d_model=d_model,
-                d_state=d_state,
-                d_conv=d_conv,
-                expand=expand,
-            )
-        else:
-            mamba_block_cls, mamba_config_cls = payload
-            self.mixer_norm = None
-            config = mamba_config_cls(
-                hidden_size=d_model,
-                state_size=d_state,
-                num_hidden_layers=1,
-                expand=expand,
-                conv_kernel=d_conv,
-                use_mambapy=True,
-            )
-            self.mixer = mamba_block_cls(config, layer_idx=0)
+        mamba_cls = payload
+        self.mixer_norm = nn.LayerNorm(d_model)
+        self.mixer = mamba_cls(
+            d_model=d_model,
+            d_state=d_state,
+            d_conv=d_conv,
+            expand=expand,
+        )
         self.ffn = nn.Sequential(
             nn.LayerNorm(d_model),
             FeedForward(dim=d_model, dropout=ffn_dropout),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.backend == "mamba_ssm":
-            assert self.mixer_norm is not None
-            x = x + self.mixer(self.mixer_norm(x))
-        else:
-            x = self.mixer(x)
+        assert self.mixer_norm is not None
+        x = x + self.mixer(self.mixer_norm(x))
         x = x + self.ffn(x)
         return x
 

@@ -1431,6 +1431,36 @@
 - **依赖**：poyo conda 环境（pandas）
 - **备注**：该模块只做 `500ms gate`，不会填充 `250ms / 1000ms` 字段
 
+### install_official_mamba_wheels.sh（1.10 官方 Mamba wheel 安装）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/install_official_mamba_wheels.sh`
+- **功能用途**：在当前 `poyo` 环境中安装与 `torch 2.10 + cu12 + cp310 + cxx11abiTRUE` 匹配的官方 `causal-conv1d` / `mamba-ssm` release wheel
+- **创建时间**：2026-03-22
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/install_official_mamba_wheels.sh
+  ```
+- **输出**：在当前 Python 环境中安装 `causal-conv1d` 与 `mamba-ssm`
+- **依赖**：`wget`；当前 `poyo` 环境；官方 GitHub release 访问权限
+- **备注**：本轮已删除 `transformers + mambapy` fallback；`latent_dynamics_backbone=mamba` 仅支持官方 `mamba-ssm`
+
+### build_official_mamba_from_source.sh（1.10 官方 Mamba 源码编译安装）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/build_official_mamba_from_source.sh`
+- **功能用途**：在当前 `torch 2.10 + cu128 + RTX 4090` 环境中，从官方源码编译并安装 `causal-conv1d` / `mamba-ssm`
+- **创建时间**：2026-03-22
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/build_official_mamba_from_source.sh
+  ```
+- **输出**：在当前 Python 环境中安装 `causal-conv1d` 与 `mamba-ssm`
+- **依赖**：`/usr/local/cuda-12.4`；当前 `poyo` 环境；`wget`
+- **备注**：该脚本会把编译目标裁到 `sm_89`，这是本轮实际成功打通官方 backend 的安装路径
+
 ### verify_latent_dynamics_mamba_gate.py（1.10 Mamba gate 功能验证）
 
 - **路径**：`scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/verify_latent_dynamics_mamba_gate.py`
@@ -1446,8 +1476,8 @@
   python scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/verify_latent_dynamics_mamba_gate.py
   ```
 - **输出**：stdout 形状检查与 `tf_vs_rollout_max_delta`
-- **依赖**：poyo conda 环境；优先 `mamba-ssm>=2.2,<2.3` + `causal-conv1d>=1.4.0`，缺失时可用 `mambapy>=1.2.0` fallback
-- **备注**：作为 `20260322_latent_dynamics_mamba_gate` 的最小功能回归；当前 verify 实际走的是 `transformers + mambapy` fallback
+- **依赖**：poyo conda 环境；官方 `mamba-ssm>=2.3.1` + `causal-conv1d>=1.6.1`
+- **备注**：作为 `20260322_latent_dynamics_mamba_gate` 的最小功能回归；脚本会显式拒绝任何非官方 backend，并要求可用 CUDA 设备
 
 ### run_latent_dynamics_mamba_smoke.sh（1.10 Mamba 500ms smoke）
 
@@ -1464,8 +1494,8 @@
   bash scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/run_latent_dynamics_mamba_smoke.sh
   ```
 - **输出**：`results/logs/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/500ms_smoke/`
-- **依赖**：poyo conda 环境；优先 `mamba-ssm>=2.2,<2.3`，可退化到 `mambapy>=1.2.0`
-- **备注**：用于判断 `Mamba` 路线是否已打通训练、checkpoint 与离线评估链路；当前默认 `batch_size=16` 以避免 fallback backend OOM
+- **依赖**：poyo conda 环境；官方 `mamba-ssm>=2.3.1` + `causal-conv1d>=1.6.1`
+- **备注**：用于判断 `Mamba` 路线是否已打通训练、checkpoint 与离线评估链路；默认 `batch_size=64`，与 `500ms` train config 对齐
 
 ### run_latent_dynamics_mamba_500ms.sh（1.10 Mamba 500ms formal gate）
 
@@ -1482,8 +1512,8 @@
   bash scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/run_latent_dynamics_mamba_500ms.sh
   ```
 - **输出**：`results/logs/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/500ms/`
-- **依赖**：poyo conda 环境，推荐 `mamba-ssm>=2.2,<2.3` + `causal-conv1d>=1.4.0`
-- **备注**：作为 `1.10.x` 的 `500ms` Mamba backbone gate，不直接扩展到 `250ms / 1000ms`；当前 formal gate 仍应等待 kernel backend
+- **依赖**：poyo conda 环境；官方 `mamba-ssm>=2.3.1` + `causal-conv1d>=1.6.1`
+- **备注**：作为 `1.10.x` 的 `500ms` Mamba backbone gate，不直接扩展到 `250ms / 1000ms`
 
 ### collect_latent_dynamics_mamba_results.py（1.10 Mamba 结果汇总）
 

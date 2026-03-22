@@ -2,7 +2,7 @@
 
 **日期**：2026-03-22
 **模块名**：`latent_dynamics_mamba_gate`
-**状态**：验证中
+**状态**：进行中
 **分支**：`dev/latent`
 
 ## 改进摘要
@@ -38,11 +38,13 @@
 - [x] 新增 `500ms gate` 的 model/train config
 - [x] 新增本轮 verify / smoke / formal / collect 脚本
 - [x] 在 `pyproject.toml` 中添加 `mamba` optional dependency
-- [x] 安装 `mambapy` fallback 并完成最小导入验证
-- [ ] 完成 `mamba-ssm` / `causal-conv1d` kernel backend 安装
+- [x] 删除 `transformers + mambapy` fallback，锁定官方 `mamba-ssm`
+- [x] 新增官方 wheel 安装脚本
+- [x] 新增官方源码编译安装脚本
+- [x] 完成 `mamba-ssm` / `causal-conv1d` 官方 backend 安装
 - [x] 完成本轮 verify
 - [x] 跑通 `500ms` smoke
-- [ ] 启动 `500ms` formal gate run
+- [x] 启动 `500ms` formal gate run
 
 ## 本轮目标配置
 
@@ -70,11 +72,11 @@ source /root/miniconda3/etc/profile.d/conda.sh
 conda activate poyo
 cd /root/autodl-tmp/NeuroHorizon
 
-# 依赖安装（可运行 fallback）
-pip install mambapy
+# 官方 backend 安装（当前环境实测成功路径）
+bash scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/build_official_mamba_from_source.sh
 
-# 依赖安装（更快 CUDA kernels，仍在排查）
-TMPDIR=/root/autodl-tmp/tmp_pip MAX_JOBS=4 pip install --no-build-isolation ninja 'causal-conv1d>=1.4.0' 'mamba-ssm>=2.2,<2.3'
+# 官方 wheel 安装（适合作为备用路径）
+bash scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/install_official_mamba_wheels.sh
 
 # 功能验证
 python scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/verify_latent_dynamics_mamba_gate.py
@@ -95,41 +97,49 @@ bash scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/ru
   - `latent_dynamics_backbone_cfg`
   - `latent_dynamics_input_mode='prev_latent'`
 - `gru` 路径构造已确认未被新接口破坏
-- `mamba` 路径已支持两级后端：
-  - 优先 `mamba-ssm`
-  - 缺失时回退到 `transformers + mambapy`
+- `mamba` 路径已锁定为官方 backend：
+  - 仅支持 `mamba-ssm`
+  - 缺失依赖时直接报错，不再回退到其他实现
 - 新增配置与脚本：
   - `examples/neurohorizon/configs/model/neurohorizon_latent_dynamics_mamba_500ms.yaml`
   - `examples/neurohorizon/configs/train_1p10_latent_dynamics_mamba_500ms.yaml`
   - `scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/`
+- 当前环境中的官方 backend 已完成安装：
+  - `causal-conv1d==1.6.1`
+  - `mamba-ssm==2.3.1`
+  - 安装路径：`build_official_mamba_from_source.sh`
+  - 编译策略：在当前 `torch 2.10.0+cu128` 环境中，以 `sm_89` 定向源码编译
 - verify 已通过：
-  - `mamba_backend=transformers_mambapy`
+  - `mamba_backend=mamba_ssm`
   - `output_shape=(2, 25, 6)`
   - `tf_vs_rollout_max_delta=0.000000`
-- `500ms` smoke 已在 fallback backend 下跑通：
-  - 配置：`batch_size=16`, `eval_batch_size=16`, `epochs=1`, `eval_epochs=1`, `num_workers=0`
-  - train loss：`0.415`
-  - val loss：`0.395`
+- `500ms` smoke 已在官方 backend 下跑通：
+  - 配置：`batch_size=64`, `eval_batch_size=64`, `epochs=1`, `eval_epochs=1`, `num_workers=0`
+  - train loss：`0.419`
+  - val loss：`0.396`
   - train-end `val/fp_bps=-0.829`
-  - 离线 continuous valid：`fp-bps=-0.8285`, `R2=0.0001`, `val_loss=0.3956`
+  - 离线 continuous valid：`fp-bps=-0.8290`, `R2=-0.0001`, `val_loss=0.3958`
+- `500ms` formal gate 已启动：
+  - 启动时间：`2026-03-22 17:32 CST`
+  - 进程：`bash scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/run_latent_dynamics_mamba_500ms.sh`
+  - 日志：`results/logs/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/500ms/formal_run.log`
 
 ### 依赖安装状态
 
-- 首次尝试 `pip install 'mamba-ssm>=2.2,<2.3'`
-  - 失败原因：build isolation 重新下载整套 `torch/cu12` 依赖，触发磁盘不足
-- 第二次尝试 `--no-build-isolation`
-  - 已绕过磁盘问题，但编译耗时很长
-  - `mamba-ssm` 的源码构建当前仍未成功产出可用 kernel backend
-- 临时 fallback：
-  - 已安装 `mambapy`
-  - `transformers` 内置 `MambaBlock(use_mambapy=True)` 可正常完成 verify 和 smoke
-- 附带问题：
-  - fallback backend 在 `batch_size=128` 时 OOM
-  - 需要将 smoke batch size 下调到 `16`
+- `pip install` 的 build isolation 会重复拉取整套 `torch/cu12` 依赖，直接路径不稳定
+- 最终采用源码编译闭环：
+  - `causal-conv1d==1.6.1`
+  - `mamba-ssm==2.3.1`
+  - 显式设置 `CUDA_HOME=/usr/local/cuda-12.4`
+  - 将编译目标裁到 `sm_89`，避免为当前机器无关架构耗时
+- 验证结果：
+  - `from mamba_ssm import Mamba` 可导入
+  - 最小前向：`mamba_forward_shape=(2, 25, 128)`
+  - 仓库 verify 已在官方 backend 下通过
 
 ## 当前判断
 
-- 代码层的最小改造已经完成，verify 和最小 smoke 也已经打通
-- 当前 blocker 已从“能不能跑”变成“能不能拿到足够快的 kernel backend”
-- 在 `transformers + mambapy` fallback 下，`500ms` smoke 可跑，但吞吐和显存效率都不足以直接进入 formal gate
-- 这意味着正式 `500ms` gate 仍应等待 `mamba-ssm/causal-conv1d` 或其他更高效 backend 到位后再启动
+- 代码与环境两侧的官方 backend 已经闭环：仓库不再依赖 fallback
+- 官方 backend 下的 verify 与 `500ms` smoke 都已打通，且 smoke 恢复到与正式 train config 对齐的 `batch_size=64`
+- `500ms` smoke 数值仍停留在负区间，说明仅靠 backbone 切换并没有立刻改善短训表现
+- 因此本轮的关键下一步不是继续补环境，而是等待已经启动的正式 `500ms` gate 给出完整 valid/test 判断

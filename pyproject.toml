@@ -42,11 +42,12 @@ dev = [
     "brainsets",
 ]
 mamba = [
-    "mambapy>=1.2.0",
+    "mamba-ssm>=2.3.1",
+    "causal-conv1d>=1.6.1",
 ]
 mamba-kernels = [
-    "mamba-ssm>=2.2,<2.3",
-    "causal-conv1d>=1.4.0",
+    "mamba-ssm>=2.3.1",
+    "causal-conv1d>=1.6.1",
 ]
 
 [project.urls]

@@ -2380,7 +2380,7 @@
 
 ## 2026-03-22 08:56 CST
 
-### 任务：实现 1.10.x 的 Mamba latent dynamics 500ms gate 并完成最小 smoke
+### 任务：实现 1.10.x 的官方 Mamba latent dynamics 500ms gate，并启动正式 500ms run
 
 **完成内容**：
 1. 完成 Mamba backbone 的最小代码落地
@@ -2394,25 +2394,34 @@
    - `examples/neurohorizon/configs/train_1p10_latent_dynamics_mamba_500ms.yaml`
    - `scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/`
 
-3. 完成功能验证与最小 smoke
-   - verify 输出：`mamba_backend=transformers_mambapy`, `output_shape=(2, 25, 6)`, `tf_vs_rollout_max_delta=0.000000`
-   - `500ms` smoke：`batch_size=16`, train loss `0.415`, val loss `0.395`, continuous valid `fp-bps=-0.8285`
+3. 完成官方 backend 环境闭环
+   - `causal-conv1d==1.6.1` 与 `mamba-ssm==2.3.1` 已在当前 `poyo` 环境中安装成功
+   - 安装方式：在 `torch 2.10.0+cu128` 环境下，将源码编译目标裁到 `sm_89`
+   - 最小前向检查：`mamba_forward_shape=(2, 25, 128)`
 
-4. 回填当前阶段文档状态
+4. 完成功能验证与最小 smoke
+   - verify 输出：`mamba_backend=mamba_ssm`, `output_shape=(2, 25, 6)`, `tf_vs_rollout_max_delta=0.000000`
+   - `500ms` smoke：`batch_size=64`, train loss `0.419`, val loss `0.396`, continuous valid `fp-bps=-0.8290`
+
+5. 启动正式 `500ms` gate
+   - 后台命令：`bash scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/run_latent_dynamics_mamba_500ms.sh`
+   - 日志：`results/logs/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/500ms/formal_run.log`
+
+6. 回填当前阶段文档状态
    - 更新 `cc_todo/1.10-latent_dynamics_decoder/model.md`
    - 更新 `cc_core_files/plan.md`
    - 更新 `cc_core_files/scripts.md`
    - 更新 `cc_core_files/results.md`
 
 **当前判断**：
-- `Mamba` 方向已经完成最小落地，verify / smoke 链路都已打通
-- 当前 fallback backend 是 `transformers + mambapy`，可用于功能验证，但显存和吞吐都不足以直接跑 formal gate
-- 正式 `500ms` gate 仍应等待 `mamba-ssm / causal-conv1d` 或其他更高效 kernel backend 到位后再启动
+- 当前仓库已经切换到官方 `mamba-ssm` 唯一实现，不再依赖 fallback
+- 环境 blocker 已消除，verify / smoke / formal run 三条链路都已打通
+- 但 smoke 指标仍在负区间，因此真正的判断将取决于已经启动的正式 `500ms` gate
 
 **遇到的问题与解决**：
-- `pip install mamba-ssm` 的 build isolation 会重复下载整套 `torch/cu12` 依赖，触发磁盘不足
-  - 解决：改为 `--no-build-isolation`
-- `mamba-ssm` kernel backend 源码编译耗时很长，短时间内未得到可用结果
-  - 解决：引入 `transformers + mambapy` 作为 fallback，让本轮先完成 verify 和 smoke，再将 kernel backend 问题单独保留为环境 blocker
-- fallback backend 在原始 smoke 配置 `batch_size=128` 下 OOM
-  - 解决：将 smoke batch size 下调到 `16`，先验证训练与离线评估链路
+- `pip install` 的 build isolation 会重复下载整套 `torch/cu12` 依赖，直接安装路径不稳定
+  - 解决：改为 `--no-build-isolation`，并在临时源码目录中做定向编译
+- 官方 `mamba-ssm` backend 需要 CUDA tensor，而旧 verify 脚本仍在 CPU 上构造输入
+  - 解决：将 verify 脚本改为显式使用 `cuda` 设备
+- 默认源码构建会为大量无关架构编译 CUDA kernels，耗时过长
+  - 解决：将 `causal-conv1d` / `mamba-ssm` 的构建目标裁到当前 4090 对应的 `sm_89`

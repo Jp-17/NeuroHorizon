@@ -1126,8 +1126,8 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 核心改动：将 latent dynamics rollout backbone 从固定 `GRU` 升级为可选 `Mamba`
 - 具体实现：保持 pooling、`init_state` 和 readout 不变，把每一步 latent rollout 改为 `prev_latent -> Mamba -> next_latent`
 - gate 设计：仍只做 `500ms`，先判断 backbone 替换本身是否能把指标从 `0.0047 / 0.0048` 的失败区间拉回去
-- 当前执行进展：`gru` 路径兼容性已验证；`mamba` 路径已通过 `transformers + mambapy` fallback 完成 verify 与 `500ms` smoke，但 kernel backend 仍未就绪
-- 当前实现要求：`mamba-ssm` 仍是正式 gate 的目标 backend；fallback 仅用于功能验证与最小 smoke，不作为 formal gate 的最终运行形态
+- 当前执行进展：`gru` 路径兼容性已验证；`mamba` 路径已切换为官方 `mamba-ssm` 唯一 backend，并已完成 verify 与 `500ms` smoke；正式 `500ms` gate 已启动
+- 当前实现要求：仅保留官方 `mamba-ssm + causal-conv1d` 实现，不再接受 `transformers + mambapy` fallback
 
 
 ---
