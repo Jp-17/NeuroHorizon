@@ -5,7 +5,7 @@ latent-dynamics decoder for 1.10. Historical 1.9 prediction-memory variants
 are intentionally removed from the active runtime path.
 """
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 import logging
 
 import numpy as np
@@ -69,6 +69,9 @@ class NeuroHorizon(nn.Module):
         latent_dynamics_state_dim: Optional[int] = None,
         latent_dynamics_context_conditioning: bool = False,
         latent_dynamics_context_dim: Optional[int] = None,
+        latent_dynamics_backbone: str = "gru",
+        latent_dynamics_backbone_cfg: Optional[Dict[str, Any]] = None,
+        latent_dynamics_input_mode: str = "prev_latent",
     ):
         super().__init__()
 
@@ -162,6 +165,9 @@ class NeuroHorizon(nn.Module):
                 state_dim=latent_dynamics_state_dim,
                 context_conditioning=latent_dynamics_context_conditioning,
                 context_dim=latent_dynamics_context_dim,
+                backbone=latent_dynamics_backbone,
+                backbone_cfg=latent_dynamics_backbone_cfg,
+                input_mode=latent_dynamics_input_mode,
                 num_layers=dec_depth,
                 num_heads=cross_heads,
                 atn_dropout=atn_dropout,

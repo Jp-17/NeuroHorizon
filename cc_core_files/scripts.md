@@ -1430,3 +1430,74 @@
   - `cc_todo/1.10-latent_dynamics_decoder/results.tsv`
 - **依赖**：poyo conda 环境（pandas）
 - **备注**：该模块只做 `500ms gate`，不会填充 `250ms / 1000ms` 字段
+
+### verify_latent_dynamics_mamba_gate.py（1.10 Mamba gate 功能验证）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/verify_latent_dynamics_mamba_gate.py`
+- **功能用途**：验证 `latent_dynamics_backbone=mamba` 的最小功能链路
+  - 检查 `mamba-ssm` 可导入并完成最小前向
+  - 验证 `NeuroHorizon` 的 `mamba` 配置可实例化
+  - 验证 `forward()` / `generate()` 形状一致且输出无 NaN
+- **创建时间**：2026-03-22
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/verify_latent_dynamics_mamba_gate.py
+  ```
+- **输出**：stdout 形状检查与 `tf_vs_rollout_max_delta`
+- **依赖**：poyo conda 环境；优先 `mamba-ssm>=2.2,<2.3` + `causal-conv1d>=1.4.0`，缺失时可用 `mambapy>=1.2.0` fallback
+- **备注**：作为 `20260322_latent_dynamics_mamba_gate` 的最小功能回归；当前 verify 实际走的是 `transformers + mambapy` fallback
+
+### run_latent_dynamics_mamba_smoke.sh（1.10 Mamba 500ms smoke）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/run_latent_dynamics_mamba_smoke.sh`
+- **功能用途**：执行 `20260322_latent_dynamics_mamba_gate` 的 `500ms` 最小 smoke 流程
+  - 先运行 verify
+  - 再执行 1 epoch 训练
+  - 最后产出 offline continuous valid JSON
+- **创建时间**：2026-03-22
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/run_latent_dynamics_mamba_smoke.sh
+  ```
+- **输出**：`results/logs/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/500ms_smoke/`
+- **依赖**：poyo conda 环境；优先 `mamba-ssm>=2.2,<2.3`，可退化到 `mambapy>=1.2.0`
+- **备注**：用于判断 `Mamba` 路线是否已打通训练、checkpoint 与离线评估链路；当前默认 `batch_size=16` 以避免 fallback backend OOM
+
+### run_latent_dynamics_mamba_500ms.sh（1.10 Mamba 500ms formal gate）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/run_latent_dynamics_mamba_500ms.sh`
+- **功能用途**：执行 `20260322_latent_dynamics_mamba_gate` 的 `500ms` formal gate
+  - 先运行 verify
+  - 再执行 300 epoch 训练
+  - 最后输出 best checkpoint 的 `valid/test` offline 指标
+- **创建时间**：2026-03-22
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  bash scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/run_latent_dynamics_mamba_500ms.sh
+  ```
+- **输出**：`results/logs/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/500ms/`
+- **依赖**：poyo conda 环境，推荐 `mamba-ssm>=2.2,<2.3` + `causal-conv1d>=1.4.0`
+- **备注**：作为 `1.10.x` 的 `500ms` Mamba backbone gate，不直接扩展到 `250ms / 1000ms`；当前 formal gate 仍应等待 kernel backend
+
+### collect_latent_dynamics_mamba_results.py（1.10 Mamba 结果汇总）
+
+- **路径**：`scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/collect_latent_dynamics_mamba_results.py`
+- **功能用途**：汇总 `20260322_latent_dynamics_mamba_gate` 的 `500ms` gate 结果，并回写 summary JSON 与 `results.tsv`
+- **创建时间**：2026-03-22
+- **使用方式**：
+  ```bash
+  conda activate poyo
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/collect_latent_dynamics_mamba_results.py
+  ```
+- **输出**：
+  - `results/figures/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/latent_dynamics_mamba_summary.json`
+  - `cc_todo/1.10-latent_dynamics_decoder/results.tsv`
+- **依赖**：poyo conda 环境（pandas）
+- **备注**：为 `20260322_latent_dynamics_mamba_gate` 的 `500ms` gate 生成模块级 summary，供训练曲线和趋势图脚本复用

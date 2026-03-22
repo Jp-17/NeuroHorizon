@@ -41,6 +41,13 @@ dev = [
     "pytest-cov",
     "brainsets",
 ]
+mamba = [
+    "mambapy>=1.2.0",
+]
+mamba-kernels = [
+    "mamba-ssm>=2.2,<2.3",
+    "causal-conv1d>=1.4.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/neuro-galaxy/torch_brain"

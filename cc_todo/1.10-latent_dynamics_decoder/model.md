@@ -347,3 +347,82 @@ history spikes
 - 在当前 GRU latent dynamics 主线下，继续做局部结构微调的价值已经很低
 - 因此该模块应标记为“已放弃”，不再扩展到 `250ms / 1000ms`
 - 下一轮若继续推进 `1.10.x`，应直接转向更强的 dynamics backbone（优先 Mamba），而不是继续围绕当前 GRU 变体做小修补
+
+---
+
+## 2026-03-22 — Latent Dynamics Mamba Gate (500ms Gate)
+
+> 状态：验证中
+> 分支：`dev/latent`
+> 任务记录：`cc_todo/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate.md`
+
+### 动机
+
+- `20260320_latent_dynamics_state_scaling` 与 `20260321_latent_dynamics_context_skip` 已经给出一致负结论：
+  - 问题不只是 latent state 太小
+  - 也不只是缺少持续 context 注入
+- 这说明当前 GRU latent dynamics 主线本身的表达能力很可能就是瓶颈
+- 因此下一轮不再继续围绕 GRU 变体做局部微调，而是直接转向更强的 dynamics backbone（优先 `Mamba`）
+
+### 本轮方案
+
+1. 将 `LatentDynamicsDecoder` 从固定 GRU 实现升级为双 backbone 接口：
+   - `backbone='gru' | 'mamba'`
+   - `backbone_cfg`
+   - `input_mode='prev_latent'`
+2. 保持 POYO+ encoder、tokenize、`PerNeuronMLPHead`、训练入口、离线评估入口不变
+3. `Mamba` rollout 使用 latent-level autoregressive 方案：
+   - pooled encoder latents -> `init_state`
+   - 每一步以上一步预测 latent 作为下一步输入
+   - step embedding 继续保留
+4. 本轮默认不叠加 context skip，只验证 backbone 替换本身的收益
+5. 仍只做 `500ms gate`
+
+### 初始配置
+
+- `num_pool_tokens = 4`
+- `state_dim = 128`
+- `backbone = mamba`
+- `input_mode = prev_latent`
+- `d_model = 128`
+- `d_state = 64`
+- `d_conv = 4`
+- `expand = 2`
+- `output_residual = True`
+- `pred_window = 500ms`
+
+### 本轮成功标准
+
+- 代码层面：
+  - `gru` 路径不回归
+  - `mamba` 路径可实例化、训练、保存、加载
+  - `forward()` 与 `generate()` 仍保持一致
+- 环境层面：
+  - `mamba-ssm` 与 `causal-conv1d` 能在当前 `poyo` 环境中完成安装和最小导入
+- 实验层面：
+  - 跑通 verify 与 `500ms` smoke
+  - `500ms formal valid fp-bps` 至少恢复到 `0.09` 以上，否则本轮视为失败
+
+### 当前执行进展
+
+- 已完成：
+  - `LatentDynamicsDecoder` 新增 `gru / mamba` 双 backbone
+  - `NeuroHorizon` 新增 `latent_dynamics_backbone / latent_dynamics_backbone_cfg / latent_dynamics_input_mode`
+  - `pyproject.toml` 中新增 `mamba` / `mamba-kernels` optional dependency
+  - 新增本轮 `500ms gate` 的配置、验证脚本、smoke 脚本、formal 脚本与 collect 脚本
+  - `gru` 路径已完成最小构造回归验证
+  - `mamba` 路径已支持两级后端：
+    - 优先 `mamba-ssm`
+    - 缺失时回退到 `transformers + mambapy`
+  - verify 已通过：
+    - `mamba_backend=transformers_mambapy`
+    - `output_shape=(2, 25, 6)`
+    - `tf_vs_rollout_max_delta=0.000000`
+  - `500ms` smoke 已在 fallback backend 下跑通：
+    - `batch_size=16`
+    - train loss：`0.415`
+    - val loss：`0.395`
+    - continuous valid：`fp-bps=-0.8285`, `R2=0.0001`, `val_loss=0.3956`
+- 当前 blocker：
+  - `mamba-ssm` / `causal-conv1d` kernel backend 仍未安装完成
+  - `transformers + mambapy` fallback 虽然能跑通 verify 和 smoke，但在 `batch_size=128` 会 OOM，吞吐也不足以直接进入 formal gate
