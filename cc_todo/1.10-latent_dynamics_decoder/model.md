@@ -352,7 +352,7 @@ history spikes
 
 ## 2026-03-22 — Latent Dynamics Mamba Gate (500ms Gate)
 
-> 状态：验证中
+> 状态：已放弃
 > 分支：`dev/latent`
 > 任务记录：`cc_todo/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate.md`
 
@@ -425,7 +425,44 @@ history spikes
     - train loss：`0.419`
     - val loss：`0.396`
     - continuous valid：`fp-bps=-0.8290`, `R2=-0.0001`, `val_loss=0.3958`
-  - `500ms` formal gate 已启动，正在后台运行
-- 当前 blocker：
-  - 环境 blocker 已清除
-  - 当前仅等待正式 `500ms` gate 训练完成并产出 valid/test 指标
+  - `500ms` formal gate 已完成：
+    - best checkpoint 出现在 `epoch 69`
+    - `500ms` formal valid：`fp-bps=0.0056`, `R2=0.1793`, `val_loss=0.3250`
+    - `500ms` formal test：`fp-bps=0.0057`, `R2=0.1792`, `val_loss=0.3235`
+    - final `epoch 299` 的 `val/fp_bps=0.0008`
+  - 结果汇总与图表已刷新：
+    - `cc_todo/1.10-latent_dynamics_decoder/results.tsv`
+    - `results/figures/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/latent_dynamics_mamba_summary.json`
+    - `results/figures/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/training_curves.{png,pdf}`
+    - `results/figures/1.10-latent_dynamics_decoder/optimization_progress.{png,pdf}`
+
+### 正式结果
+
+- `500ms` formal valid：
+  - `fp-bps=0.0056`
+  - `R2=0.1793`
+  - `val_loss=0.3250`
+- `500ms` formal test：
+  - `fp-bps=0.0057`
+  - `R2=0.1792`
+  - `val_loss=0.3235`
+- 对比：
+  - 相对 `baseline_v2=0.1744`，valid 差 `-0.1688`
+  - 相对 `20260320_latent_dynamics_decoder` 的 `500ms valid fp-bps=0.0904`，本轮差 `-0.0848`
+  - 相对 `20260320_latent_dynamics_state_scaling` 的 `0.0048`，本轮仅增加 `+0.0008`
+  - 相对 `20260321_latent_dynamics_context_skip` 的 `0.0047`，本轮仅增加 `+0.0009`
+
+### 当前结论
+
+- 这轮实验说明：把 latent dynamics backbone 从 GRU 换到官方 `Mamba`，并没有把 `500ms` 从失败区间里拉出来
+- 代码与环境层面，本轮是成功的：
+  - 仓库已经切到官方 `mamba-ssm` 唯一路径
+  - verify、smoke、formal train、best-ckpt eval、summary 和图表全部跑通
+- 但结果层面，本轮只比最近两轮失败 gate 略好不到 `0.001`，远达不到重新接近首轮 GRU `0.0904` 或 `baseline_v2=0.1744` 的程度
+- 更重要的是，best checkpoint 仍然出现在 `epoch 69`，而 final `epoch 299` 的 `val/fp_bps` 已回落到 `0.0008`
+- 这说明当前瓶颈并不只是“GRU cell 太弱”，而更可能是：
+  - `pooled init state` 的压缩方式不足
+  - `prev_latent` 纯 autonomous rollout 缺少足够强的持续条件
+  - latent dynamics 主线本身还没有形成可支撑 `500ms` 的有效状态表示
+- 因此该模块标记为“已放弃”，不再扩展到 `250ms / 1000ms`
+- 如果后续继续推进 `1.10.x`，更值得优先改变 conditioning / state construction，而不是继续做同类 backbone 替换

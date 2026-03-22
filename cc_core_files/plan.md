@@ -1113,21 +1113,25 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 下一优先级应直接转向更强的 dynamics backbone（优先 Mamba），而不是继续在当前 GRU 主线做局部结构微调
 
 ##### 20260322_latent_dynamics_mamba_gate -- Mamba Latent Dynamics 500ms Gate
-> 状态: 验证中
+> 状态: 已放弃
 > 分支: `dev/latent`
 > 文档: `cc_todo/1.10-latent_dynamics_decoder/model.md` 中“2026-03-22 — Latent Dynamics Mamba Gate (500ms Gate)”
 > 任务记录: `cc_todo/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate.md`
 > 脚本: `scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/`
 > 日志: `results/logs/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/`
 > 可视化: `results/figures/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/`
-> commit:
-> 结果:
+> commit: `6f98786`
+> 结果: 500ms gate fp-bps=`0.0056`（context skip=`0.0047`，state scaling=`0.0048`，首轮 GRU=`0.0904`，baseline_v2=`0.1744`）
 
 - 核心改动：将 latent dynamics rollout backbone 从固定 `GRU` 升级为可选 `Mamba`
 - 具体实现：保持 pooling、`init_state` 和 readout 不变，把每一步 latent rollout 改为 `prev_latent -> Mamba -> next_latent`
 - gate 设计：仍只做 `500ms`，先判断 backbone 替换本身是否能把指标从 `0.0047 / 0.0048` 的失败区间拉回去
-- 当前执行进展：`gru` 路径兼容性已验证；`mamba` 路径已切换为官方 `mamba-ssm` 唯一 backend，并已完成 verify 与 `500ms` smoke；正式 `500ms` gate 已启动
 - 当前实现要求：仅保留官方 `mamba-ssm + causal-conv1d` 实现，不再接受 `transformers + mambapy` fallback
+- 工程结论：官方 `mamba-ssm` 路线已经完整打通，verify、smoke、formal train、best-ckpt eval、summary JSON、training curves 和总趋势图都已产出
+- 正式结果：best checkpoint 出现在 `epoch 69`；formal valid/test 为 `0.0056 / 0.0057`，`R2=0.1793 / 0.1792`，最终 `epoch 299` 的 `val/fp_bps` 仅 `0.0008`
+- 对比结论：相对 `state scaling` 与 `context skip` 仅小幅增加 `+0.0008 / +0.0009`，但相对首轮 GRU `500ms=0.0904` 仍低 `-0.0848`，相对 `baseline_v2=0.1744` 仍低 `-0.1688`
+- 这说明问题并不只是 GRU cell 太弱；在当前 `pooled init state + prev_latent autonomous rollout` 设定下，即使换成更强的 SSM backbone，也没有把 `500ms` 从失败区间拉出来
+- 因此本模块标记为“已放弃”，不再扩展到 `250ms / 1000ms`；若后续继续推进 `1.10.x`，优先级应转向改变 conditioning / state construction，而不是继续做同类 backbone 替换
 
 
 ---

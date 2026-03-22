@@ -2,7 +2,7 @@
 
 **日期**：2026-03-22
 **模块名**：`latent_dynamics_mamba_gate`
-**状态**：进行中
+**状态**：已完成（结论：失败，已放弃）
 **分支**：`dev/latent`
 
 ## 改进摘要
@@ -44,7 +44,9 @@
 - [x] 完成 `mamba-ssm` / `causal-conv1d` 官方 backend 安装
 - [x] 完成本轮 verify
 - [x] 跑通 `500ms` smoke
-- [x] 启动 `500ms` formal gate run
+- [x] 完成 `500ms` formal gate run
+- [x] 运行结果汇总与绘图脚本
+- [x] 回填 `results.tsv` / `plan.md` / `results.md` / `model.md` / `progress.md`
 
 ## 本轮目标配置
 
@@ -86,6 +88,11 @@ bash scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/ru
 
 # formal gate
 bash scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/run_latent_dynamics_mamba_500ms.sh
+
+# formal 结果汇总
+python scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/collect_latent_dynamics_mamba_results.py
+python scripts/1.10-latent_dynamics_decoder/plot_optimization_training_curves.py --module 20260322_latent_dynamics_mamba_gate
+python scripts/1.10-latent_dynamics_decoder/plot_optimization_progress.py
 ```
 
 ## 当前进展
@@ -119,10 +126,17 @@ bash scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/ru
   - val loss：`0.396`
   - train-end `val/fp_bps=-0.829`
   - 离线 continuous valid：`fp-bps=-0.8290`, `R2=-0.0001`, `val_loss=0.3958`
-- `500ms` formal gate 已启动：
+- `500ms` formal gate 已完成：
   - 启动时间：`2026-03-22 17:32 CST`
-  - 进程：`bash scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/run_latent_dynamics_mamba_500ms.sh`
+  - 完成时间：`2026-03-22 19:06 CST`
   - 日志：`results/logs/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/500ms/formal_run.log`
+  - best checkpoint：`epoch 69`
+  - final `epoch 299`：`val/fp_bps=0.0008`
+- 结果汇总与图表已刷新：
+  - `cc_todo/1.10-latent_dynamics_decoder/results.tsv`
+  - `results/figures/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/latent_dynamics_mamba_summary.json`
+  - `results/figures/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/training_curves.{png,pdf}`
+  - `results/figures/1.10-latent_dynamics_decoder/optimization_progress.{png,pdf}`
 
 ### 依赖安装状态
 
@@ -137,9 +151,27 @@ bash scripts/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate/ru
   - 最小前向：`mamba_forward_shape=(2, 25, 128)`
   - 仓库 verify 已在官方 backend 下通过
 
-## 当前判断
+## 正式结果
 
-- 代码与环境两侧的官方 backend 已经闭环：仓库不再依赖 fallback
-- 官方 backend 下的 verify 与 `500ms` smoke 都已打通，且 smoke 恢复到与正式 train config 对齐的 `batch_size=64`
-- `500ms` smoke 数值仍停留在负区间，说明仅靠 backbone 切换并没有立刻改善短训表现
-- 因此本轮的关键下一步不是继续补环境，而是等待已经启动的正式 `500ms` gate 给出完整 valid/test 判断
+- `500ms` formal valid：
+  - `fp-bps=0.0056`
+  - `R2=0.1793`
+  - `val_loss=0.3250`
+- `500ms` formal test：
+  - `fp-bps=0.0057`
+  - `R2=0.1792`
+  - `val_loss=0.3235`
+- 对比：
+  - 相对 `baseline_v2=0.1744`，valid 差 `-0.1688`
+  - 相对 `20260320_latent_dynamics_decoder` 的 `500ms valid fp-bps=0.0904`，本轮差 `-0.0848`
+  - 相对 `20260320_latent_dynamics_state_scaling=0.0048`，本轮仅增加 `+0.0008`
+  - 相对 `20260321_latent_dynamics_context_skip=0.0047`，本轮仅增加 `+0.0009`
+
+## 最终判断
+
+- 代码与环境两侧的官方 backend 已经闭环：仓库不再依赖 fallback，`mamba-ssm` 路线已经完全可用
+- 但正式 `500ms` gate 结果明确失败：`0.0056` 只比最近两轮失败 gate 略高不到 `0.001`
+- 本轮 best checkpoint 仍停在 `epoch 69`，且 final `epoch 299` 又回落到 `0.0008`
+- 这说明问题已经不只是“GRU 不够强”，而是当前 `pooled init state + prev_latent autonomous rollout` 这条 latent dynamics 主线本身不够强
+- 因此本模块标记为“已放弃”，不再扩展到 `250ms / 1000ms`
+- 如果后续继续推进 `1.10.x`，应优先改变 conditioning / state construction，而不是继续做同类 backbone 替换

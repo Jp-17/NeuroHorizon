@@ -2425,3 +2425,41 @@
   - 解决：将 verify 脚本改为显式使用 `cuda` 设备
 - 默认源码构建会为大量无关架构编译 CUDA kernels，耗时过长
   - 解决：将 `causal-conv1d` / `mamba-ssm` 的构建目标裁到当前 4090 对应的 `sm_89`
+
+## 2026-03-22 20:39 CST
+
+### 任务：完成官方 Mamba 500ms formal gate 归档，并总结 1.10 当前结论
+
+**完成内容**：
+1. 确认 `20260322_latent_dynamics_mamba_gate` 的正式 `500ms` run 已完成
+   - 训练在 `2026-03-22 19:06 CST` 结束，`max_epochs=300`
+   - best checkpoint：`epoch 69`
+   - valid：`fp-bps=0.0056`, `R2=0.1793`, `val_loss=0.3250`
+   - test：`fp-bps=0.0057`, `R2=0.1792`, `val_loss=0.3235`
+   - final `epoch 299`：`val/fp_bps=0.0008`
+
+2. 刷新结果汇总和图表
+   - 运行 `collect_latent_dynamics_mamba_results.py`
+   - 更新 `cc_todo/1.10-latent_dynamics_decoder/results.tsv`
+   - 生成 `latent_dynamics_mamba_summary.json`
+   - 生成 `training_curves.png/pdf`
+   - 刷新 `1.10` 总体 `optimization_progress.png/pdf`
+
+3. 回填核心文档并标记模块状态
+   - 更新 `cc_core_files/plan.md`
+   - 更新 `cc_core_files/results.md`
+   - 更新 `cc_todo/1.10-latent_dynamics_decoder/model.md`
+   - 更新 `cc_todo/1.10-latent_dynamics_decoder/20260322_latent_dynamics_mamba_gate.md`
+   - 将该模块正式标记为“已放弃”
+
+**当前结论**：
+- 官方 `mamba-ssm` backend 已被证明可以在当前环境中稳定运行，工程链路已经闭环
+- 但 Mamba `500ms` formal valid `fp-bps=0.0056`，只比前两轮失败 gate 略高不到 `0.001`
+- 它远低于首轮 GRU latent dynamics 的 `0.0904`，也远低于 `baseline_v2=0.1744`
+- 因此当前问题已经不只是“GRU 不够强”，而更像是 `pooled init state + prev_latent autonomous rollout` 这条 latent dynamics 主线本身不够强
+
+**遇到的问题与解决**：
+- `formal_run.log` 在训练过程中长时间停在初始化与验证开头，单看 `tail` 容易误判为卡住
+  - 解决：结合 `ps`、checkpoint 时间戳、`metrics.csv` 与最终 eval JSON 一起确认训练状态，不依赖单一日志输出
+- 这轮结果需要同时更新 `results.tsv`、summary、training curves、趋势图和多份文档，任何一步漏掉都会造成记录失配
+  - 解决：先运行 collect 与 plot 脚本生成统一事实源，再统一回填 `plan/results/model/progress`
