@@ -2,7 +2,7 @@
 
 > 对应计划：`cc_core_files/plan.md` §1.11  
 > 分支：`dev/diffusion`  
-> 状态：验证中（`250ms` smoke 已通过，formal gate 待执行）
+> 状态：验证中（`250ms` formal gate 已通过，等待扩到 `500 / 1000ms`）
 
 ## 任务背景
 
@@ -22,7 +22,7 @@
 2. 实现 deterministic factorized count autoencoder + latent diffusion decoder
 3. 保持训练与离线评估入口不变，只扩展其对 2A 路线的支持
 4. 完成最小功能验证与 `250ms` 真实数据 smoke
-5. 为下一步 `250ms formal gate` 准备配置与脚本
+5. 完成 `250ms formal gate` 并判断是否继续扩窗
 
 ## 本轮设计选择
 
@@ -110,6 +110,13 @@ scripts/analysis/neurohorizon/eval_phase1_v2.py \
   --checkpoint-kind best --split test --batch-size 2 --skip-trial --max-batches 1
 ```
 
+### 250ms formal gate
+
+```bash
+cd /root/autodl-tmp/NeuroHorizon
+bash scripts/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/run_latent_diffusion_factorized_latent_250ms_gate.sh
+```
+
 ## 当前结果
 
 - 最小功能验证通过：
@@ -127,20 +134,39 @@ scripts/analysis/neurohorizon/eval_phase1_v2.py \
   - `fp-bps = -1.3657`
   - `R2 = -0.1072`
   - `val_loss = 0.4403`
+- `250ms` formal gate：
+  - best checkpoint：`epoch 9`
+  - best `val/fp_bps = -0.02494`
+  - formal valid：
+    - `fp-bps = -0.0278`
+    - `R2 = 0.1754`
+    - `val_loss = 0.3374`
+    - `trial fp-bps = -0.0230`
+    - `PSTH-R2 = 0.3719`
+  - formal test：
+    - `fp-bps = -0.0293`
+    - `R2 = 0.1756`
+    - `val_loss = 0.3384`
+    - `trial fp-bps = -0.0261`
+    - `PSTH-R2 = 0.4252`
 
 ## 当前结论
 
-- `Option 2A` 首版工程链路已经完整跑通
-- 相比前三轮 `Option 2B` 的 smoke，当前数值明显更接近可用区间，说明“先压到 latent 再生成”值得继续执行正式 gate
-- 但当前仍然只是 smoke，不能直接据此宣告主线切换成功
+- `Option 2A` 不仅工程链路跑通，而且 `250ms formal gate` 已明确通过
+- 相比第二轮 `factorized_unit_time_flow` 的 `250ms test fp-bps = -4.0307`，本轮提升 `+4.0014`
+- 相比第三轮 `dense_history_cross_factorized_flow` 的 `250ms test fp-bps = -4.5658`，本轮提升 `+4.5365`
+- 相比 `baseline_v2 250ms test` 只落后约 `-0.2516`，已经从“结构性失败区间”收敛到“接近 baseline”的量级
+- 最优 checkpoint 很早出现在 `epoch 9`，而训练继续到 `epoch 299` 时在线 `val/fp_bps` 退化到约 `-0.2507`，说明当前 2A 主线存在明显早熟收敛与后期过训练现象
 
 ## 遇到的问题
 
 - 远端非交互 shell 中没有 `python` / `conda` 命令
   - 解决：编译检查使用 `python3`，训练与评估统一使用 `/root/miniconda3/bin/conda run -n poyo python`
+- 原始 gate 脚本里使用相对 `conda run`，在这台机器的非交互 shell 中会失败
+  - 解决：将 gate 脚本改为显式使用 `/root/miniconda3/bin/conda run`
 
 ## 下一步
 
-1. 提交实现 checkpoint
-2. 执行 `run_latent_diffusion_factorized_latent_250ms_gate.sh`
-3. 按 `250ms test fp-bps >= -2.5` 判断是否扩到 `500 / 1000ms`
+1. 将 `250ms` formal 结果写回 `model.md`、`plan.md`、`results.md`、`results.tsv` 和 `progress.md`
+2. 继续扩到 `500 / 1000ms` formal
+3. 在下一轮优先关注是否仍然出现“best epoch 很早、后期退化”的过训练模式

@@ -1107,23 +1107,27 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 相比第二轮 `20260320_factorized_unit_time_flow` 的 `250ms test fp-bps = -4.0307` 反而下降 `-0.5351`，因此 dense history cross 不建议继续作为下一轮默认方向
 
 ##### 20260322_latent_diffusion_factorized_latent -- Option 2A Latent Diffusion with Factorized Time-Unit Latents
-> 状态: 验证中（250ms smoke 已通过）
+> 状态: 验证中（250ms formal gate 已通过）
 > 分支: `dev/diffusion`
 > 文档: `cc_todo/1.11-diffusion-decoder/model.md` 中“2026-03-22 — Latent Diffusion with Factorized Time-Unit Latents”
 > 任务记录: `cc_todo/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent.md`
 > 脚本: `scripts/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/`
 > 日志: `results/logs/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/`
 > 可视化: `results/figures/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/`
-> commit: （待填写）
-> 结果: 250ms smoke valid/test fp-bps=`-1.4368 / -1.3657` / 500ms 未执行 / 1000ms 未执行
+> commit: `06c8ae0`（实现 checkpoint）
+> 结果: 250ms formal valid/test fp-bps=`-0.0278 / -0.0293`（best val epoch=`9`；vs 第二轮=`+4.0014`；vs 第三轮=`+4.5365`；vs baseline_v2=`-0.2516`） / 500ms 未执行 / 1000ms 未执行
 
 - 设计动机：第三轮已经说明 `Option 2B` 的剩余 gap 不能再简单归因于 conditioning，继续在 raw count-space 上做局部 attention 微调的价值下降，因此正式切到 `Option 2A latent diffusion`
 - 第一版 latent 形态固定为 `time x factorized latent units`，不做 global full-field latent，也不在首版引入 VAE / KL
 - 代码实现已新增 `decoder_variant='latent_diffusion'`、`FactorizedCountAutoencoder`、`LatentDiffusionDecoder`，并扩展训练/评估入口支持 2A 路线
-- 已完成最小功能验证与 `250ms` 真实数据 smoke：
-  - 训练 smoke：`train_loss=1.402`，`val_loss=1.401`，`val/fp_bps=-1.440`
-  - 离线 valid/test smoke：`fp-bps=-1.4368 / -1.3657`
-- 当前最合理的下一步是提交实现 checkpoint，并执行 `250ms formal gate`；默认 gate 仍为 `250ms test fp-bps >= -2.5`
+- 已完成 `250ms` formal gate：
+  - best `val/fp_bps = -0.02494`（epoch `9`）
+  - formal valid/test `fp-bps = -0.0278 / -0.0293`
+  - formal test `R2 = 0.1756`
+  - formal `trial fp-bps = -0.0261`
+  - formal `PSTH-R2 = 0.4252`
+- `250ms test fp-bps = -0.0293 >= -2.5`，已明确通过 gate
+- 下一步不再停留在 `250ms`，而是继续扩到 `500 / 1000ms`
 
 
 ---

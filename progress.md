@@ -2409,3 +2409,37 @@
 **遇到的问题与解决**：
 - 远端非交互 shell 中没有 `python` / `conda`
   - 解决：编译检查改用 `python3`，训练与评估统一改用 `/root/miniconda3/bin/conda run -n poyo python`
+
+## 2026-03-22 16:55 CST - 1.11 Option 2A 250ms formal gate 归档与分析
+
+**任务**：归档 `Option 2A latent diffusion` 的 `250ms formal gate` 正式结果，并更新 1.11 主线结论
+
+**完成内容**：
+1. 确认 `250ms formal` 已完成，训练跑满 `epoch 299`
+2. 读取 best checkpoint 与正式评估结果：
+   - best checkpoint：`epoch 9`
+   - best `val/fp_bps = -0.02494`
+   - formal valid `fp-bps = -0.0278`
+   - formal test `fp-bps = -0.0293`
+   - formal test `R2 = 0.1756`
+   - formal test `trial fp-bps = -0.0261`
+   - formal test `PSTH-R2 = 0.4252`
+3. 更新：
+   - `cc_todo/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent.md`
+   - `cc_todo/1.11-diffusion-decoder/model.md`
+   - `cc_core_files/plan.md`
+   - `cc_core_files/results.md`
+   - `cc_todo/1.11-diffusion-decoder/results.tsv`
+4. 明确 gate 结论：`-0.0293 >= -2.5`，因此 `250ms` 已通过，下一步继续扩到 `500 / 1000ms`
+
+**执行结果**：
+- `Option 2A` 在 `250ms` 上相对第二轮 `factorized_unit_time_flow` 提升 `+4.0014 fp-bps`
+- 相对第三轮 `dense_history_cross_factorized_flow` 提升 `+4.5365 fp-bps`
+- 相对 `baseline_v2` 只落后约 `-0.2516`，说明 1.11 主线已经从结构性失败区间回到接近 baseline 的量级
+- 当前 1.11 最重要的新结论是：正式切到 latent-space generation 是正确方向
+
+**遇到的问题与解决**：
+- gate 脚本最初使用相对 `conda run`，在这台机器的非交互 shell 中会失败
+  - 解决：改为显式 `/root/miniconda3/bin/conda run`
+- 训练后期出现明显退化：best checkpoint 在 `epoch 9`，但训练继续跑到 `epoch 299`
+  - 解决：本轮先保留既定 300-epoch 协议完成 gate；后续扩窗时重点关注 early-best / late-decay 模式

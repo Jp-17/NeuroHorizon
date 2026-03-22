@@ -362,8 +362,48 @@ results/
   - 这轮 smoke 的最重要意义仍然是链路确认，而不是 formal 结论；当前只跑了极小训练步数与单 batch 离线评估
   - 但从 smoke 数值看，`Option 2A` 相比前三轮 `Option 2B` 的 smoke 更接近可用区间，说明 latent-space generation 值得继续推进 `250ms formal gate`
 - **备注**：
-  - 当前未写入 `cc_todo/1.11-diffusion-decoder/results.tsv`，等待 formal gate 后再追加正式窗口结果
-  - 下一步是执行 `run_latent_diffusion_factorized_latent_250ms_gate.sh`
+  - 当前 smoke 结果已作为辅助记录写入 `cc_todo/1.11-diffusion-decoder/results.tsv`
+  - formal gate 结果见下一个小节
+
+### latent diffusion factorized latent 250ms formal gate（Option 2A gate 通过）
+
+- **存储路径**：
+  - `results/logs/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/250ms/`
+  - `results/logs/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/250ms/lightning_logs/version_0/eval_v2_{valid,test}_results.json`
+  - `results/logs/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent/250ms/lightning_logs/version_0/checkpoints/checkpoint_summary.json`
+- **产生时间**：2026-03-22
+- **实验目的**：按 `250ms gate-first` 规则判断 `Option 2A latent diffusion` 是否应成为 1.11 的正式主线并扩到 `500 / 1000ms`
+- **实验配置**：
+  - 模型：`decoder_variant=latent_diffusion`
+  - 结构：deterministic factorized count autoencoder + latent rectified flow matching
+  - 数据：Perich-Miller 10 sessions，continuous，obs=`500ms`，pred=`250ms`
+  - 训练：`300 epochs`
+  - best checkpoint：`epoch 9`
+- **主要结果**：
+  - best `val/fp_bps = -0.02494`
+  - formal valid：
+    - `fp-bps = -0.0278`
+    - `R2 = 0.1754`
+    - `val_loss = 0.3374`
+    - `trial fp-bps = -0.0230`
+    - `PSTH-R2 = 0.3719`
+  - formal test：
+    - `fp-bps = -0.0293`
+    - `R2 = 0.1756`
+    - `val_loss = 0.3384`
+    - `trial fp-bps = -0.0261`
+    - `PSTH-R2 = 0.4252`
+  - 相比第二轮 `factorized_unit_time_flow 250ms test` 提升 `+4.0014`
+  - 相比第三轮 `dense_history_cross_factorized_flow 250ms test` 提升 `+4.5365`
+  - 相比 `baseline_v2 250ms test` 仍落后约 `-0.2516`
+- **结果分析**：
+  - 这轮 `250ms test fp-bps = -0.0293` 远高于默认 gate 阈值 `-2.5`，因此 `Option 2A` 已明确通过 gate，并成为当前 1.11 最强主线
+  - 与前三轮 `Option 2B` 相比，2A 的改进不是边际优化，而是把 1.11 从 `-4 ~ -5 fp-bps` 的失败区间直接拉回到接近 baseline 的量级
+  - `R2` 与 `PSTH-R2` 同时转正，说明 2A 不只是改善了 `fp-bps`，而是在 continuous 和 trial-level 两条评价线上都恢复到合理区间
+  - 但 best checkpoint 很早出现在 `epoch 9`，而训练到 `epoch 299` 时在线 `val/fp_bps` 已退化到约 `-0.2507`，说明当前 2A 存在明显过训练 / 后期退化；扩到 `500 / 1000ms` 时应重点关注这一模式是否延续
+- **备注**：
+  - 当前已写回 `cc_todo/1.11-diffusion-decoder/results.tsv`
+  - 下一步是继续运行 `500ms / 1000ms` formal，并同时观察 early-best / late-decay 模式
 
 
 ---

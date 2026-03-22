@@ -273,7 +273,7 @@
 
 ## 2026-03-22 — Latent Diffusion with Factorized Time-Unit Latents
 
-> 状态：验证中（`250ms` smoke 已通过，formal gate 待执行）
+> 状态：验证中（`250ms` formal gate 已通过）
 > 分支：`dev/diffusion`
 > 对应任务记录：`cc_todo/1.11-diffusion-decoder/20260322_latent_diffusion_factorized_latent.md`
 
@@ -342,22 +342,36 @@
     - `fp-bps = -1.3657`
     - `R2 = -0.1072`
     - `val_loss = 0.4403`
+- `250ms` formal gate 已完成：
+  - best checkpoint：`epoch 9`
+  - best `val/fp_bps = -0.02494`
+  - formal valid：
+    - `fp-bps = -0.0278`
+    - `R2 = 0.1754`
+    - `trial fp-bps = -0.0230`
+    - `PSTH-R2 = 0.3719`
+  - formal test：
+    - `fp-bps = -0.0293`
+    - `R2 = 0.1756`
+    - `trial fp-bps = -0.0261`
+    - `PSTH-R2 = 0.4252`
 
 ### 当前解读
 
-- 第一版 2A 已经完整跑通：模型实例化、训练、checkpoint、best ckpt 选择、离线 valid/test smoke 全部可用
-- 这轮 smoke 的最重要意义仍然是链路确认，而不是 formal 结论；当前只跑了 `2 train steps + 1 valid batch + 1 offline eval batch`
-- 但从 smoke 数值看，`Option 2A` 明显比前面几轮 `Option 2B` 的 smoke 更接近可用区间，说明“先压到 latent 再生成”至少值得继续做正式 gate
+- 第一版 2A 不只是“值得做 formal gate”，而是已经在 `250ms` 上给出了明确正结果：`test fp-bps = -0.0293`，远高于 gate 阈值 `-2.5`
+- 相比第二轮 `factorized_unit_time_flow` 的 `250ms test fp-bps = -4.0307`，本轮提升 `+4.0014`
+- 相比第三轮 `dense_history_cross_factorized_flow` 的 `250ms test fp-bps = -4.5658`，本轮提升 `+4.5365`
+- 相比 `baseline_v2` 当前 `250ms test` 只落后约 `-0.2516`，说明 latent-space generation 已经把 1.11 主线从“结构性失败区间”拉回到“接近 baseline”的量级
+- 同时，best checkpoint 很早出现在 `epoch 9`，而训练到 `epoch 299` 时在线 `val/fp_bps` 已退化到约 `-0.2507`；这提示当前 2A 主线存在明显的早熟收敛 / 后期过训练问题，后续扩窗时需要重点观察
 
 ### 主要风险
 
 - joint training 可能让 autoencoder reconstruction 和 diffusion latent denoising 相互牵制
 - `time x factorized latent units` 仍可能不足以保住精细 spike-wise information
-- 如果 formal 结果明显回落，问题可能来自 latent bottleneck，而不只是训练轮数或超参
+- 即使 250ms 已经通过，`500 / 1000ms` 仍可能暴露更强的 latent bottleneck 或长窗口退化
 
 ### 下一步
 
-1. 提交实现 checkpoint（代码、配置、文档、smoke 结果）
-2. 运行 `250ms formal gate`
-3. 默认 gate 标准仍为：`250ms test fp-bps >= -2.5`
-4. 只有 gate 通过，才继续扩到 `500 / 1000ms`
+1. 将 `250ms` formal 结果正式写回 1.11 文档、`results.tsv` 和 `results.md`
+2. 继续扩到 `500 / 1000ms` formal
+3. 扩窗时优先检查 best checkpoint 是否仍然极早出现，以及 continuous `fp-bps` 是否继续接近或超越 baseline
