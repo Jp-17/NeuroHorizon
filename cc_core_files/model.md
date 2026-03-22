@@ -145,10 +145,10 @@ PerNeuronMLPHead
 
 ### 2026-03-20 — Decoder Scheduled Sampling
 
-> 状态: 实施中
+> 状态: 验证中
 > 分支: `dev/20260320_decoder_scheduled_sampling`
 > cc_todo: `cc_todo/phase1-autoregressive/1.9-module-optimization/20260320_decoder_scheduled_sampling.md`
-> commit: 待提交
+> commit: `0b79c60`
 
 **想法描述**：
 在当前最优 `20260313_prediction_memory_alignment_tuning` 路线上，新增一条训练期 `decoder scheduled sampling` 路径，直接让 decoder 主训练链路暴露在更接近 rollout 推理的条件分布下，并与现有 `prediction_memory_train_mix_prob` 做严格对比。
@@ -202,7 +202,14 @@ PerNeuronMLPHead
   - `zero_prob_delta=7.45e-09`
   - `target_independence_delta=0.0`
   - baseline_v2-like 路线会被显式拒绝
-- smoke / 正式实验结果待本轮脚本跑完后补充
+- `250ms` screening 已完成 `7/7` setting：
+  - 最佳 rollout test：`decoder_ss_linear_0_to_050 = 0.2245`
+  - 次优：`hybrid_mix035_plus_linear_050 = 0.2227`
+  - 最小 exposure gap：`decoder_ss_fixed_075 = 0.0377`
+- 当前判断：
+  - moderate linear ramp（`0 -> 0.5`）优于更激进的 `0 -> 0.75`
+  - decoder scheduled sampling 当前已比 `memory_only_mix035` control 更有希望成为 1.9 后续扩展方向
+  - 下一步优先把 `decoder_ss_linear_0_to_050` 与 `hybrid_mix035_plus_linear_050` 扩展到 `500ms / 1000ms`
 
 ### 2026-03-13 — Prediction Memory Alignment Tuning
 

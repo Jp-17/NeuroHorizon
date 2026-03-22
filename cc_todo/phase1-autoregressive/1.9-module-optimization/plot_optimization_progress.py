@@ -21,7 +21,7 @@ from pathlib import Path
 # Paths
 SCRIPT_DIR = Path(__file__).parent
 TSV_PATH = SCRIPT_DIR / 'results.tsv'
-PROJECT_ROOT = Path('/root/autodl-tmp/NeuroHorizon')
+PROJECT_ROOT = SCRIPT_DIR.parents[2]
 OUTPUT_DIR = PROJECT_ROOT / 'results' / 'figures' / 'phase1-autoregressive-1.9-module-optimization'
 
 

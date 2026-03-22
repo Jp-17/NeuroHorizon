@@ -2,7 +2,7 @@
 
 **日期**：2026-03-20
 **模块名**：`decoder_scheduled_sampling`
-**状态**：实施中
+**状态**：验证中
 **分支**：`dev/20260320_decoder_scheduled_sampling`
 
 ## 改进摘要
@@ -50,8 +50,8 @@
 - [x] 完成 smoke matrix
 - [x] 执行 Step 2 checkpoint commit + push
 - [ ] 完成正式实验 matrix
-- [ ] 更新 `results.tsv` / `results.md` / `progress.md`
-- [ ] 执行 Step 4 results commit + push
+- [x] 更新 `results.tsv` / `results.md` / `progress.md`
+- [x] 执行 Step 4 results commit + push
 
 ## 当前实现内容
 
@@ -252,3 +252,75 @@ python scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_sc
 - 当前暴露偏差 gap 最小的是 `decoder_ss_fixed_075`
 - `decoder_ss_fixed_050` 尚未表现出明显优于 control 的优势
 - 是否继续扩展到 `500ms / 1000ms`，仍需等待 `linear` 与 `hybrid` 三组 `250ms` 结果补齐后再判断
+
+## 2026-03-22 20:28 CST 补充：250ms screening 7/7 完成并完成结果回填
+
+### 最终完成情况
+
+- `phase1_decoder_ss_250ms_screening` 已在 `2026-03-22 17:34 CST` 完成全部 `7/7` 个 `250ms` setting 的训练与 best-ckpt `teacher-forced/rollout valid/test` 评估
+- 最终汇总文件：
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/decoder_scheduled_sampling_250ms_screening_summary.json`
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/decoder_scheduled_sampling_250ms_screening_summary.md`
+  - `results/figures/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/decoder_scheduled_sampling_250ms_screening_summary.tsv`
+- 已完成的 `250ms` setting：
+  - `memory_only_mix035`
+  - `decoder_ss_fixed_025`
+  - `decoder_ss_fixed_050`
+  - `decoder_ss_fixed_075`
+  - `decoder_ss_linear_0_to_050`
+  - `decoder_ss_linear_0_to_075`
+  - `hybrid_mix035_plus_linear_050`
+
+### 最终 250ms 排名（7/7 complete）
+
+1. `decoder_ss_linear_0_to_050`
+   - rollout test fp-bps: `0.2245`
+   - rollout valid fp-bps: `0.2210`
+   - test gap: `0.0586`
+   - best ckpt: `epoch 159`
+2. `decoder_ss_fixed_025`
+   - rollout test fp-bps: `0.2230`
+   - rollout valid fp-bps: `0.2189`
+   - test gap: `0.0638`
+   - best ckpt: `epoch 159`
+3. `hybrid_mix035_plus_linear_050`
+   - rollout test fp-bps: `0.2227`
+   - rollout valid fp-bps: `0.2210`
+   - test gap: `0.0487`
+   - best ckpt: `epoch 159`
+4. `decoder_ss_linear_0_to_075`
+   - rollout test fp-bps: `0.2193`
+   - rollout valid fp-bps: `0.2096`
+   - test gap: `0.0551`
+   - best ckpt: `epoch 119`
+5. `decoder_ss_fixed_075`
+   - rollout test fp-bps: `0.2190`
+   - rollout valid fp-bps: `0.2104`
+   - test gap: `0.0377`
+   - best ckpt: `epoch 189`
+6. `memory_only_mix035`
+   - rollout test fp-bps: `0.2176`
+   - rollout valid fp-bps: `0.2109`
+   - test gap: `0.0617`
+   - best ckpt: `epoch 159`
+7. `decoder_ss_fixed_050`
+   - rollout test fp-bps: `0.2173`
+   - rollout valid fp-bps: `0.2156`
+   - test gap: `0.0568`
+   - best ckpt: `epoch 159`
+
+### 当前结论
+
+- `decoder_ss_linear_0_to_050` 现在是本轮 `250ms` screening 的最佳 rollout test setting
+- `hybrid_mix035_plus_linear_050` 排名第 3，但 gap 小于 `decoder_ss_fixed_025`，说明 moderate decoder schedule + memory mix 具有继续扩展价值
+- `decoder_ss_fixed_075` 虽不是最高 `rollout test fp-bps`，但仍保持最小 `test gap=0.0377`，可作为低暴露偏差参考
+- 下一步更合理的优先级是：先把 `decoder_ss_linear_0_to_050` 和 `hybrid_mix035_plus_linear_050` 扩展到 `500ms / 1000ms`，必要时保留 `decoder_ss_fixed_075` 作为 gap-oriented reference
+
+### 本次整理记录同步
+
+- 已更新 `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`
+- 已更新 `cc_core_files/results.md`
+- 已更新 `cc_core_files/plan.md`
+- 已更新 `cc_core_files/model.md`
+- 已更新 `progress.md`
+- 已修复 `cc_todo/phase1-autoregressive/1.9-module-optimization/plot_optimization_progress.py` 在当前 worktree 下写出错误根目录的问题，并重新生成 `optimization_progress.{png,pdf}`

@@ -888,15 +888,15 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 -->
 
 ##### 20260320_decoder_scheduled_sampling -- Decoder Scheduled Sampling
-> 状态: 实施中
+> 状态: 验证中
 > 分支: `dev/20260320_decoder_scheduled_sampling`
 > 文档: `cc_core_files/model.md` 中“2026-03-20 — Decoder Scheduled Sampling”
 > 任务记录: `cc_todo/phase1-autoregressive/1.9-module-optimization/20260320_decoder_scheduled_sampling.md`
 > 脚本: `scripts/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/`
 > 日志: `results/logs/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/`
 > 可视化: `results/figures/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/`
-> commit: 待提交
-> 结果: 待补
+> commit: `0b79c60`（Step 2 实现 checkpoint）
+> 结果: `250ms` best=`decoder_ss_linear_0_to_050`（rollout test `0.2245`）；`500ms / 1000ms` 待补
 
 - 核心设计：在当前 `local_prediction_memory` 路线上新增 training-time step-by-step autoregressive decode，并按 `rollout_prob` 在上一步 GT / predicted counts 之间切换
 - 与 `prediction_memory_train_mix_prob` 的关系：
@@ -913,7 +913,9 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 - 当前进度：
   - 代码实现完成
   - 功能验证通过
-  - smoke / 正式实验待脚本执行完成
+  - `250ms` screening 已完成 `7/7`；当前最佳 rollout test setting 是 `decoder_ss_linear_0_to_050`（`0.2245`）
+  - `hybrid_mix035_plus_linear_050` 次优（`0.2227`），`decoder_ss_fixed_075` 仍保持最小 `test gap=0.0377`
+  - `500ms / 1000ms` 扩展 setting 待按本轮 ranking 继续执行
 
 ##### 20260312_prediction_memory_decoder -- Structured Prediction Memory Decoder
 > 状态: 已放弃

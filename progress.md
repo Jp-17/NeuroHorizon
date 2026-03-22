@@ -2310,3 +2310,34 @@
 - 无新的阻塞；当前仅需等待剩余 3 个 `250ms` setting 跑完
 
 **对应 plan.md 任务**：Phase 1.9.0 暴露偏差实验的 `250ms` setting screening 中期快照
+
+## 2026-03-22-20h
+
+### 任务：整理 decoder scheduled sampling 250ms screening 最终记录
+
+**完成时间**：2026-03-22-20h
+
+**完成内容**：
+1. 确认 `phase1_decoder_ss_250ms_screening` 已完成全部 `7/7` 个 `250ms` setting，并核对每个 setting 的 best-ckpt `teacher-forced/rollout valid/test` JSON
+2. 回填 `cc_todo/phase1-autoregressive/1.9-module-optimization/20260320_decoder_scheduled_sampling.md` 的最终结果、ranking 和下一步优先级判断
+3. 更新 `cc_todo/phase1-autoregressive/1.9-module-optimization/results.tsv`、`cc_core_files/results.md`、`cc_core_files/plan.md`、`cc_core_files/model.md`
+4. 修复 `cc_todo/phase1-autoregressive/1.9-module-optimization/plot_optimization_progress.py` 的项目根目录硬编码问题，并重新生成 `optimization_progress.{png,pdf}`
+
+**执行结果**：
+- `250ms screening` 当前最终排名：
+  - `decoder_ss_linear_0_to_050`: rollout test `0.2245`
+  - `decoder_ss_fixed_025`: rollout test `0.2230`
+  - `hybrid_mix035_plus_linear_050`: rollout test `0.2227`
+  - `decoder_ss_linear_0_to_075`: rollout test `0.2193`
+  - `decoder_ss_fixed_075`: rollout test `0.2190`
+  - `memory_only_mix035`: rollout test `0.2176`
+  - `decoder_ss_fixed_050`: rollout test `0.2173`
+- 当前最佳 rollout test setting：`decoder_ss_linear_0_to_050`
+- 当前最小暴露偏差 gap setting：`decoder_ss_fixed_075`（`0.0377`）
+- 当前更值得继续扩展到 `500ms / 1000ms` 的 setting：`decoder_ss_linear_0_to_050` 与 `hybrid_mix035_plus_linear_050`
+
+**遇到的问题**：
+- `plot_optimization_progress.py` 将项目根目录硬编码到 `/root/autodl-tmp/NeuroHorizon`，在当前 worktree 下不会把趋势图写回本项目目录
+- 解决：改为基于脚本相对路径定位项目根目录，再重新生成趋势图
+
+**对应 plan.md 任务**：Phase 1.9.0 Step 4 结果记录与 `20260320_decoder_scheduled_sampling` 的 `250ms` screening 收尾
