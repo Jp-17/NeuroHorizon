@@ -2300,3 +2300,30 @@
 **当前判断**：
 - 这次重跑已经把“训练期双验证 + 新增监控”这一变量单独拿掉
 - 下一步继续观察首个 `last_model.pt` 的落盘时间，再与先前双验证 run 的首轮落盘时间对比
+
+## 2026-03-23 14:34 CST - Neuroformer 单验证重跑完成并确认 session conditioning 未实际生效
+
+**完成事项**：
+1. 复查 `phase1_neuroformer_20260322_singleval` 的最终落盘状态
+   - 训练已结束，当前无存活 screen / train 进程
+   - 输出目录已写出 `best_model.pt / last_model.pt / results.json / history_summary / training curves`
+2. 回填本轮最终结果
+   - best epoch：`39`
+   - best valid rollout `fp-bps = -7.9134`
+   - test rollout / true_past `fp-bps = -7.9389 / -8.6584`
+   - last epoch 50 `valid_fp_bps = -8.1437`
+3. 重新对比本轮与 canonical 的最终墙钟
+   - 本轮训练约 `874.4 s/epoch`
+   - canonical 约 `871.8 s/epoch`
+   - 整体 pipeline 相比 canonical 仅约慢 `0.6%`
+   - 说明此前大幅 slowdown 主要来自训练期双验证与新增诊断，而不是当前单验证版本本身
+4. 新定位到一处更关键的实现问题
+   - dataset / collate 把 `session_idx` 放在 batch 顶层
+   - session wrapper 却在 `x` 内查找 `session_idx`
+   - 训练调用是 `model(batch["x"], batch["y"])`，因此 `session_emb` 分支实际不会触发
+
+**当前判断**：
+- 当前这轮重跑可以作为“回退训练期双验证/诊断后，速度已回归 canonical”的有效证据。
+- 但它不能作为“session conditioning 有效/无效”的结论依据，因为当前实现里 session conditioning 实际未注入到模型输入。
+- 若继续这条线，下一步应先修正 `session_idx` 传递，再仅重跑 Neuroformer 段。
+

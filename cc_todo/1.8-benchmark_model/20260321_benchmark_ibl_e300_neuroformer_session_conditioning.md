@@ -334,3 +334,32 @@ python neural-benchmark/faithful_neuroformer.py \
 - 当前判断：
   - 训练期双验证与新增诊断至少会带来额外开销，本次重跑用于验证它们是否是主要 slowdown 来源
   - 但本次重跑仍存在 GPU 共享干扰，因此即便速度改善，也只能说明“训练期配置回退后节奏变轻”，不能单独把全部提速归因到代码改动
+
+## 2026-03-23 14:34 CST - Neuroformer 单验证重跑已完成，但当前 session conditioning 实际未生效
+
+- 完成状态：`phase1_neuroformer_20260322_singleval` 已结束，当前无存活 screen / train 进程；输出目录已写出 `best_model.pt / last_model.pt / results.json / training curves`。
+- 关键产物时间：
+  - `best_model.pt`：`2026-03-23 03:01 CST`
+  - `last_model.pt`：`2026-03-23 05:21 CST`
+  - `results.json`：`2026-03-23 05:47 CST`
+- 本轮最终结果：
+  - best epoch：`39`
+  - best valid rollout `fp-bps = -7.9134`
+  - formal valid rollout / true_past `fp-bps = -7.9134 / -8.6397`
+  - test rollout / true_past `fp-bps = -7.9389 / -8.6584`
+  - test rollout / true_past `R^2 = -0.5664 / -2.5680`
+  - test rollout / true_past `predicted_to_true_event_ratio_mean = 0.8786 / 0.9719`
+- 与旧 canonical run 的最终速度对比：
+  - 当前单验证重跑训练墙钟约 `874.4 s/epoch`
+  - 旧 canonical 训练墙钟约 `871.8 s/epoch`
+  - 比值约 `1.0029x`，训练主循环速度基本回到 canonical 同一量级
+  - 从启动到 `results.json` 落盘的整条 pipeline 用时比 canonical 约慢 `0.6%`，已不支持“这次 rerun 仍显著慢很多”的结论
+- 新发现的代码问题：当前 `session conditioning` 实际没有注入模型输入，因此这轮结果不能当作有效的 session-conditioning 实验结果。
+  - 数据侧把 `session_idx` 放在 batch 顶层：`session_idx` 由 dataset 返回，并在 `collate_neuroformer_batch()` 中保留为顶层字段。
+  - session wrapper 检查的是 `if "session_idx" in x`，但训练调用是 `model(batch["x"], batch["y"])`。
+  - 因此传入模型的 `x` 中并没有 `session_idx`，`session_emb` 分支不会触发；这轮实跑更接近“去掉双验证/新增监控后的 canonical rerun”，而不是“显式 session-conditioning 已生效”的对照实验。
+- 当前结论：
+  - 这轮单验证重跑已经完成了它原本最重要的用途：证明训练期双验证和额外诊断才是此前大幅 slowdown 的主要来源，回退后整体速度已基本恢复到 canonical。
+  - 但由于 `session_idx` 没有真正喂进模型，这轮结果不能用于回答“session conditioning 是否带来收益”。
+  - 若要继续评估 session conditioning，需要修正 `session_idx` 的传递路径后，仅重跑 Neuroformer 段。
+
