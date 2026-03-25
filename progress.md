@@ -2428,3 +2428,19 @@
   - 左：全窗口/可用点位概览
   - 中：当前 benchmark reference 柱状图
   - 右：250ms 聚焦对比（NH / NF faithful / IBL e300）
+
+## 2026-03-25 14:48 CST - 将 06 图右侧 250ms 聚焦子图改为 table 展示
+
+**完成事项**：
+1. 修改 `scripts/analysis/neurohorizon/phase1_benchmark_compare.py`
+2. 将最右侧 250ms 聚焦 panel 从柱状图改为 table
+3. 保留同一批对比对象不变：
+   - `NeuroHorizon 250ms`
+   - `Neuroformer faithful 250ms`
+   - `IBL e300 250ms`
+4. 重新生成 `results/figures/phase1_v2/06_benchmark_comparison.png`
+5. 更新 `cc_todo/phase1-autoregressive/20260312-phase1-1.3.4-v2-experiment.md` 与 `cc_core_files/results.md`
+
+**执行结果**：
+- `06_benchmark_comparison.png` 最右侧现为 250ms 聚焦 table，不再使用柱状图
+- 左/中两个 panel 保持不变，仍沿用上一版的数据口径

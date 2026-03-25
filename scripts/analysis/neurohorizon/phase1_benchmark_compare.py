@@ -308,23 +308,40 @@ ax_reference.set_ylabel("fp-bps")
 ax_reference.set_title("250ms / available current benchmark references")
 ax_reference.grid(True, alpha=0.3, axis="y")
 
-# Panel C: focused 250ms comparison requested by user
+# Panel C: focused 250ms comparison table requested by user
 nf_can_250 = next(row for row in nf_results if row["label"] == "NF can 250ms")
-focus_labels = ["NH\n250", "NF faithful\n250", "IBL e300\n250"]
-focus_values = [
-    nh_results.get(250, np.nan),
-    nf_can_250["rollout_fp_bps"],
-    ibl_e300["fp_bps"],
+focus_rows = [
+    ("NeuroHorizon 250ms", nh_results.get(250, np.nan), "#1f77b4"),
+    ("Neuroformer faithful 250ms", nf_can_250["rollout_fp_bps"], "#7b1fa2"),
+    ("IBL e300 250ms", ibl_e300["fp_bps"], "#2e7d32"),
 ]
-focus_colors = ["#1f77b4", "#7b1fa2", "#2e7d32"]
-focus_bars = ax_focus_250.bar(np.arange(len(focus_labels)), focus_values, color=focus_colors, alpha=0.9)
-annotate_bars(ax_focus_250, focus_bars)
-ax_focus_250.axhline(0, color="gray", linestyle=":", alpha=0.6)
-ax_focus_250.set_xticks(np.arange(len(focus_labels)))
-ax_focus_250.set_xticklabels(focus_labels)
-ax_focus_250.set_ylabel("fp-bps")
-ax_focus_250.set_title("250ms focus: NH vs NF faithful vs IBL e300")
-ax_focus_250.grid(True, alpha=0.3, axis="y")
+ax_focus_250.axis("off")
+ax_focus_250.set_title("250ms focus table", pad=12)
+focus_table = ax_focus_250.table(
+    cellText=[[label, f"{value:.4f}"] for label, value, _ in focus_rows],
+    colLabels=["Model", "test fp-bps"],
+    cellLoc="center",
+    colLoc="center",
+    colWidths=[0.68, 0.28],
+    loc="center",
+)
+focus_table.auto_set_font_size(False)
+focus_table.set_fontsize(9)
+focus_table.scale(1.1, 2.0)
+
+for col_idx in range(2):
+    header = focus_table[(0, col_idx)]
+    header.set_facecolor("#2f2f2f")
+    header.get_text().set_color("white")
+    header.get_text().set_weight("bold")
+
+for row_idx, (_, _, color) in enumerate(focus_rows, start=1):
+    model_cell = focus_table[(row_idx, 0)]
+    value_cell = focus_table[(row_idx, 1)]
+    model_cell.set_facecolor(color)
+    model_cell.get_text().set_color("white")
+    if color in {"#1f77b4", "#7b1fa2", "#2e7d32"}:
+        value_cell.set_facecolor("#f5f5f5")
 
 fig.text(
     0.5,
