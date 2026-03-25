@@ -2371,3 +2371,43 @@
 
 **遇到的问题**：
 - 远程系统默认 `python` / `python3` 环境缺少 `matplotlib`，直接运行脚本失败；解决：切换到 `poyo` conda 环境重新执行
+
+## 2026-03-25 14:10 CST - 校正 phase1_v2 图表展示拆分与 benchmark reference 数据源
+
+**完成事项**：
+1. 审查 `results/figures/phase1_v2/` 当前图表与 `cc_todo/phase1-autoregressive/20260312-phase1-1.3.4-v2-experiment.md` 的展示要求差距
+2. 在保留当天 `13:55` 已改过的 `scripts/analysis/neurohorizon/phase1_v2_visualize.py` 基础上继续增量修改：
+   - 将 `01-05` 从 `continuous + trial-aligned` 同图展示改为按训练模式拆分
+   - 原文件名保留 `continuous-only`
+   - 新增 `*_trial_aligned.png` 作为 `trial-aligned-only` companion 图
+   - 将 `04_cont_vs_trial*.png` 从柱状图改为折线图
+3. 重写 `scripts/analysis/neurohorizon/phase1_benchmark_compare.py`：
+   - NeuroHorizon 改读 `phase1_v2_evalfix` held-out test
+   - IBL-MtM 改读 faithful `e10 / e50 / e300`
+   - Neuroformer 改读 faithful `50ms reference / 250ms canonical / 20260321 +session_cond`
+   - Legacy NDT2-like 改读 `protocol-fix held-out test` 作为历史内部参考
+4. 重新生成 `results/figures/phase1_v2/` 图表：
+   - 更新 `01_fpbps_vs_window.png`
+   - 更新 `02_perbin_fpbps_decay.png`
+   - 更新 `03_psth_r2_heatmap.png`
+   - 更新 `04_cont_vs_trial.png`
+   - 更新 `05_training_curves.png`
+   - 新增 `01_fpbps_vs_window_trial_aligned.png`
+   - 新增 `02_perbin_fpbps_decay_trial_aligned.png`
+   - 新增 `03_psth_r2_heatmap_trial_aligned.png`
+   - 新增 `04_cont_vs_trial_trial_aligned.png`
+   - 新增 `05_training_curves_trial_aligned.png`
+   - 更新 `06_benchmark_comparison.png`
+5. 更新 `cc_todo/phase1-autoregressive/20260312-phase1-1.3.4-v2-experiment.md` 与 `cc_core_files/results.md`
+
+**执行结果**：
+- `phase1_v2` 图表现已按训练模式拆分，不再把 `continuous` 与 `trial-aligned` 叠在同一张图中
+- `04` 系列图已改为折线图
+- `06_benchmark_comparison.png` 现使用最新 benchmark reference：
+  - NeuroHorizon `250/500/1000ms = 0.2223 / 0.1740 / 0.1348`
+  - IBL-MtM faithful `e10 / e50 / e300 = -0.0017 / 0.1345 / 0.1938`
+  - Neuroformer faithful rollout `50ms / 250ms / 250ms +SC = -6.8777 / -8.0350 / -7.9389`
+
+**遇到的问题**：
+- 远程仓库中 `phase1_v2_visualize.py` 已有当天未提交改动且 `01-05` 已刚重生成；为避免覆盖该版本，改为先读取当前 diff 再基于现状增量修改
+- `results/` 整体被 `.gitignore` 忽略，新生成的 companion PNG 与 `06_benchmark_comparison.png` 需要在提交时使用 `git add -f`

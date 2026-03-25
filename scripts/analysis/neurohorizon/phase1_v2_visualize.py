@@ -87,6 +87,14 @@ MARKERS = {
     "continuous": "o",
     "trial-aligned": "s",
 }
+MODE_DISPLAY_NAMES = {
+    "continuous": "continuous-trained",
+    "trial-aligned": "trial-aligned-trained",
+}
+MODE_SERIES_COLORS = {
+    "continuous": "#1f77b4",
+    "trial-aligned": "#ff7f0e",
+}
 
 
 def parse_args():
@@ -212,6 +220,30 @@ def load_training_curves(protocol: str):
     return curves
 
 
+def mode_output_path(out_dir: Path, base_name: str, mode: str) -> Path:
+    path = Path(base_name)
+    if mode == "continuous":
+        return out_dir / path.name
+    return out_dir / f"{path.stem}_trial_aligned{path.suffix}"
+
+
+def filter_results_by_mode(results, mode: str):
+    return {
+        label: payload
+        for label, payload in results.items()
+        if payload.get("mode") == mode
+    }
+
+
+def filter_curves_by_mode(curves, mode: str):
+    mode_token = "trial" if mode == "trial-aligned" else "cont"
+    return {
+        label: payload
+        for label, payload in curves.items()
+        if label.endswith(mode_token)
+    }
+
+
 def annotate_point_series(ax, xs, ys):
     for x_val, y_val in zip(xs, ys):
         offset = 10 if y_val >= 0 else -16
@@ -242,37 +274,53 @@ def annotate_bars(ax, bars):
         )
 
 
-def fig1_fpbps_vs_window(results, out_dir: Path, tag: str):
+def fig1_fpbps_vs_window(results, out_dir: Path, tag: str, mode: str):
+    mode_results = filter_results_by_mode(results, mode)
+    if not mode_results:
+        return
+
     fig, ax = plt.subplots(1, 1, figsize=(8, 5))
 
-    for mode, fmt in [("continuous", "-o"), ("trial-aligned", "--s")]:
-        windows = []
-        values = []
-        for _, payload in sorted(results.items(), key=lambda item: item[1]["window_ms"]):
-            if payload["mode"] != mode or "continuous" not in payload:
-                continue
-            windows.append(payload["window_ms"])
-            values.append(payload["continuous"].get("fp_bps", 0.0))
+    windows = []
+    values = []
+    for _, payload in sorted(mode_results.items(), key=lambda item: item[1]["window_ms"]):
+        if "continuous" not in payload:
+            continue
+        windows.append(payload["window_ms"])
+        values.append(payload["continuous"].get("fp_bps", 0.0))
 
-        if windows:
-            ax.plot(windows, values, fmt, label=mode, markersize=8, linewidth=2)
-            annotate_point_series(ax, windows, values)
+    if windows:
+        ax.plot(
+            windows,
+            values,
+            color=MODE_SERIES_COLORS[mode],
+            linestyle=LINE_STYLES[mode],
+            marker=MARKERS[mode],
+            label=MODE_DISPLAY_NAMES[mode],
+            markersize=8,
+            linewidth=2.5,
+        )
+        annotate_point_series(ax, windows, values)
 
     ax.set_xlabel("Prediction Window (ms)", fontsize=12)
     ax.set_ylabel("fp-bps", fontsize=12)
-    ax.set_title(f"fp-bps vs Prediction Window ({tag})", fontsize=14)
+    ax.set_title(f"fp-bps vs Prediction Window ({MODE_DISPLAY_NAMES[mode]}, {tag})", fontsize=14)
     ax.legend(fontsize=11)
     ax.set_xticks([250, 500, 1000])
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig(out_dir / "01_fpbps_vs_window.png", dpi=150)
+    plt.savefig(mode_output_path(out_dir, "01_fpbps_vs_window.png", mode), dpi=150)
     plt.close()
 
 
-def fig2_perbin_decay(results, out_dir: Path, tag: str):
+def fig2_perbin_decay(results, out_dir: Path, tag: str, mode: str):
+    mode_results = filter_results_by_mode(results, mode)
+    if not mode_results:
+        return
+
     fig, ax = plt.subplots(1, 1, figsize=(10, 6))
 
-    for label, payload in sorted(results.items(), key=lambda item: item[1]["window_ms"]):
+    for label, payload in sorted(mode_results.items(), key=lambda item: item[1]["window_ms"]):
         if "continuous" not in payload:
             continue
         per_bin = payload["continuous"].get("per_bin_fp_bps") or {}
@@ -296,16 +344,16 @@ def fig2_perbin_decay(results, out_dir: Path, tag: str):
 
     ax.set_xlabel("Time from prediction start (ms)", fontsize=12)
     ax.set_ylabel("fp-bps per bin", fontsize=12)
-    ax.set_title(f"Per-bin fp-bps Decay ({tag})", fontsize=14)
+    ax.set_title(f"Per-bin fp-bps Decay ({MODE_DISPLAY_NAMES[mode]}, {tag})", fontsize=14)
     ax.legend(fontsize=9, ncol=2)
     ax.grid(True, alpha=0.3)
     ax.axhline(y=0, color="gray", linestyle=":", alpha=0.5)
     plt.tight_layout()
-    plt.savefig(out_dir / "02_perbin_fpbps_decay.png", dpi=150)
+    plt.savefig(mode_output_path(out_dir, "02_perbin_fpbps_decay.png", mode), dpi=150)
     plt.close()
 
 
-def fig3_psth_heatmap(results, out_dir: Path, tag: str):
+def fig3_psth_heatmap(results, out_dir: Path, tag: str, mode: str):
     labels = []
     per_target_rows = []
 
@@ -318,7 +366,7 @@ def fig3_psth_heatmap(results, out_dir: Path, tag: str):
         "1000ms-trial",
     ]:
         payload = results.get(label)
-        if payload is None:
+        if payload is None or payload.get("mode") != mode:
             continue
         trial_payload = payload.get("trial_aligned") or {}
         per_target = trial_payload.get("per_target_per_neuron_psth_r2") or trial_payload.get("per_target_psth_r2")
@@ -340,7 +388,10 @@ def fig3_psth_heatmap(results, out_dir: Path, tag: str):
     ax.set_xticklabels(labels, rotation=45, ha="right")
     ax.set_yticks(range(8))
     ax.set_yticklabels([f"Dir {idx}" for idx in range(8)])
-    ax.set_title(f"per-neuron PSTH-R2 by Direction and Condition ({tag})", fontsize=14)
+    ax.set_title(
+        f"per-neuron PSTH-R2 by Direction ({MODE_DISPLAY_NAMES[mode]}, {tag})",
+        fontsize=14,
+    )
 
     for row_idx in range(data.shape[0]):
         for col_idx in range(data.shape[1]):
@@ -350,56 +401,57 @@ def fig3_psth_heatmap(results, out_dir: Path, tag: str):
 
     plt.colorbar(image, ax=ax, label="per-neuron PSTH-R2")
     plt.tight_layout()
-    plt.savefig(out_dir / "03_psth_r2_heatmap.png", dpi=150)
+    plt.savefig(mode_output_path(out_dir, "03_psth_r2_heatmap.png", mode), dpi=150)
     plt.close()
 
 
-def fig4_cont_vs_trial(results, out_dir: Path, tag: str):
+def fig4_cont_vs_trial(results, out_dir: Path, tag: str, mode: str):
     windows = [250, 500, 1000]
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     metric_specs = [("fp_bps", "fp-bps"), ("r2", "R-squared")]
 
     for axis, (metric_key, metric_label) in zip(axes, metric_specs):
-        continuous_values = []
-        trial_values = []
-        labels = []
-
+        values = []
         for window_ms in windows:
-            cont_label = f"{window_ms}ms-cont"
-            trial_label = f"{window_ms}ms-trial"
-            continuous_values.append(results.get(cont_label, {}).get("continuous", {}).get(metric_key, 0.0))
-            trial_values.append(results.get(trial_label, {}).get("continuous", {}).get(metric_key, 0.0))
-            labels.append(f"{window_ms}ms")
+            label = f"{window_ms}ms-{'cont' if mode == 'continuous' else 'trial'}"
+            values.append(results.get(label, {}).get("continuous", {}).get(metric_key, 0.0))
 
-        x_positions = np.arange(len(labels))
-        width = 0.35
-        bars_cont = axis.bar(x_positions - width / 2, continuous_values, width, label="Continuous", color="#1f77b4", alpha=0.85)
-        bars_trial = axis.bar(x_positions + width / 2, trial_values, width, label="Trial-aligned", color="#ff7f0e", alpha=0.85)
-        annotate_bars(axis, bars_cont)
-        annotate_bars(axis, bars_trial)
+        axis.plot(
+            windows,
+            values,
+            color=MODE_SERIES_COLORS[mode],
+            linestyle=LINE_STYLES[mode],
+            marker=MARKERS[mode],
+            linewidth=2.5,
+            markersize=8,
+            label=MODE_DISPLAY_NAMES[mode],
+        )
+        annotate_point_series(axis, windows, values)
 
-        axis.set_xlabel("Prediction Window")
+        axis.set_xlabel("Prediction Window (ms)")
         axis.set_ylabel(metric_label)
-        axis.set_title(f"{metric_label}: Continuous vs Trial-aligned")
-        axis.set_xticks(x_positions)
-        axis.set_xticklabels(labels)
+        axis.set_title(f"{metric_label} vs Prediction Window")
+        axis.set_xticks(windows)
         axis.legend()
-        axis.grid(True, alpha=0.3, axis="y")
+        axis.grid(True, alpha=0.3)
         axis.axhline(y=0, color="gray", linestyle=":", alpha=0.5)
 
-    fig.suptitle(f"Continuous vs Trial-aligned Summary ({tag})", fontsize=14, y=1.02)
+    fig.suptitle(f"Window Sweep Summary ({MODE_DISPLAY_NAMES[mode]}, {tag})", fontsize=14, y=1.02)
     plt.tight_layout()
-    plt.savefig(out_dir / "04_cont_vs_trial.png", dpi=150)
+    plt.savefig(mode_output_path(out_dir, "04_cont_vs_trial.png", mode), dpi=150)
     plt.close()
 
 
-def fig5_training_curves(curves, out_dir: Path, tag: str):
+def fig5_training_curves(curves, out_dir: Path, tag: str, mode: str):
+    mode_curves = filter_curves_by_mode(curves, mode)
+    if not mode_curves:
+        return
+
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-    for label, curve in sorted(curves.items(), key=lambda item: item[0]):
+    for label, curve in sorted(mode_curves.items(), key=lambda item: item[0]):
         if not curve["epochs"]:
             continue
-        mode = "trial-aligned" if "trial" in label else "continuous"
         axes[0].plot(
             curve["epochs"],
             curve["val_loss"],
@@ -432,9 +484,9 @@ def fig5_training_curves(curves, out_dir: Path, tag: str):
     axes[1].grid(True, alpha=0.3)
     axes[1].axhline(y=0, color="gray", linestyle=":", alpha=0.5)
 
-    fig.suptitle(f"Training Curves ({tag})", fontsize=14, y=1.02)
+    fig.suptitle(f"Training Curves ({MODE_DISPLAY_NAMES[mode]}, {tag})", fontsize=14, y=1.02)
     plt.tight_layout()
-    plt.savefig(out_dir / "05_training_curves.png", dpi=150)
+    plt.savefig(mode_output_path(out_dir, "05_training_curves.png", mode), dpi=150)
     plt.close()
 
 
@@ -482,11 +534,12 @@ def main():
     if not results:
         raise SystemExit("No evaluation results found. Run eval_phase1_v2.py first.")
 
-    fig1_fpbps_vs_window(results, out_dir, tag)
-    fig2_perbin_decay(results, out_dir, tag)
-    fig3_psth_heatmap(results, out_dir, tag)
-    fig4_cont_vs_trial(results, out_dir, tag)
-    fig5_training_curves(curves, out_dir, tag)
+    for mode in ("continuous", "trial-aligned"):
+        fig1_fpbps_vs_window(results, out_dir, tag, mode)
+        fig2_perbin_decay(results, out_dir, tag, mode)
+        fig3_psth_heatmap(results, out_dir, tag, mode)
+        fig4_cont_vs_trial(results, out_dir, tag, mode)
+        fig5_training_curves(curves, out_dir, tag, mode)
     print_summary(results)
     print(f"\nAll figures saved to: {out_dir}")
 
