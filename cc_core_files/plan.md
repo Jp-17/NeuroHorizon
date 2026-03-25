@@ -291,7 +291,7 @@ Phase 0-1（环境 + 自回归改造）→ Phase 2（跨 session 泛化）→ Ph
 
 #### 1.3.4 [x] v2 实验（fp-bps 为主指标 + trial-aligned 模式）
 > 依赖：`cc_core_files/proposal_review.md` §2.11（窗口实验） + §2.10（指标） + §2.1b（trial-aligned）
-> 产出：`results/logs/phase1_v2_{250ms,500ms,1000ms}_{cont,trial}/`，`results/logs/phase1_v2_evalfix_{250ms,500ms,1000ms}_{cont,trial}/`，`results/figures/phase1_v2/`，`results/logs/phase1_v2_*/eval_v2_{valid,test}_results.json`
+> 产出：`results/logs/phase1_v2_{250ms,500ms,1000ms}_{cont,trial}/`，`results/logs/phase1_v2_evalfix_{250ms,500ms,1000ms}_{cont,trial}/`，`results/figures/phase1_v2/`，`results/figures/phase1_v2_evalfix/`，`results/logs/phase1_v2_*/eval_v2_{valid,test}_results.json`
 > 记录：`cc_todo/phase1-autoregressive/20260311-phase1-1.3.4-v2-experiment.md`
 > 评估协议修正记录：`cc_todo/phase1-autoregressive/20260317-phase1-1.3.4-evalfix-rerun.md`
 

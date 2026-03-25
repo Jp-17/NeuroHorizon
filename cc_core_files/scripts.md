@@ -890,7 +890,9 @@
 ### phase1_v2_visualize.py（1.3.4 可视化脚本）
 
 - **路径**：`scripts/analysis/neurohorizon/phase1_v2_visualize.py`
-- **功能用途**：Phase 1 v2 实验可视化（5 张图）
+- **功能用途**：Phase 1 v2 / evalfix 重跑的 canonical 5 图可视化
+  - `--protocol legacy`：生成原始 `1.3.4` legacy 图表
+  - `--protocol evalfix --split valid|test`：生成协议修正后的 evalfix 图表
   - Figure 1：fp-bps vs 预测窗口（连续 vs trial-aligned）
   - Figure 2：per-bin fp-bps 衰减曲线
   - Figure 3：`per_neuron_psth_r2` 热力图（8 方向 x 6 条件）
@@ -901,11 +903,14 @@
   ````bash
   conda activate poyo
   cd /root/autodl-tmp/NeuroHorizon
-  python scripts/analysis/neurohorizon/phase1_v2_visualize.py
+  python scripts/analysis/neurohorizon/phase1_v2_visualize.py --protocol legacy
+  python scripts/analysis/neurohorizon/phase1_v2_visualize.py --protocol evalfix --split valid --out-dir /root/autodl-tmp/NeuroHorizon/results/figures/phase1_v2_evalfix
   ````
-- **输出**：`results/figures/phase1_v2/*.png`（5 张图）
+- **输出**：
+  - `results/figures/phase1_v2/*.png`（legacy 5 张图）
+  - `results/figures/phase1_v2_evalfix/*.png`（evalfix valid 5 张图）
 - **依赖**：poyo conda 环境, matplotlib
-- **备注**：对应 plan.md 任务 1.3.4；兼容旧 `psth_r2` 和新 `per_neuron_psth_r2` JSON key
+- **备注**：对应 plan.md 任务 1.3.4；2026-03-25 起要求显式指定 protocol，避免 legacy / evalfix 图表混写到同一目录
 
 ### run_phase1_v2_evalfix.sh（1.3.4 evalfix 全量重跑脚本）
 

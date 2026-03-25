@@ -2352,3 +2352,22 @@
 
 **遇到的问题**：
 - SSH 内 heredoc 方式追加含中文/特殊字符的 Markdown 时，zsh 将 `<`, `|`, `>` 等解释为 shell 元字符导致报错 -> 改用 Python `append` 写入解决
+
+
+## 2026-03-25 13:57 CST - 补全 1.3.4 evalfix rerun 专用可视化
+
+**完成事项**：
+1. 审查 `cc_todo/phase1-autoregressive/20260317-phase1-1.3.4-evalfix-rerun.md` 与 plan.md `1.3.4` 的 canonical 5 图要求之间的差距
+2. 定位 `scripts/analysis/neurohorizon/phase1_v2_visualize.py` 会优先读取 evalfix JSON，导致 legacy / evalfix 图都写进 `results/figures/phase1_v2/`
+3. 将可视化脚本改为显式 `--protocol legacy|evalfix --split valid|test`
+4. 重新生成 `results/figures/phase1_v2/`（legacy）与 `results/figures/phase1_v2_evalfix/`（evalfix valid）两套图表
+5. 更新 `20260317-phase1-1.3.4-evalfix-rerun.md`、`cc_core_files/results.md`、`cc_core_files/scripts.md`、`cc_core_files/plan.md`
+
+**执行结果**：
+- 新增目录：`results/figures/phase1_v2_evalfix/`
+- 新增文件：`01_fpbps_vs_window.png`、`02_perbin_fpbps_decay.png`、`03_psth_r2_heatmap.png`、`04_cont_vs_trial.png`、`05_training_curves.png`
+- `results/figures/phase1_v2/` 的 01-05 图已按 legacy 协议重新落盘，避免与 evalfix 混淆
+- evalfix valid 图表确认：continuous `fp-bps` 仍按 `250ms > 500ms > 1000ms` 排序，trial-aligned 在 500/1000ms 上后段 bin 明显失稳
+
+**遇到的问题**：
+- 远程系统默认 `python` / `python3` 环境缺少 `matplotlib`，直接运行脚本失败；解决：切换到 `poyo` conda 环境重新执行
