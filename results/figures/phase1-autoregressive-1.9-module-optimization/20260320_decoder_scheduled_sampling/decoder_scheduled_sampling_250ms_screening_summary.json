@@ -1,0 +1,99 @@
+{
+  "module": "20260320_decoder_scheduled_sampling",
+  "window": "250ms",
+  "generated_at": "2026-03-22T17:34:39+08:00",
+  "complete_settings": [
+    {
+      "setting": "decoder_ss_linear_0_to_050",
+      "description": "decoder scheduled sampling linear rollout_prob 0.0->0.50",
+      "checkpoint": "/root/autodl-tmp/NeuroHorizon_dev_20260320_decoder_scheduled_sampling/results/logs/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/decoder_ss_linear_0_to_050/250ms/lightning_logs/version_0/checkpoints/best.ckpt",
+      "checkpoint_epoch": 159,
+      "teacher_forced_valid_fp_bps": 0.28263304514031484,
+      "teacher_forced_test_fp_bps": 0.28306228662029886,
+      "rollout_valid_fp_bps": 0.22098760513629417,
+      "rollout_test_fp_bps": 0.22445364567433415,
+      "valid_gap": 0.06164544000402067,
+      "test_gap": 0.05860864094596471,
+      "rank": 1
+    },
+    {
+      "setting": "decoder_ss_fixed_025",
+      "description": "decoder scheduled sampling fixed rollout_prob=0.25",
+      "checkpoint": "/root/autodl-tmp/NeuroHorizon_dev_20260320_decoder_scheduled_sampling/results/logs/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/decoder_ss_fixed_025/250ms/lightning_logs/version_0/checkpoints/best.ckpt",
+      "checkpoint_epoch": 159,
+      "teacher_forced_valid_fp_bps": 0.28712369122917675,
+      "teacher_forced_test_fp_bps": 0.28672356645075125,
+      "rollout_valid_fp_bps": 0.21889466118979334,
+      "rollout_test_fp_bps": 0.22296722513229697,
+      "valid_gap": 0.06822903003938341,
+      "test_gap": 0.06375634131845428,
+      "rank": 2
+    },
+    {
+      "setting": "hybrid_mix035_plus_linear_050",
+      "description": "hybrid mix_prob=0.35 plus decoder scheduled sampling linear 0.0->0.50",
+      "checkpoint": "/root/autodl-tmp/NeuroHorizon_dev_20260320_decoder_scheduled_sampling/results/logs/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/hybrid_mix035_plus_linear_050/250ms/lightning_logs/version_0/checkpoints/best.ckpt",
+      "checkpoint_epoch": 159,
+      "teacher_forced_valid_fp_bps": 0.2745633245115716,
+      "teacher_forced_test_fp_bps": 0.27144928561702086,
+      "rollout_valid_fp_bps": 0.22096880597733382,
+      "rollout_test_fp_bps": 0.22273733389002945,
+      "valid_gap": 0.0535945185342378,
+      "test_gap": 0.048711951726991415,
+      "rank": 3
+    },
+    {
+      "setting": "decoder_ss_linear_0_to_075",
+      "description": "decoder scheduled sampling linear rollout_prob 0.0->0.75",
+      "checkpoint": "/root/autodl-tmp/NeuroHorizon_dev_20260320_decoder_scheduled_sampling/results/logs/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/decoder_ss_linear_0_to_075/250ms/lightning_logs/version_0/checkpoints/best.ckpt",
+      "checkpoint_epoch": 119,
+      "teacher_forced_valid_fp_bps": 0.2705162320139426,
+      "teacher_forced_test_fp_bps": 0.2744234768052059,
+      "rollout_valid_fp_bps": 0.2096138514184775,
+      "rollout_test_fp_bps": 0.21934245326491603,
+      "valid_gap": 0.0609023805954651,
+      "test_gap": 0.055081023540289875,
+      "rank": 4
+    },
+    {
+      "setting": "decoder_ss_fixed_075",
+      "description": "decoder scheduled sampling fixed rollout_prob=0.75",
+      "checkpoint": "/root/autodl-tmp/NeuroHorizon_dev_20260320_decoder_scheduled_sampling/results/logs/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/decoder_ss_fixed_075/250ms/lightning_logs/version_0/checkpoints/best.ckpt",
+      "checkpoint_epoch": 189,
+      "teacher_forced_valid_fp_bps": 0.25536744539441764,
+      "teacher_forced_test_fp_bps": 0.25663766851902386,
+      "rollout_valid_fp_bps": 0.2104116699826828,
+      "rollout_test_fp_bps": 0.2189857846116611,
+      "valid_gap": 0.044955775411734844,
+      "test_gap": 0.037651883907362765,
+      "rank": 5
+    },
+    {
+      "setting": "memory_only_mix035",
+      "description": "memory-only control with mix_prob=0.35",
+      "checkpoint": "/root/autodl-tmp/NeuroHorizon_dev_20260320_decoder_scheduled_sampling/results/logs/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/memory_only_mix035/250ms/lightning_logs/version_0/checkpoints/best.ckpt",
+      "checkpoint_epoch": 159,
+      "teacher_forced_valid_fp_bps": 0.27899354934756637,
+      "teacher_forced_test_fp_bps": 0.27936080375717265,
+      "rollout_valid_fp_bps": 0.21092934646779238,
+      "rollout_test_fp_bps": 0.21762876598881917,
+      "valid_gap": 0.068064202879774,
+      "test_gap": 0.06173203776835348,
+      "rank": 6
+    },
+    {
+      "setting": "decoder_ss_fixed_050",
+      "description": "decoder scheduled sampling fixed rollout_prob=0.50",
+      "checkpoint": "/root/autodl-tmp/NeuroHorizon_dev_20260320_decoder_scheduled_sampling/results/logs/phase1-autoregressive-1.9-module-optimization/20260320_decoder_scheduled_sampling/decoder_ss_fixed_050/250ms/lightning_logs/version_0/checkpoints/best.ckpt",
+      "checkpoint_epoch": 159,
+      "teacher_forced_valid_fp_bps": 0.276600077648065,
+      "teacher_forced_test_fp_bps": 0.2741321768458382,
+      "rollout_valid_fp_bps": 0.21558440789416772,
+      "rollout_test_fp_bps": 0.21734469364878123,
+      "valid_gap": 0.06101566975389727,
+      "test_gap": 0.056787483197056954,
+      "rank": 7
+    }
+  ],
+  "incomplete_settings": []
+}
