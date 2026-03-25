@@ -2444,3 +2444,33 @@
 **执行结果**：
 - `06_benchmark_comparison.png` 最右侧现为 250ms 聚焦 table，不再使用柱状图
 - 左/中两个 panel 保持不变，仍沿用上一版的数据口径
+
+## 2026-03-25 15:00 CST - 调整 evalfix 图包为 continuous-only 并补充 250ms benchmark 对比
+
+**完成事项**：
+1. 修改 `scripts/analysis/neurohorizon/phase1_v2_visualize.py`
+2. 将 `results/figures/phase1_v2_evalfix/` 收口为 continuous-only 图包
+3. 替换原先带有 trial/PSTH 语义的 evalfix 图：
+   - `03_perbin_fpbps_heatmap.png`
+   - `04_continuous_metric_summary.png`
+4. 新增 `06_benchmark_comparison.png`，只比较：
+   - `NeuroHorizon 250ms`
+   - `Neuroformer faithful 250ms`
+   - `IBL e300 250ms`
+5. 更新 `cc_todo/phase1-autoregressive/20260317-phase1-1.3.4-evalfix-rerun.md`、`cc_core_files/results.md`、`cc_core_files/scripts.md`
+
+**执行结果**：
+- `results/figures/phase1_v2_evalfix/` 当前仅保留 6 张图：
+  - `01_fpbps_vs_window.png`
+  - `02_perbin_fpbps_decay.png`
+  - `03_perbin_fpbps_heatmap.png`
+  - `04_continuous_metric_summary.png`
+  - `05_training_curves.png`
+  - `06_benchmark_comparison.png`
+- 新 benchmark 对比图使用的 250ms test/reference 数值：
+  - NeuroHorizon：`0.2223`
+  - Neuroformer faithful canonical rollout：`-8.0350`
+  - IBL e300：`0.1938`
+
+**遇到的问题**：
+- 第一次重跑脚本时遗漏了 `load_json()` helper，导致 `06_benchmark_comparison.png` 生成时报 `NameError`；补上 helper 后已重跑通过

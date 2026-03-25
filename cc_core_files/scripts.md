@@ -890,14 +890,15 @@
 ### phase1_v2_visualize.py（1.3.4 可视化脚本）
 
 - **路径**：`scripts/analysis/neurohorizon/phase1_v2_visualize.py`
-- **功能用途**：Phase 1 v2 / evalfix 重跑的 canonical 5 图可视化
-  - `--protocol legacy`：生成原始 `1.3.4` legacy 图表
-  - `--protocol evalfix --split valid|test`：生成协议修正后的 evalfix 图表
-  - Figure 1：fp-bps vs 预测窗口（连续 vs trial-aligned）
-  - Figure 2：per-bin fp-bps 衰减曲线
-  - Figure 3：`per_neuron_psth_r2` 热力图（8 方向 x 6 条件）
-  - Figure 4：连续 vs trial-aligned 对比柱状图
-  - Figure 5：训练曲线（val_loss + val_fp_bps vs epoch）
+- **功能用途**：Phase 1 v2 / evalfix 重跑的可视化总入口
+  - `--protocol legacy`：生成原始 `1.3.4` legacy 图表，并按训练模式拆成 `continuous-only` 与 `trial-aligned-only` 两套 companion 图
+  - `--protocol evalfix --split valid|test`：生成协议修正后的 evalfix 图表，目录收口为 `continuous-only` 5 图 + 1 张 benchmark reference 图
+  - evalfix Figure 1：continuous `fp-bps` vs prediction window
+  - evalfix Figure 2：continuous per-bin `fp-bps` decay
+  - evalfix Figure 3：continuous per-bin `fp-bps` heatmap
+  - evalfix Figure 4：continuous `fp-bps / R²` window summary
+  - evalfix Figure 5：continuous training curves
+  - evalfix Figure 6：`NeuroHorizon 250ms` / `Neuroformer faithful 250ms` / `IBL e300 250ms` benchmark focus
 - **创建时间**：2026-03-12
 - **使用方式**：
   ````bash
@@ -907,10 +908,15 @@
   python scripts/analysis/neurohorizon/phase1_v2_visualize.py --protocol evalfix --split valid --out-dir /root/autodl-tmp/NeuroHorizon/results/figures/phase1_v2_evalfix
   ````
 - **输出**：
-  - `results/figures/phase1_v2/*.png`（legacy 5 张图）
-  - `results/figures/phase1_v2_evalfix/*.png`（evalfix valid 5 张图）
+  - `results/figures/phase1_v2/*.png` + `results/figures/phase1_v2/*_trial_aligned.png`
+  - `results/figures/phase1_v2_evalfix/01_fpbps_vs_window.png`
+  - `results/figures/phase1_v2_evalfix/02_perbin_fpbps_decay.png`
+  - `results/figures/phase1_v2_evalfix/03_perbin_fpbps_heatmap.png`
+  - `results/figures/phase1_v2_evalfix/04_continuous_metric_summary.png`
+  - `results/figures/phase1_v2_evalfix/05_training_curves.png`
+  - `results/figures/phase1_v2_evalfix/06_benchmark_comparison.png`
 - **依赖**：poyo conda 环境, matplotlib
-- **备注**：对应 plan.md 任务 1.3.4；2026-03-25 起要求显式指定 protocol，避免 legacy / evalfix 图表混写到同一目录
+- **备注**：对应 plan.md 任务 1.3.4；2026-03-25 起要求显式指定 protocol，避免 legacy / evalfix 图表混写到同一目录；evalfix 的 `06_benchmark_comparison.png` 固定引用 held-out test 的 benchmark reference
 
 ### run_phase1_v2_evalfix.sh（1.3.4 evalfix 全量重跑脚本）
 

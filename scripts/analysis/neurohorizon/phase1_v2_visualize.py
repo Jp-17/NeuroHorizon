@@ -23,6 +23,7 @@ import numpy as np
 
 ROOT = Path("/root/autodl-tmp/NeuroHorizon")
 BASE = ROOT / "results" / "logs"
+WINDOWS = [250, 500, 1000]
 DEFAULT_OUT_DIRS = {
     "legacy": ROOT / "results" / "figures" / "phase1_v2",
     "evalfix": ROOT / "results" / "figures" / "phase1_v2_evalfix",
@@ -132,6 +133,11 @@ def resolve_out_dir(args) -> Path:
     return out_dir
 
 
+def cleanup_evalfix_outputs(out_dir: Path):
+    for candidate in out_dir.glob("*.png"):
+        candidate.unlink()
+
+
 def result_json_candidates(condition, protocol: str, split: str):
     dir_name = condition["legacy_dir"] if protocol == "legacy" else condition["evalfix_dir"]
     if protocol == "legacy":
@@ -153,11 +159,15 @@ def metrics_candidates(condition, protocol: str):
     ]
 
 
+def load_json(path: Path):
+    with path.open() as handle:
+        return json.load(handle)
+
+
 def load_first_json(candidates):
     for candidate in candidates:
         if candidate.exists():
-            with candidate.open() as handle:
-                return json.load(handle)
+            return load_json(candidate)
     return None
 
 
@@ -274,6 +284,30 @@ def annotate_bars(ax, bars):
         )
 
 
+def load_benchmark_focus_values():
+    nh_payload = load_first_json(
+        [
+            BASE / "phase1_v2_evalfix_250ms_cont" / "lightning_logs" / "version_0" / "eval_v2_test_results.json",
+            BASE / "phase1_v2_evalfix_250ms_cont" / "lightning_logs" / "eval_v2_test_results.json",
+        ]
+    )
+    nf_payload = load_json(
+        BASE / "phase1_benchmark_repro_faithful_neuroformer_250ms_canonical_e50_aligned" / "formal_eval" / "eval_results.json"
+    )
+    ibl_payload = load_json(
+        BASE
+        / "phase1-autoregressive-1.8-benchmark_model"
+        / "20260321_benchmark_ibl_e300_neuroformer_session_conditioning"
+        / "ibl_mtm_combined_e300_aligned"
+        / "results.json"
+    )
+    return {
+        "NeuroHorizon 250ms": nh_payload["continuous"]["fp_bps"],
+        "Neuroformer faithful 250ms": nf_payload["continuous_metrics"]["test"]["rollout"]["fp_bps"],
+        "IBL e300 250ms": ibl_payload["test_metrics"]["fp_bps"],
+    }
+
+
 def fig1_fpbps_vs_window(results, out_dir: Path, tag: str, mode: str):
     mode_results = filter_results_by_mode(results, mode)
     if not mode_results:
@@ -353,6 +387,55 @@ def fig2_perbin_decay(results, out_dir: Path, tag: str, mode: str):
     plt.close()
 
 
+def fig3_continuous_perbin_heatmap(results, out_dir: Path, tag: str):
+    mode_results = filter_results_by_mode(results, "continuous")
+    if not mode_results:
+        return
+
+    ordered_labels = ["250ms-cont", "500ms-cont", "1000ms-cont"]
+    max_bins = max(
+        len((payload.get("continuous") or {}).get("per_bin_fp_bps") or {})
+        for payload in mode_results.values()
+    )
+    data = np.full((len(ordered_labels), max_bins), np.nan, dtype=float)
+
+    for row_idx, label in enumerate(ordered_labels):
+        payload = mode_results.get(label)
+        if payload is None:
+            continue
+        per_bin = payload["continuous"].get("per_bin_fp_bps") or {}
+        for bin_key, value in per_bin.items():
+            data[row_idx, int(bin_key)] = value
+
+    masked = np.ma.masked_invalid(data)
+    cmap = plt.cm.YlGnBu.copy()
+    cmap.set_bad(color="#f0f0f0")
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 4.8))
+    image = ax.imshow(masked, aspect="auto", cmap=cmap)
+    ax.set_yticks(range(len(ordered_labels)))
+    ax.set_yticklabels(ordered_labels)
+    tick_positions = [0, 4, 9, 14, 19, 24, 29, 39, 49]
+    tick_positions = [tick for tick in tick_positions if tick < max_bins]
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels([f"{tick * 20}ms" for tick in tick_positions], rotation=0)
+    ax.set_xlabel("Prediction bin offset")
+    ax.set_title(f"Continuous per-bin fp-bps Heatmap ({tag})", fontsize=14)
+
+    for row_idx in range(masked.shape[0]):
+        for col_idx in range(masked.shape[1]):
+            if np.ma.is_masked(masked[row_idx, col_idx]):
+                continue
+            value = float(masked[row_idx, col_idx])
+            text_color = "white" if value < 0.14 else "black"
+            ax.text(col_idx, row_idx, f"{value:.2f}", ha="center", va="center", fontsize=7, color=text_color)
+
+    plt.colorbar(image, ax=ax, label="fp-bps")
+    plt.tight_layout()
+    plt.savefig(out_dir / "03_perbin_fpbps_heatmap.png", dpi=150)
+    plt.close()
+
+
 def fig3_psth_heatmap(results, out_dir: Path, tag: str, mode: str):
     labels = []
     per_target_rows = []
@@ -405,14 +488,47 @@ def fig3_psth_heatmap(results, out_dir: Path, tag: str, mode: str):
     plt.close()
 
 
-def fig4_cont_vs_trial(results, out_dir: Path, tag: str, mode: str):
-    windows = [250, 500, 1000]
+def fig4_continuous_metric_summary(results, out_dir: Path, tag: str):
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     metric_specs = [("fp_bps", "fp-bps"), ("r2", "R-squared")]
 
     for axis, (metric_key, metric_label) in zip(axes, metric_specs):
         values = []
-        for window_ms in windows:
+        for window_ms in WINDOWS:
+            values.append(results.get(f"{window_ms}ms-cont", {}).get("continuous", {}).get(metric_key, 0.0))
+
+        axis.plot(
+            WINDOWS,
+            values,
+            color=MODE_SERIES_COLORS["continuous"],
+            linestyle=LINE_STYLES["continuous"],
+            marker=MARKERS["continuous"],
+            linewidth=2.5,
+            markersize=8,
+            label=MODE_DISPLAY_NAMES["continuous"],
+        )
+        annotate_point_series(axis, WINDOWS, values)
+        axis.set_xlabel("Prediction Window (ms)")
+        axis.set_ylabel(metric_label)
+        axis.set_title(f"{metric_label} vs Prediction Window")
+        axis.set_xticks(WINDOWS)
+        axis.legend()
+        axis.grid(True, alpha=0.3)
+        axis.axhline(y=0, color="gray", linestyle=":", alpha=0.5)
+
+    fig.suptitle(f"Continuous Metric Summary ({tag})", fontsize=14, y=1.02)
+    plt.tight_layout()
+    plt.savefig(out_dir / "04_continuous_metric_summary.png", dpi=150)
+    plt.close()
+
+
+def fig4_cont_vs_trial(results, out_dir: Path, tag: str, mode: str):
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    metric_specs = [("fp_bps", "fp-bps"), ("r2", "R-squared")]
+
+    for axis, (metric_key, metric_label) in zip(axes, metric_specs):
+        values = []
+        for window_ms in WINDOWS:
             label = f"{window_ms}ms-{'cont' if mode == 'continuous' else 'trial'}"
             values.append(results.get(label, {}).get("continuous", {}).get(metric_key, 0.0))
 
@@ -426,12 +542,12 @@ def fig4_cont_vs_trial(results, out_dir: Path, tag: str, mode: str):
             markersize=8,
             label=MODE_DISPLAY_NAMES[mode],
         )
-        annotate_point_series(axis, windows, values)
+        annotate_point_series(axis, WINDOWS, values)
 
         axis.set_xlabel("Prediction Window (ms)")
         axis.set_ylabel(metric_label)
         axis.set_title(f"{metric_label} vs Prediction Window")
-        axis.set_xticks(windows)
+        axis.set_xticks(WINDOWS)
         axis.legend()
         axis.grid(True, alpha=0.3)
         axis.axhline(y=0, color="gray", linestyle=":", alpha=0.5)
@@ -490,6 +606,33 @@ def fig5_training_curves(curves, out_dir: Path, tag: str, mode: str):
     plt.close()
 
 
+def fig6_benchmark_comparison(out_dir: Path):
+    benchmark_values = load_benchmark_focus_values()
+    labels = list(benchmark_values.keys())
+    values = list(benchmark_values.values())
+    colors = ["#1f77b4", "#7b1fa2", "#2e7d32"]
+
+    fig, ax = plt.subplots(1, 1, figsize=(8, 5.5))
+    bars = ax.bar(np.arange(len(labels)), values, color=colors, alpha=0.9)
+    annotate_bars(ax, bars)
+    ax.axhline(0, color="gray", linestyle=":", alpha=0.6)
+    ax.set_xticks(np.arange(len(labels)))
+    ax.set_xticklabels(["NH\n250ms", "NF faithful\n250ms", "IBL e300\n250ms"])
+    ax.set_ylabel("fp-bps")
+    ax.set_title("Current Benchmark Reference (250ms Focus)")
+    ax.grid(True, alpha=0.3, axis="y")
+    fig.text(
+        0.5,
+        0.02,
+        "NH uses evalfix held-out test; Neuroformer uses faithful canonical 250ms rollout test; IBL uses faithful e300 test.",
+        ha="center",
+        fontsize=8.5,
+    )
+    plt.tight_layout(rect=(0, 0.05, 1, 1))
+    plt.savefig(out_dir / "06_benchmark_comparison.png", dpi=150)
+    plt.close()
+
+
 def print_summary(results):
     print("\n" + "=" * 88)
     print("SUMMARY TABLE")
@@ -534,12 +677,21 @@ def main():
     if not results:
         raise SystemExit("No evaluation results found. Run eval_phase1_v2.py first.")
 
-    for mode in ("continuous", "trial-aligned"):
-        fig1_fpbps_vs_window(results, out_dir, tag, mode)
-        fig2_perbin_decay(results, out_dir, tag, mode)
-        fig3_psth_heatmap(results, out_dir, tag, mode)
-        fig4_cont_vs_trial(results, out_dir, tag, mode)
-        fig5_training_curves(curves, out_dir, tag, mode)
+    if args.protocol == "evalfix":
+        cleanup_evalfix_outputs(out_dir)
+        fig1_fpbps_vs_window(results, out_dir, tag, "continuous")
+        fig2_perbin_decay(results, out_dir, tag, "continuous")
+        fig3_continuous_perbin_heatmap(results, out_dir, tag)
+        fig4_continuous_metric_summary(results, out_dir, tag)
+        fig5_training_curves(curves, out_dir, tag, "continuous")
+        fig6_benchmark_comparison(out_dir)
+    else:
+        for mode in ("continuous", "trial-aligned"):
+            fig1_fpbps_vs_window(results, out_dir, tag, mode)
+            fig2_perbin_decay(results, out_dir, tag, mode)
+            fig3_psth_heatmap(results, out_dir, tag, mode)
+            fig4_cont_vs_trial(results, out_dir, tag, mode)
+            fig5_training_curves(curves, out_dir, tag, mode)
     print_summary(results)
     print(f"\nAll figures saved to: {out_dir}")
 
