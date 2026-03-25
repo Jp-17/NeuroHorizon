@@ -2411,3 +2411,20 @@
 **遇到的问题**：
 - 远程仓库中 `phase1_v2_visualize.py` 已有当天未提交改动且 `01-05` 已刚重生成；为避免覆盖该版本，改为先读取当前 diff 再基于现状增量修改
 - `results/` 整体被 `.gitignore` 忽略，新生成的 companion PNG 与 `06_benchmark_comparison.png` 需要在提交时使用 `git add -f`
+
+## 2026-03-25 14:26 CST - 为 06_benchmark_comparison 增加 250ms 聚焦对比子图
+
+**完成事项**：
+1. 修改 `scripts/analysis/neurohorizon/phase1_benchmark_compare.py`，将 `06_benchmark_comparison.png` 从双联图扩展为三联图
+2. 在最右侧新增 250ms 聚焦对比子图，只保留：
+   - `NeuroHorizon 250ms`
+   - `Neuroformer faithful 250ms`
+   - `IBL e300 250ms`
+3. 重新生成 `results/figures/phase1_v2/06_benchmark_comparison.png`
+4. 回填 `cc_todo/phase1-autoregressive/20260312-phase1-1.3.4-v2-experiment.md` 与 `cc_core_files/results.md`
+
+**执行结果**：
+- `06_benchmark_comparison.png` 现包含 3 个 panel：
+  - 左：全窗口/可用点位概览
+  - 中：当前 benchmark reference 柱状图
+  - 右：250ms 聚焦对比（NH / NF faithful / IBL e300）

@@ -190,7 +190,7 @@ ndt2_results = load_ndt2_protocolfix_results()
 ibl_results = load_ibl_results()
 nf_results = load_neuroformer_results()
 
-fig, (ax_windows, ax_reference) = plt.subplots(1, 2, figsize=(16, 6.8))
+fig, (ax_windows, ax_reference, ax_focus_250) = plt.subplots(1, 3, figsize=(21, 6.8))
 fig.suptitle("Phase1_v2 vs Current Benchmark References", fontsize=14, fontweight="bold")
 
 # Panel A: available prediction-window view
@@ -307,6 +307,24 @@ ax_reference.set_xticklabels(bar_labels)
 ax_reference.set_ylabel("fp-bps")
 ax_reference.set_title("250ms / available current benchmark references")
 ax_reference.grid(True, alpha=0.3, axis="y")
+
+# Panel C: focused 250ms comparison requested by user
+nf_can_250 = next(row for row in nf_results if row["label"] == "NF can 250ms")
+focus_labels = ["NH\n250", "NF faithful\n250", "IBL e300\n250"]
+focus_values = [
+    nh_results.get(250, np.nan),
+    nf_can_250["rollout_fp_bps"],
+    ibl_e300["fp_bps"],
+]
+focus_colors = ["#1f77b4", "#7b1fa2", "#2e7d32"]
+focus_bars = ax_focus_250.bar(np.arange(len(focus_labels)), focus_values, color=focus_colors, alpha=0.9)
+annotate_bars(ax_focus_250, focus_bars)
+ax_focus_250.axhline(0, color="gray", linestyle=":", alpha=0.6)
+ax_focus_250.set_xticks(np.arange(len(focus_labels)))
+ax_focus_250.set_xticklabels(focus_labels)
+ax_focus_250.set_ylabel("fp-bps")
+ax_focus_250.set_title("250ms focus: NH vs NF faithful vs IBL e300")
+ax_focus_250.grid(True, alpha=0.3, axis="y")
 
 fig.text(
     0.5,
