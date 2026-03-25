@@ -363,3 +363,87 @@ python neural-benchmark/faithful_neuroformer.py \
   - 但由于 `session_idx` 没有真正喂进模型，这轮结果不能用于回答“session conditioning 是否带来收益”。
   - 若要继续评估 session conditioning，需要修正 `session_idx` 的传递路径后，仅重跑 Neuroformer 段。
 
+
+
+## 2026-03-25 - 补充 plan.md 1.8.3 要求的可视化图表
+
+**补充背景**：检查发现本轮 benchmark 任务的可视化仅存在于  下，而  对应目录尚未创建；且 plan.md 1.8.3 实验记录规范要求的 4 项额外可视化（fp-bps 趋势图、per-bin 衰减曲线、配置时间轴图、表格型 PNG 汇总）均缺失。
+
+**本次操作**：
+
+1. 新建可视化目录：
+   - 
+
+2. 生成并保存 4 项必须补充的可视化（来源脚本：）：
+
+   - ：随预测窗口长度变化的 fp-bps 趋势图
+     - 左图：Neuroformer 在 50ms（reference）和 250ms（canonical / +session cond）下的 rollout vs true_past fp-bps 对比
+     - 右图：IBL-MtM e10/e50/e300 在 pred=250ms 下的 epoch 增长趋势
+   
+   - ：每个预测窗口的 per-bin fp-bps 衰减曲线
+     - 左图（pred=250ms）：IBL-MtM e10/e50/e300 + Neuroformer canonical (rollout/true_past) + Neuroformer +SC (rollout/true_past)，共 7 条曲线
+     - 右图（pred=50ms）：Neuroformer reference 50ms (rollout/true_past)，2 条曲线
+   
+   - ：IBL-MtM e300 训练配置时间轴（lr / weight_decay / effective_batch_size / warmup_progress，4 个子图，覆盖 300 epochs）
+   
+   - ：Neuroformer +session_cond 训练配置时间轴（同上 4 个字段，覆盖 50 epochs）
+   
+   - ：表格型 PNG，汇总 6 条 benchmark runs 的核心结果
+     - 包含：IBL-MtM e10/e50/e300，Neuroformer reference-50ms / canonical-250ms / +session_cond-250ms
+     - 列：Model / Variant / Pred Win / Best Val fp-bps / Test fp-bps (rollout) / Test fp-bps (true_past) / Checkpoint / Notes
+     - 标注 IBL-MtM e300 正值为绿色加粗，Neuroformer 深负值为红色
+
+3. 将 training curves 从  复制到  对应子目录：
+   - （8 张图：train_loss, valid_fp_bps, valid_poisson_nll, valid_r2, lr, training_config_timeline, train_mask_counts, predicted_to_true_event_ratio）
+   - （5 张图：train_loss, valid_fp_bps, valid_r2, lr, training_config_timeline）
+
+**注**：脚本已注明 Neuroformer +session_cond 本轮 session conditioning 未实际注入模型（bug），表格 Notes 列已标注，不作为 SC 效果依据。
+
+**可视化完整索引（更新版）**：
+
+
+
+
+## 2026-03-25 - 补充 plan.md 1.8.3 要求的可视化图表
+
+**补充背景**：检查发现本轮 benchmark 任务的可视化仅存在于 `results/logs/` 下，`results/figures/` 对应目录尚未创建；且 plan.md 1.8.3 实验记录规范要求的 4 项额外可视化（fp-bps 趋势图、per-bin 衰减曲线、配置时间轴图、表格型 PNG 汇总）均缺失。
+
+**本次操作**：
+
+1. 新建可视化目录 `results/figures/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/`
+
+2. 生成并保存 4 项必须补充的可视化（来源脚本：`scripts/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/gen_20260321_figures.py`）：
+
+   - `fp_bps_by_pred_window.png`：随预测窗口长度变化的 fp-bps 趋势图
+     - 左图：Neuroformer 在 50ms（reference）和 250ms（canonical / +session cond）下的 rollout vs true_past fp-bps
+     - 右图：IBL-MtM e10/e50/e300 在 pred=250ms 下的 epoch 增长趋势
+
+   - `per_bin_fp_bps_decay.png`：每个预测窗口的 per-bin fp-bps 衰减曲线
+     - 左图（pred=250ms）：IBL-MtM e10/e50/e300 + NF canonical (rollout/true_past) + NF +SC (rollout/true_past)
+     - 右图（pred=50ms）：Neuroformer reference 50ms (rollout/true_past)
+
+   - `ibl_mtm_e300_config_timeline.png`：IBL-MtM e300 训练配置时间轴（lr / weight_decay / effective_batch_size / warmup_progress，4 子图，300 epochs）
+
+   - `neuroformer_sc_config_timeline.png`：Neuroformer +SC 训练配置时间轴（同上 4 字段，50 epochs）
+
+   - `benchmark_summary_table.png`：表格型 PNG 汇总 6 条 benchmark runs 核心结果
+     - IBL-MtM e10/e50/e300 + NF reference-50ms / canonical-250ms / +session_cond-250ms
+     - 列：Model / Variant / Pred Win / Best Val fp-bps / Test fp-bps (rollout) / Test fp-bps (true_past) / Checkpoint / Notes
+     - IBL-MtM e300 正值标绿，NF 深负值标红；NF +SC 本轮 session conditioning 未实际注入已在 Notes 列注明
+
+3. 复制 training curves 到 `results/figures/` 对应子目录：
+   - `ibl_mtm_e300_training_curves/`（8 张图）
+   - `neuroformer_sc_training_curves/`（5 张图）
+
+**可视化完整索引（更新版）**：
+
+```
+results/figures/phase1-autoregressive-1.8-benchmark_model/20260321.../
+  fp_bps_by_pred_window.png
+  per_bin_fp_bps_decay.png
+  ibl_mtm_e300_config_timeline.png
+  neuroformer_sc_config_timeline.png
+  benchmark_summary_table.png
+  ibl_mtm_e300_training_curves/ (8 PNGs)
+  neuroformer_sc_training_curves/ (5 PNGs)
+```

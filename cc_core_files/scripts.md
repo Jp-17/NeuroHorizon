@@ -1226,3 +1226,23 @@
   python3 neural-benchmark/compare_faithful_neuroformer.py     --canonical-json results/logs/phase1_benchmark_repro_faithful_neuroformer_250ms_formal_eval_v1/eval_results.json     --reference-json results/logs/phase1_benchmark_repro_faithful_neuroformer_50ms_reference_e3/results.json     --output-dir results/logs/phase1_benchmark_repro_faithful_neuroformer_compare     --split test
   ```
 - **输出**：`comparison.json`, `comparison.md`
+
+
+### gen_20260321_figures.py（1.8.3 可视化补全脚本）
+
+- **路径**：`scripts/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/gen_20260321_figures.py`
+- **创建时间**：2026-03-25
+- **功能用途**：补全 plan.md 1.8.3 实验记录规范要求的 4 项额外可视化图表，并将 training curves 从 logs 目录规范化复制到 figures 目录。具体生成：
+  1. `fp_bps_by_pred_window.png`：随预测窗口长度变化的 fp-bps 趋势图（Neuroformer 50ms/250ms 对比 + IBL-MtM epoch 增长）
+  2. `per_bin_fp_bps_decay.png`：每个预测窗口的 per-bin fp-bps 衰减曲线（pred=250ms 7 条 + pred=50ms 2 条）
+  3. `ibl_mtm_e300_config_timeline.png` / `neuroformer_sc_config_timeline.png`：lr/weight_decay/eff_batch_size/warmup_progress 时间轴
+  4. `benchmark_summary_table.png`：6 条 benchmark runs 汇总表格型 PNG
+- **使用方式**：
+  ```bash
+  source /root/miniconda3/etc/profile.d/conda.sh
+  conda activate benchmark-env
+  cd /root/autodl-tmp/NeuroHorizon
+  python scripts/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/gen_20260321_figures.py
+  ```
+- **输出**：`results/figures/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/`（5 个 PNG 文件 + 2 个训练曲线子目录）
+- **依赖**：`results/logs/.../*.json`（IBL-MtM e10/e50/e300 + NF canonical/reference/+SC 的 results.json）

@@ -2327,3 +2327,28 @@
 - 但它不能作为“session conditioning 有效/无效”的结论依据，因为当前实现里 session conditioning 实际未注入到模型输入。
 - 若继续这条线，下一步应先修正 `session_idx` 传递，再仅重跑 Neuroformer 段。
 
+
+## 2026-03-25 13:00 CST - 补全 1.8.3 可视化规范缺失图表
+
+**完成事项**：
+1. 审查 `cc_todo/1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning.md` 与 plan.md 1.8.3 实验记录规范之间的差距
+2. 确认 4 项规范要求的可视化均缺失（figures 目录未创建）：
+   - 随预测窗口长度变化的 fp-bps 趋势图
+   - 每个预测窗口的 per-bin fp-bps 衰减曲线
+   - 配置时间轴图（lr/weight_decay/effective_batch_size/warmup_progress）
+   - 表格型 PNG 汇总
+3. 编写可视化生成脚本 `scripts/phase1-autoregressive-1.8-benchmark_model/20260321.../gen_20260321_figures.py`，从各 results.json 读取数据并生成上述 4 类图表
+4. 执行脚本（benchmark-env），成功生成 5 个 PNG + 2 个 training curves 子目录
+5. 将 training curves 从 logs 复制到 figures 目录（规范化落盘）
+6. 更新 cc_todo 任务记录追加可视化索引段落
+7. 更新 cc_core_files/results.md 和 cc_core_files/scripts.md
+
+**执行结果**：
+- 新增目录 `results/figures/phase1-autoregressive-1.8-benchmark_model/20260321_benchmark_ibl_e300_neuroformer_session_conditioning/`
+- 新增文件：fp_bps_by_pred_window.png / per_bin_fp_bps_decay.png / ibl_mtm_e300_config_timeline.png / neuroformer_sc_config_timeline.png / benchmark_summary_table.png
+- training curves 已规范化复制（ibl_mtm_e300_training_curves/ 8张，neuroformer_sc_training_curves/ 5张）
+- IBL-MtM per-bin 分析：从最近 bin(0.244) 到最远 bin(0.140)，轻微单调递减但全程正值
+- Neuroformer per-bin 分析：各 bin 均在 -7.9 至 -8.1 附近，无明显时序衰减趋势
+
+**遇到的问题**：
+- SSH 内 heredoc 方式追加含中文/特殊字符的 Markdown 时，zsh 将 `<`, `|`, `>` 等解释为 shell 元字符导致报错 -> 改用 Python `append` 写入解决
